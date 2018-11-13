@@ -15,9 +15,6 @@
  */
 package com.streamsets.datacollector.classpath;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.net.URL;
 import java.nio.file.Paths;
 import java.util.HashMap;
@@ -27,6 +24,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Parse dependency name and version.
@@ -168,6 +168,10 @@ public class DependencyParser {
    * Generate dependency from a URL.
    */
   public static Optional<Dependency> parseURL(URL url) {
-    return parseJarName(url.toString(), Paths.get(url.getPath()).getFileName().toString());
+	  String filePath = url.getPath() ;
+	  if( System.getProperty("os.name").toLowerCase().contains("windows")) {
+		  filePath = filePath.substring(1);
+	  }
+    return parseJarName(url.toString(), Paths.get(filePath).getFileName().toString());
   }
 }

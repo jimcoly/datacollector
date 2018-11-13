@@ -279,9 +279,16 @@ public class BootstrapMain {
       System.out.print(containerCL.dumpClasspath(DEBUG_MSG_PREFIX));
       System.out.println(DEBUG_MSG_PREFIX);
     }
+    
+    String seperator = FILE_SEPARATOR;
+    
+    if( System.getProperty("os.name").toLowerCase().contains("windows")) {
+    	seperator = "\\\\";
+    }
+    
     List<ClassLoader> stageLibrariesCLs = new ArrayList<>();
     for (Map.Entry<String,List<URL>> entry : libsUrls.entrySet()) {
-      String[] parts = entry.getKey().split(FILE_SEPARATOR);
+      String[] parts = entry.getKey().split(seperator);
       if (parts.length != 2) {
         String msg = "Invalid library name: " + entry.getKey();
         throw new IllegalStateException(msg);

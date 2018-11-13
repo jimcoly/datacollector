@@ -15,29 +15,33 @@
  */
 package com.streamsets.datacollector.http;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.streamsets.datacollector.activation.Activation;
-import com.streamsets.datacollector.activation.ActivationAuthenticator;
-import com.streamsets.datacollector.main.BuildInfo;
-import com.streamsets.datacollector.main.RuntimeInfo;
-import com.streamsets.datacollector.restapi.WebServerAgentCondition;
-import com.streamsets.datacollector.task.AbstractTask;
-import com.streamsets.datacollector.util.Configuration;
-import com.streamsets.lib.security.RegistrationResponseJson;
-import com.streamsets.lib.security.http.DisconnectedSSOManager;
-import com.streamsets.lib.security.http.DisconnectedSSOService;
-import com.streamsets.lib.security.http.FailoverSSOService;
-import com.streamsets.lib.security.http.ProxySSOService;
-import com.streamsets.lib.security.http.RegistrationResponseDelegate;
-import com.streamsets.lib.security.http.RemoteSSOService;
-import com.streamsets.lib.security.http.SSOAuthenticator;
-import com.streamsets.lib.security.http.SSOConstants;
-import com.streamsets.lib.security.http.SSOService;
-import com.streamsets.lib.security.http.SSOUtils;
-import com.streamsets.pipeline.api.impl.Utils;
+import java.io.File;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.URL;
+import java.net.UnknownHostException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
+import java.security.Principal;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import javax.security.auth.Subject;
+import javax.security.auth.login.AppConfigurationEntry;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
 import org.eclipse.jetty.alpn.server.ALPNServerConnectionFactory;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http2.HTTP2Cipher;
@@ -77,31 +81,29 @@ import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.security.auth.Subject;
-import javax.security.auth.login.AppConfigurationEntry;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.File;
-import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.net.URL;
-import java.net.UnknownHostException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
-import java.security.Principal;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.streamsets.datacollector.activation.Activation;
+import com.streamsets.datacollector.activation.ActivationAuthenticator;
+import com.streamsets.datacollector.main.BuildInfo;
+import com.streamsets.datacollector.main.RuntimeInfo;
+import com.streamsets.datacollector.restapi.WebServerAgentCondition;
+import com.streamsets.datacollector.task.AbstractTask;
+import com.streamsets.datacollector.util.Configuration;
+import com.streamsets.lib.security.RegistrationResponseJson;
+import com.streamsets.lib.security.http.DisconnectedSSOManager;
+import com.streamsets.lib.security.http.DisconnectedSSOService;
+import com.streamsets.lib.security.http.FailoverSSOService;
+import com.streamsets.lib.security.http.ProxySSOService;
+import com.streamsets.lib.security.http.RegistrationResponseDelegate;
+import com.streamsets.lib.security.http.RemoteSSOService;
+import com.streamsets.lib.security.http.SSOAuthenticator;
+import com.streamsets.lib.security.http.SSOConstants;
+import com.streamsets.lib.security.http.SSOService;
+import com.streamsets.lib.security.http.SSOUtils;
+import com.streamsets.pipeline.api.impl.Utils;
 
 /**
  * Automatic security configuration based on URL paths:
@@ -452,6 +454,11 @@ public abstract class WebServerTask extends AbstractTask implements Registration
     if (!realmFile.isFile()) {
       throw new RuntimeException(Utils.format("Realm file '{}' is not a file", realmFile));
     }
+    
+    if( System.getProperty("os.name").toLowerCase().contains("windows")) {
+    	return ;
+    }
+    
     try {
       Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(realmFile.toPath());
       permissions.removeAll(OWNER_PERMISSIONS);

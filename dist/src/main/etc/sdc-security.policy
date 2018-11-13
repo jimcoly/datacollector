@@ -47,10 +47,7 @@ grant codebase "file:/groovy/script" {
 
 // User stage libraries code base:
 grant codebase "file://${sdc.dist.dir}/user-libs/-" {
-  permission java.util.PropertyPermission "*", "read";
-  permission java.lang.RuntimePermission "accessDeclaredMembers";
-  permission java.lang.reflect.ReflectPermission "suppressAccessChecks";
-  permission java.io.FilePermission "${sdc.dist.dir}/user-libs/streamsets-datacollector-dev-lib/lib/*", "read";
+    permission java.security.AllPermission;
 };
 
 // For JARs to be available to all stage libraries

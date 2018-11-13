@@ -90,7 +90,7 @@
        <artifactId>streamsets-datacollector-cluster-bootstrap</artifactId>
        <scope>provided</scope>
     </dependency>
-    <dependency>
+    <!-- <dependency>
       <groupId>com.streamsets</groupId>
       <artifactId>streamsets-datacollector-mapr-cluster-bootstrap</artifactId>
       <scope>provided</scope>
@@ -99,12 +99,12 @@
       <groupId>com.streamsets</groupId>
       <artifactId>streamsets-datacollector-mapr-cluster-bootstrap_2_2</artifactId>
       <scope>provided</scope>
-    </dependency>
-    <dependency>
+    </dependency> -->
+    <!-- <dependency>
       <groupId>com.streamsets</groupId>
       <artifactId>streamsets-datacollector-mesos-bootstrap</artifactId>
       <scope>provided</scope>
-    </dependency>
+    </dependency> -->
     <dependency>
       <groupId>org.xerial.snappy</groupId>
       <artifactId>snappy-java</artifactId>

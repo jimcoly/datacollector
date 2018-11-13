@@ -147,7 +147,7 @@
     <module>net-commonlib</module>
 
     <module>lookup-protolib</module>
-
+    <module>hdfs-protolib</module>
     <module>dir-spooler-protolib</module>
 
     <module>jython-protolib</module>
@@ -157,8 +157,6 @@
 
     <module>elasticsearch-protolib</module>
 
-    <module>solr-protolib</module>
-
     <module>cassandra-protolib</module>
 
     <module>mongodb-protolib</module>
@@ -167,7 +165,6 @@
 
     <module>cluster-hdfs-protolib</module>
     <module>cluster-common</module>
-    <module>cluster-kafka-protolib</module>
     <module>cluster-bootstrap-api</module>
     <module>cluster-bootstrap</module>
     <module>client-api</module>
@@ -187,6 +184,7 @@
     <module>basic-lib</module>
     <module>crypto-lib</module>
     <module>dev-lib</module>
+    <module>dataformats-lib</module>
     <module>jdbc-lib</module>
     <module>jms-lib</module>
     <module>stats-lib</module>
@@ -323,7 +321,6 @@
       </activation>
       <modules>
         <module>dist</module>
-        <module>cloudera-integration</module>
       </modules>
     </profile>
 

@@ -15,6 +15,10 @@
  */
 package com.streamsets.datacollector.creation;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
 import com.streamsets.datacollector.config.AmazonEMRConfig;
 import com.streamsets.datacollector.config.DeliveryGuaranteeChooserValues;
 import com.streamsets.datacollector.config.ErrorHandlingChooserValues;
@@ -39,15 +43,14 @@ import com.streamsets.pipeline.api.DeliveryGuarantee;
 import com.streamsets.pipeline.api.Dependency;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.GenerateResourceBundle;
+import com.streamsets.pipeline.api.Label;
 import com.streamsets.pipeline.api.ListBeanModel;
 import com.streamsets.pipeline.api.MultiValueChooserModel;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.ValueChooserModel;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import cn.oge.kkm.creation.DisplayTypeChooserValues;
 
 // we are using the annotation for reference purposes only.
 // the annotation processor does not work on this maven project
@@ -95,7 +98,7 @@ public class PipelineConfigBean implements Stage {
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.MODEL,
-      label = "Execution Mode",
+      label = "执行模式",
       defaultValue= "STANDALONE",
       displayPosition = 10
   )
@@ -105,7 +108,7 @@ public class PipelineConfigBean implements Stage {
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.STRING,
-      label = "Data Collector Edge URL",
+      label = "边缘计算服务地址",
       defaultValue = EDGE_HTTP_URL_DEFAULT,
       displayPosition = 15,
       dependsOn = "executionMode",
@@ -117,7 +120,7 @@ public class PipelineConfigBean implements Stage {
       required = true,
       type = ConfigDef.Type.MODEL,
       defaultValue="AT_LEAST_ONCE",
-      label = "Delivery Guarantee",
+      label = "发送保护",
       displayPosition = 20
   )
   @ValueChooserModel(DeliveryGuaranteeChooserValues.class)
@@ -126,8 +129,8 @@ public class PipelineConfigBean implements Stage {
   @ConfigDef(
       required = false,
       type = ConfigDef.Type.MODEL,
-      label = "Test Origin",
-      description = "Stage used for testing in preview mode.",
+      label = "测试算子",
+      description = "用来在预览模式中产生测试数据的算子.",
       defaultValue = RAW_DATA_ORIGIN,
       displayPosition = 21
   )
@@ -137,8 +140,8 @@ public class PipelineConfigBean implements Stage {
   @ConfigDef(
       required = false,
       type = ConfigDef.Type.MODEL,
-      label = "Start Event",
-      description = "Stage that should handle pipeline start event.",
+      label = "启动事件",
+      description = "用来处理算法实例启动时的算子.",
       defaultValue = TRASH_TARGET,
       displayPosition = 23,
       dependsOn = "executionMode",
@@ -150,8 +153,8 @@ public class PipelineConfigBean implements Stage {
   @ConfigDef(
       required = false,
       type = ConfigDef.Type.MODEL,
-      label = "Stop Event",
-      description = "Stage that should handle pipeline stop event.",
+      label = "停止事件",
+      description = "用来处理算法实例停止时的算子.",
       defaultValue = TRASH_TARGET,
       displayPosition = 26,
       dependsOn = "executionMode",
@@ -164,7 +167,7 @@ public class PipelineConfigBean implements Stage {
       required = true,
       type = ConfigDef.Type.BOOLEAN,
       defaultValue = "true",
-      label = "Retry Pipeline on Error",
+      label = "发生错误时重试",
       displayPosition = 30,
       dependsOn = "executionMode",
       triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
@@ -175,11 +178,10 @@ public class PipelineConfigBean implements Stage {
       required = false,
       type = ConfigDef.Type.NUMBER,
       defaultValue = "-1",
-      label = "Retry Attempts",
+      label = "重试次数",
       dependsOn = "shouldRetry",
       triggeredByValue = "true",
-      description = "Max no of retries. To retry indefinitely, use -1. The wait time between retries starts at 15 seconds"
-          + " and doubles until reaching 5 minutes.",
+      description = "最大重试次数. 如果需要无限重试，请设为 -1. 两次重试间隔从15秒成倍增加到5分钟.",
       displayPosition = 30
   )
   public int retryAttempts;
@@ -187,10 +189,10 @@ public class PipelineConfigBean implements Stage {
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.NUMBER,
-      label = "Max Pipeline Memory (MB)",
+      label = "最大实例内存占用 (MB)",
       defaultValue = "${jvm:maxMemoryMB() * 0.85}",
-      description = "Maximum amount of memory the pipeline can use. Configure in relationship to the SDC Java heap " +
-          "size. The default is 85% of heap and a value of 0 disables the limit.",
+      description = "算法实例能使用的最大内存空间，依赖于JAVA虚拟机的堆栈大小 " +
+          ". 默认为堆栈大小的85%，设为0则表示无限制。",
       displayPosition = 60,
       min = 0,
       dependsOn = "executionMode",
@@ -203,9 +205,8 @@ public class PipelineConfigBean implements Stage {
       required = true,
       type = ConfigDef.Type.MODEL,
       defaultValue="LOG",
-      label = "On Memory Exceeded",
-      description = "Behavior when the pipeline exceeds the memory limit. Tip: Configure an alert to indicate when the " +
-          "memory use approaches the limit." ,
+      label = "当内存超出限制时",
+      description = "当实例内存超出限制范围时的执行操作. 提示: 配置报警服务." ,
       displayPosition = 70,
       dependsOn = "executionMode",
       triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
@@ -217,8 +218,8 @@ public class PipelineConfigBean implements Stage {
       required = false,
       type = ConfigDef.Type.MODEL,
       defaultValue = "[\"RUN_ERROR\", \"STOPPED\", \"FINISHED\"]",
-      label = "Notify on Pipeline State Changes",
-      description = "Notifies via email when pipeline gets to the specified states",
+      label = "实例状态发生变化时产生通知",
+      description = "当算法实例更改到特定状态时通过邮件通知",
       displayPosition = 75,
       group = "NOTIFICATIONS",
       dependsOn = "executionMode",
@@ -231,8 +232,8 @@ public class PipelineConfigBean implements Stage {
       required = false,
       type = ConfigDef.Type.LIST,
       defaultValue = "[]",
-      label = "Email IDs",
-      description = "Email Addresses",
+      label = "Email地址",
+      description = "Email地址",
       displayPosition = 76,
       group = "NOTIFICATIONS",
       dependsOn = "executionMode",
@@ -244,17 +245,106 @@ public class PipelineConfigBean implements Stage {
       required = false,
       defaultValue = "{}",
       type = ConfigDef.Type.MAP,
-      label = "Parameters",
+      label = "参数",
       displayPosition = 80,
       group = "PARAMETERS"
   )
   public Map<String, Object> constants;
+  
+  @ConfigDef(
+	      required = false,
+	      type = ConfigDef.Type.MODEL,
+	      label = "模板参数",
+	      displayPosition = 80,
+	      group = "PARAMETERS"
+	  )
+  @ListBeanModel
+  public List<TemplateConfig> tempConfigs;
+  
+  public class TemplateConfig {
+	  @ConfigDef(
+			  required = true, 
+			  type = ConfigDef.Type.STRING, 
+			  label = "变量名",
+			  displayPosition=1)
+	  public String variable ;
+	  
+	  @ConfigDef(
+			  required = true, 
+			  type = ConfigDef.Type.STRING, 
+			  label = "显示名称",
+			  displayPosition=2)
+	  public String title ;
+	  
+	  @ConfigDef(
+			  required = true, 
+			  type = ConfigDef.Type.MODEL, 
+			  label = "显示类型",
+			  displayPosition=3
+			  )
+	  @ValueChooserModel(DisplayTypeChooserValues.class)
+	  public DisplayType displayType ;
+	  
+	  @ConfigDef(
+		      required = false,
+		      type = ConfigDef.Type.LIST,
+		      label = "可选值",
+		      description = "在页面显示为下拉选择框的值",
+		      displayPosition = 4,
+		      dependsOn = "displayType",
+		      triggeredByValue = "OPTION"
+		)
+	  	public List<String> options;
+	  
+	  @ConfigDef(
+		      required = true,
+		      type = ConfigDef.Type.NUMBER,
+		      defaultValue = "1",
+		      label = "显示行",
+		      description = "相同值的参数将显示在同一行上",
+		      displayPosition = 5
+		)
+	  	public Integer row;
+	  
+	  @ConfigDef(
+		      required = true,
+		      type = ConfigDef.Type.NUMBER,
+		      defaultValue = "1",
+		      label = "显示列",
+		      description = "相同值的参数将显示在同一列上",
+		      displayPosition = 6
+		)
+	  	public Integer column;
+  }
+  public enum DisplayType implements Label {
+	  TEXT("文本输入"),
+	  NUMBER("数字"),
+	  CHECK("复选框"),
+	  OPTION("下拉选择"),;
+
+	  private final String label;
+
+	  DisplayType(String label) {
+	    this.label = label;
+	  }
+
+	  @Override
+	  public String getLabel() {
+	    return label;
+	  }
+
+	  @Override
+	  public String toString() {
+	    return name().toLowerCase();
+	  }
+	}
+
 
 
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.MODEL,
-      label = "Error Records",
+      label = "错误记录",
       displayPosition = 90,
       group = "BAD_RECORDS"
   )
@@ -265,8 +355,8 @@ public class PipelineConfigBean implements Stage {
       required = true,
       type = ConfigDef.Type.MODEL,
       defaultValue="ORIGINAL_RECORD",
-      label = "Error Record Policy",
-      description = "Determines which variation of the record is sent to error.",
+      label = "错误记录策略",
+      description = "当错误发生时，使用何种策略处理错误记录.",
       displayPosition = 93,
       group = "BAD_RECORDS"
   )
@@ -276,7 +366,7 @@ public class PipelineConfigBean implements Stage {
   @ConfigDef(
       required = false,
       type = ConfigDef.Type.MODEL,
-      label = "Statistics Aggregator",
+      label = "统计器",
       defaultValue = STATS_DPM_DIRECTLY_TARGET,
       displayPosition = 95,
       group = "STATS"
@@ -287,7 +377,7 @@ public class PipelineConfigBean implements Stage {
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.NUMBER,
-      label = "Worker Count",
+      label = "工作者个数",
       description = "Number of workers. 0 to start as many workers as Kafka partitions for topic.",
       defaultValue = "0",
       min = 0,
@@ -353,7 +443,7 @@ public class PipelineConfigBean implements Stage {
       required = true,
       type = ConfigDef.Type.MODEL,
       defaultValue = "INFO",
-      label = "Log level",
+      label = "日志级别",
       displayPosition = 140,
       group = "CLUSTER",
       dependsOn = "executionMode",
@@ -378,9 +468,8 @@ public class PipelineConfigBean implements Stage {
       required = false,
       type = ConfigDef.Type.NUMBER,
       defaultValue = "0",
-      label = "Rate Limit (records / sec)",
-      description = "Maximum number of records per second that should be accepted into the pipeline. " +
-          "Rate is not limited if this is not set, or is set to 0",
+      label = "速度限制(记录数 / 每秒)",
+      description = "实例中允许的每秒最大记录数。如果不配置或设为0，则表示无限制。",
       displayPosition = 180,
       dependsOn = "executionMode",
       triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
@@ -391,8 +480,8 @@ public class PipelineConfigBean implements Stage {
       required = false,
       type = ConfigDef.Type.NUMBER,
       defaultValue = "0",
-      label = "Max runners",
-      description = "Maximum number of runners that should be created for this pipeline. Use 0 to not impose limit.",
+      label = "最大执行者数",
+      description = "该算法实例的最大执行者数据，设为0则表示无限制。",
       min = 0,
       displayPosition = 190,
       dependsOn = "executionMode",
@@ -404,9 +493,8 @@ public class PipelineConfigBean implements Stage {
       required = true,
       type = ConfigDef.Type.BOOLEAN,
       defaultValue = "true",
-      label = "Create Failure Snapshot",
-      description = "When selected and the pipeline execution fails with unrecoverable exception, SDC will attempt to create" +
-          "partial snapshot with records that have not been processed yet.",
+      label = "失败时创建快照",
+      description = "当算法实例在处理过程中发生无法恢复的错误时，将创建无法在错误中处理的记录快照，以供分析追溯。",
       dependencies = @Dependency(
           configName = "executionMode", triggeredByValues = "STANDALONE"
       ),

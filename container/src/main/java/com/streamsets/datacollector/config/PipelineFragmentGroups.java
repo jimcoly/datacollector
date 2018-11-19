@@ -18,7 +18,7 @@ package com.streamsets.datacollector.config;
 import com.streamsets.pipeline.api.Label;
 
 public enum PipelineFragmentGroups implements Label {
-  PARAMETERS("Parameters"),
+  PARAMETERS("参数配置"),
   ;
 
   private final String label;

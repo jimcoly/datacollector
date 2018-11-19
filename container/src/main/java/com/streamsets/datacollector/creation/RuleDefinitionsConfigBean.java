@@ -15,6 +15,9 @@
  */
 package com.streamsets.datacollector.creation;
 
+import java.util.Collections;
+import java.util.List;
+
 import com.streamsets.datacollector.config.PipelineRulesGroups;
 import com.streamsets.datacollector.config.RuleDefinitionsWebhookConfig;
 import com.streamsets.pipeline.api.ConfigDef;
@@ -24,16 +27,13 @@ import com.streamsets.pipeline.api.ListBeanModel;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageDef;
 
-import java.util.Collections;
-import java.util.List;
-
 // we are using the annotation for reference purposes only.
 // the annotation processor does not work on this maven project
 // we have a hardcoded 'datacollector-resource-bundles.json' file in resources
 @GenerateResourceBundle
 @StageDef(
     version = RuleDefinitionsConfigBean.VERSION,
-    label = "Pipeline Rules",
+    label = "实例规则",
     upgrader = RuleDefinitionsConfigUpgrader.class,
     onlineHelpRefUrl = "not applicable"
 )
@@ -46,7 +46,7 @@ public class RuleDefinitionsConfigBean implements Stage {
       required = false,
       type = ConfigDef.Type.LIST,
       defaultValue = "[]",
-      label = "Email IDs",
+      label = "邮件IDs",
       description = "Email Addresses",
       displayPosition = 76,
       group = "NOTIFICATIONS"

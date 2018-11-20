@@ -34,6 +34,7 @@ import com.streamsets.pipeline.api.base.configurablestage.DTarget;
         ExecutionMode.CLUSTER_YARN_STREAMING,
         ExecutionMode.CLUSTER_MESOS_STREAMING,
         ExecutionMode.EDGE,
+        ExecutionMode.OGE_TEMPLATE,
         ExecutionMode.EMR_BATCH
     },
     flags = StageBehaviorFlags.PASSTHROUGH,

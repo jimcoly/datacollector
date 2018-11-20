@@ -23,6 +23,7 @@ public enum ExecutionModeJson {
   CLUSTER_MESOS_STREAMING,
   SLAVE,
   EDGE,
+  OGE_TEMPLATE,
   EMR_BATCH
   ;
 }

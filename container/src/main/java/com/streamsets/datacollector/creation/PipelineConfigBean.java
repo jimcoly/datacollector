@@ -50,7 +50,7 @@ import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.ValueChooserModel;
 
-import cn.oge.kkm.creation.DisplayTypeChooserValues;
+import cn.oge.kkm.container.creation.DisplayTypeChooserValues;
 
 // we are using the annotation for reference purposes only.
 // the annotation processor does not work on this maven project
@@ -145,7 +145,7 @@ public class PipelineConfigBean implements Stage {
       defaultValue = TRASH_TARGET,
       displayPosition = 23,
       dependsOn = "executionMode",
-      triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   @ValueChooserModel(PipelineLifecycleStageChooserValues.class)
   public String startEventStage;
@@ -158,7 +158,7 @@ public class PipelineConfigBean implements Stage {
       defaultValue = TRASH_TARGET,
       displayPosition = 26,
       dependsOn = "executionMode",
-      triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   @ValueChooserModel(PipelineLifecycleStageChooserValues.class)
   public String stopEventStage;
@@ -170,7 +170,7 @@ public class PipelineConfigBean implements Stage {
       label = "发生错误时重试",
       displayPosition = 30,
       dependsOn = "executionMode",
-      triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   public boolean shouldRetry;
 
@@ -196,7 +196,7 @@ public class PipelineConfigBean implements Stage {
       displayPosition = 60,
       min = 0,
       dependsOn = "executionMode",
-      triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE","CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   public long memoryLimit;
 
@@ -209,7 +209,7 @@ public class PipelineConfigBean implements Stage {
       description = "当实例内存超出限制范围时的执行操作. 提示: 配置报警服务." ,
       displayPosition = 70,
       dependsOn = "executionMode",
-      triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   @ValueChooserModel(MemoryLimitExceededChooserValues.class)
   public MemoryLimitExceeded memoryLimitExceeded;
@@ -223,7 +223,7 @@ public class PipelineConfigBean implements Stage {
       displayPosition = 75,
       group = "NOTIFICATIONS",
       dependsOn = "executionMode",
-      triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   @MultiValueChooserModel(PipelineStateChooserValues.class)
   public List<PipelineState> notifyOnStates;
@@ -237,7 +237,7 @@ public class PipelineConfigBean implements Stage {
       displayPosition = 76,
       group = "NOTIFICATIONS",
       dependsOn = "executionMode",
-      triggeredByValue =  {"STANDALONE", "CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE","CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   public List<String> emailIDs;
 
@@ -247,7 +247,9 @@ public class PipelineConfigBean implements Stage {
       type = ConfigDef.Type.MAP,
       label = "参数",
       displayPosition = 80,
-      group = "PARAMETERS"
+      group = "PARAMETERS",
+      dependsOn = "executionMode",
+      triggeredByValue =  {"STANDALONE","CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   public Map<String, Object> constants;
   
@@ -256,12 +258,14 @@ public class PipelineConfigBean implements Stage {
 	      type = ConfigDef.Type.MODEL,
 	      label = "模板参数",
 	      displayPosition = 80,
-	      group = "PARAMETERS"
+	      group = "PARAMETERS",
+	      dependsOn = "executionMode",
+	      triggeredByValue = "OGE_TEMPLATE"
 	  )
   @ListBeanModel
   public List<TemplateConfig> tempConfigs;
   
-  public class TemplateConfig {
+  public static class TemplateConfig {
 	  @ConfigDef(
 			  required = true, 
 			  type = ConfigDef.Type.STRING, 
@@ -278,6 +282,13 @@ public class PipelineConfigBean implements Stage {
 	  
 	  @ConfigDef(
 			  required = true, 
+			  type = ConfigDef.Type.STRING, 
+			  label = "默认值",
+			  displayPosition=3)
+	  public String defaultValue ;
+	  
+	  @ConfigDef(
+			  required = true, 
 			  type = ConfigDef.Type.MODEL, 
 			  label = "显示类型",
 			  displayPosition=3
@@ -287,14 +298,15 @@ public class PipelineConfigBean implements Stage {
 	  
 	  @ConfigDef(
 		      required = false,
-		      type = ConfigDef.Type.LIST,
+		      type = ConfigDef.Type.MAP,
 		      label = "可选值",
 		      description = "在页面显示为下拉选择框的值",
 		      displayPosition = 4,
 		      dependsOn = "displayType",
 		      triggeredByValue = "OPTION"
 		)
-	  	public List<String> options;
+	  @ListBeanModel
+	  public Map<String,Object> options;
 	  
 	  @ConfigDef(
 		      required = true,
@@ -316,11 +328,15 @@ public class PipelineConfigBean implements Stage {
 		)
 	  	public Integer column;
   }
+  
+  
   public enum DisplayType implements Label {
 	  TEXT("文本输入"),
 	  NUMBER("数字"),
 	  CHECK("复选框"),
-	  OPTION("下拉选择"),;
+	  OPTION("下拉选择"),
+	  TITLE("标题"),
+	  H_LINE("水平分隔线");
 
 	  private final String label;
 
@@ -346,7 +362,9 @@ public class PipelineConfigBean implements Stage {
       type = ConfigDef.Type.MODEL,
       label = "错误记录",
       displayPosition = 90,
-      group = "BAD_RECORDS"
+      group = "BAD_RECORDS",
+      dependsOn = "executionMode",
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE","CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   @ValueChooserModel(ErrorHandlingChooserValues.class)
   public String badRecordsHandling;
@@ -358,7 +376,9 @@ public class PipelineConfigBean implements Stage {
       label = "错误记录策略",
       description = "当错误发生时，使用何种策略处理错误记录.",
       displayPosition = 93,
-      group = "BAD_RECORDS"
+      group = "BAD_RECORDS",
+      dependsOn = "executionMode",
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE","CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   @ValueChooserModel(ErrorRecordPolicyChooserValues.class)
   public ErrorRecordPolicy errorRecordPolicy = ErrorRecordPolicy.ORIGINAL_RECORD;
@@ -369,7 +389,9 @@ public class PipelineConfigBean implements Stage {
       label = "统计器",
       defaultValue = STATS_DPM_DIRECTLY_TARGET,
       displayPosition = 95,
-      group = "STATS"
+      group = "STATS",
+      dependsOn = "executionMode",
+      triggeredByValue =  {"STANDALONE","OGE_TEMPLATE","CLUSTER_BATCH", "CLUSTER_YARN_STREAMING", "CLUSTER_MESOS_STREAMING"}
   )
   @ValueChooserModel(StatsTargetChooserValues.class)
   public String statsAggregatorStage = STATS_DPM_DIRECTLY_TARGET;

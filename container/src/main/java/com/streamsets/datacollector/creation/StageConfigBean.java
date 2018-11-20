@@ -16,6 +16,9 @@
 package com.streamsets.datacollector.creation;
 
 
+import java.util.List;
+import java.util.Set;
+
 import com.google.common.collect.ImmutableSet;
 import com.streamsets.datacollector.config.OnRecordErrorChooserValues;
 import com.streamsets.datacollector.el.RuntimeEL;
@@ -25,9 +28,6 @@ import com.streamsets.pipeline.api.GenerateResourceBundle;
 import com.streamsets.pipeline.api.OnRecordError;
 import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.lib.el.RecordEL;
-
-import java.util.List;
-import java.util.Set;
 
 // we are using the annotation for reference purposes only.
 // the annotation processor does not work on this maven project
@@ -40,8 +40,8 @@ public class StageConfigBean {
       required = true,
       type = ConfigDef.Type.MODEL,
       defaultValue= "TO_ERROR",
-      label = "On Record Error",
-      description = "Action to take with records sent to error",
+      label = "当记录发生错误时",
+      description = "当记录发生错误时的操作",
       displayPosition = 30,
       group = ""
   )
@@ -53,8 +53,8 @@ public class StageConfigBean {
       required = false,
       type = ConfigDef.Type.MODEL,
       defaultValue="",
-      label = "Required Fields",
-      description = "Records without any of these fields are sent to error",
+      label = "必需的字段",
+      description = "记录中如果未包含这些字段，将会被当作错误记录",
       displayPosition = 10,
       group = ""
   )
@@ -66,8 +66,8 @@ public class StageConfigBean {
       required = false,
       type = ConfigDef.Type.LIST,
       defaultValue="",
-      label = "Preconditions",
-      description = "Records that don't satisfy all the preconditions are sent to error",
+      label = "先决条件",
+      description = "记录如果不满足该条件，将会被当作错误记录",
       displayPosition = 20,
       group = "",
       evaluation = ConfigDef.Evaluation.EXPLICIT,

@@ -15,6 +15,14 @@
  */
 package com.streamsets.datacollector.restapi.bean;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 import com.streamsets.datacollector.bundles.BundleContentGeneratorDefinition;
 import com.streamsets.datacollector.config.ConfigDefinition;
 import com.streamsets.datacollector.config.ConfigGroupDefinition;
@@ -56,14 +64,6 @@ import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.HideStage;
 import com.streamsets.pipeline.api.StageType;
-
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 public class BeanHelper {
   private BeanHelper() {}
@@ -1281,6 +1281,8 @@ public class BeanHelper {
         return ExecutionModeJson.SLAVE;
       case EDGE:
         return ExecutionModeJson.EDGE;
+      case OGE_TEMPLATE:
+    	  return ExecutionModeJson.OGE_TEMPLATE;
       case EMR_BATCH:
         return ExecutionModeJson.EMR_BATCH;
       default:
@@ -1308,6 +1310,8 @@ public class BeanHelper {
         return ExecutionMode.SLAVE;
       case EDGE:
         return ExecutionMode.EDGE;
+      case OGE_TEMPLATE:
+    	  return ExecutionMode.OGE_TEMPLATE;
       case EMR_BATCH:
         return ExecutionMode.EMR_BATCH;
       default:

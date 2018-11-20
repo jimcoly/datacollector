@@ -15,6 +15,56 @@
  */
 package com.streamsets.datacollector.restapi;
 
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.security.Principal;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
+
+import javax.annotation.security.DenyAll;
+import javax.annotation.security.PermitAll;
+import javax.annotation.security.RolesAllowed;
+import javax.inject.Inject;
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.SecurityContext;
+import javax.ws.rs.core.StreamingOutput;
+import javax.ws.rs.core.UriBuilder;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.io.IOUtils;
+import org.glassfish.jersey.media.multipart.FormDataParam;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Collections2;
@@ -80,58 +130,11 @@ import com.streamsets.lib.security.http.SSOPrincipal;
 import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.impl.Utils;
+
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import io.swagger.annotations.Authorization;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.io.IOUtils;
-import org.glassfish.jersey.media.multipart.FormDataParam;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.annotation.security.DenyAll;
-import javax.annotation.security.PermitAll;
-import javax.annotation.security.RolesAllowed;
-import javax.inject.Inject;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.DELETE;
-import javax.ws.rs.DefaultValue;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.PUT;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.client.ClientBuilder;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.SecurityContext;
-import javax.ws.rs.core.StreamingOutput;
-import javax.ws.rs.core.UriBuilder;
-import java.io.BufferedOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.security.Principal;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
-import java.util.zip.ZipOutputStream;
 
 @Path("/v1")
 @Api(value = "store")
@@ -165,11 +168,13 @@ public class PipelineStoreResource {
 
   private static final String DPM_PIPELINE_ID = "dpm.pipeline.id";
 
+  private static final String OGE_TEMPLATE_PIPELINE = "OGE_TEMPLATE_PIPELINE";
   private static final String DATA_COLLECTOR_EDGE = "DATA_COLLECTOR_EDGE";
   private static final String MICROSERVICE = "MICROSERVICE";
 
   private static final String SYSTEM_ALL_PIPELINES = "system:allPipelines";
   private static final String SYSTEM_EDGE_PIPELINES = "system:edgePipelines";
+  private static final String SYSTEM_OGE_TEMPLATE_PIPELINES = "system:ogeTemplatePipelines";
   private static final String SYSTEM_MICROSERVICE_PIPELINES = "system:microServicePipelines";
   private static final String SYSTEM_PUBLISHED_PIPELINES = "system:publishedPipelines";
   private static final String SYSTEM_DPM_CONTROLLED_PIPELINES = "system:dpmControlledPipelines";
@@ -188,6 +193,7 @@ public class PipelineStoreResource {
 
   private static final List<String> SYSTEM_PIPELINE_LABELS = ImmutableList.of(
       SYSTEM_ALL_PIPELINES,
+      SYSTEM_OGE_TEMPLATE_PIPELINES,
       SYSTEM_EDGE_PIPELINES,
       SYSTEM_MICROSERVICE_PIPELINES,
       SYSTEM_RUNNING_PIPELINES,
@@ -200,6 +206,7 @@ public class PipelineStoreResource {
   private static final List<String> DPM_ENABLED_SYSTEM_PIPELINE_LABELS = ImmutableList.of(
       SYSTEM_ALL_PIPELINES,
       SYSTEM_PUBLISHED_PIPELINES,
+      SYSTEM_OGE_TEMPLATE_PIPELINES,
       SYSTEM_DPM_CONTROLLED_PIPELINES,
       SYSTEM_LOCAL_PIPELINES,
       SYSTEM_EDGE_PIPELINES,
@@ -330,8 +337,12 @@ public class PipelineStoreResource {
           switch (label) {
             case SYSTEM_ALL_PIPELINES:
               return true;
+            case SYSTEM_OGE_TEMPLATE_PIPELINES:
+            	PipelineState state = manager.getPipelineState(pipelineInfo.getPipelineId(), pipelineInfo.getLastRev());
+                pipelineStateCache.put(pipelineInfo.getPipelineId(), state);
+                return state.getExecutionMode().equals(ExecutionMode.OGE_TEMPLATE);
             case SYSTEM_EDGE_PIPELINES:
-              PipelineState state = manager.getPipelineState(pipelineInfo.getPipelineId(), pipelineInfo.getLastRev());
+              state = manager.getPipelineState(pipelineInfo.getPipelineId(), pipelineInfo.getLastRev());
               pipelineStateCache.put(pipelineInfo.getPipelineId(), state);
               return state.getExecutionMode().equals(ExecutionMode.EDGE);
             case SYSTEM_MICROSERVICE_PIPELINES:
@@ -724,7 +735,22 @@ public class PipelineStoreResource {
     RestAPIUtils.injectPipelineInMDC(pipelineTitle + "/" + pipelineId);
     PipelineConfiguration pipelineConfig = store.create(user, pipelineId, pipelineTitle, description, false, draft);
 
-    if (pipelineType.equals(DATA_COLLECTOR_EDGE)) {
+    if( pipelineType.equals(OGE_TEMPLATE_PIPELINE)) {
+    	List<Config> newConfigs = createWithNewConfig(
+    	          pipelineConfig.getConfiguration(),
+    	          new Config("executionMode", ExecutionMode.OGE_TEMPLATE.name())
+    	      );
+    	      pipelineConfig.setConfiguration(newConfigs);
+    	      if (!draft) {
+    	        pipelineConfig = store.save(
+    	            user,
+    	            pipelineConfig.getPipelineId(),
+    	            pipelineConfig.getInfo().getLastRev(),
+    	            pipelineConfig.getDescription(),
+    	            pipelineConfig
+    	        );
+    	      }
+    }else if (pipelineType.equals(DATA_COLLECTOR_EDGE)) {
       List<Config> newConfigs = createWithNewConfig(
           pipelineConfig.getConfiguration(),
           new Config("executionMode", ExecutionMode.EDGE.name())

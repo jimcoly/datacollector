@@ -1,5 +1,6 @@
-package cn.oge.kkm.creation;
+package cn.oge.kkm.container.creation;
 
+import com.streamsets.datacollector.creation.PipelineConfigBean;
 import com.streamsets.datacollector.creation.PipelineConfigBean.DisplayType;
 import com.streamsets.pipeline.api.base.BaseEnumChooserValues;
 

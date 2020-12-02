@@ -18,6 +18,7 @@ package com.streamsets.datacollector.definition;
 import com.google.common.collect.ImmutableList;
 import com.streamsets.datacollector.cluster.ClusterModeConstants;
 import com.streamsets.datacollector.config.ServiceDependencyDefinition;
+import com.streamsets.datacollector.config.SparkClusterType;
 import com.streamsets.datacollector.config.StageDefinition;
 import com.streamsets.datacollector.config.StageLibraryDefinition;
 import com.streamsets.datacollector.creation.StageConfigBean;
@@ -40,11 +41,11 @@ import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.StageType;
 import com.streamsets.pipeline.api.StageUpgrader;
+import com.streamsets.pipeline.api.base.BaseExecutor;
 import com.streamsets.pipeline.api.base.BaseProcessor;
 import com.streamsets.pipeline.api.base.BasePushSource;
 import com.streamsets.pipeline.api.base.BaseSource;
 import com.streamsets.pipeline.api.base.BaseTarget;
-import com.streamsets.pipeline.api.base.BaseExecutor;
 import com.streamsets.pipeline.api.service.ServiceConfiguration;
 import com.streamsets.pipeline.api.service.ServiceDependency;
 import org.junit.Assert;
@@ -56,7 +57,6 @@ import java.util.Map;
 import java.util.Properties;
 
 public class TestStageDefinitionExtractor {
-
 
   public enum Group1 implements Label {
     G1;
@@ -169,8 +169,14 @@ public class TestStageDefinitionExtractor {
     }
   }
 
-  @StageDef(version = 1, label = "L", outputStreams = StageDef.VariableOutputStreams.class,
-      outputStreamsDrivenByConfig = "config1", onlineHelpRefUrl = "")
+  @StageDef(
+      version = 1,
+      label = "L",
+      outputStreams = StageDef.VariableOutputStreams.class,
+      outputStreamsDrivenByConfig = "config1",
+      onlineHelpRefUrl = "",
+      upgraderDef = "upgrader/source1.yaml"
+  )
   public static class Source3 extends Source1 {
 
     @Override
@@ -323,7 +329,7 @@ public class TestStageDefinitionExtractor {
     Assert.assertEquals(1, def.getServices().size());
     ServiceDependencyDefinition service = def.getServices().get(0);
     Assert.assertNotNull(service);
-    Assert.assertEquals(Runnable.class, service.getService());
+    Assert.assertEquals(Runnable.class, service.getServiceClass());
     Assert.assertEquals(2, service.getConfiguration().size());
     Assert.assertTrue(service.getConfiguration().containsKey("country"));
     Assert.assertTrue(service.getConfiguration().containsKey("importance"));
@@ -479,9 +485,25 @@ public class TestStageDefinitionExtractor {
   }
 
   @Test
+  public void testLibraryClusterTypes() {
+    Properties props = new Properties();
+    props.put(StageLibraryDefinition.CLUSTER_CONFIG_CLUSTER_TYPES, "LOCAL,YARN");
+    StageLibraryDefinition libDef = new StageLibraryDefinition(
+        TestStageDefinitionExtractor.class.getClassLoader(),
+        "mock",
+        "MOCK",
+        props,
+        null,
+        null,
+        null
+    );
+    Assert.assertEquals(ImmutableList.of(SparkClusterType.LOCAL, SparkClusterType.YARN), libDef.getClusterTypes());
+  }
+
+  @Test
   public void testLibraryExecutionOverride() {
     Properties props = new Properties();
-    props.put(StageLibraryDefinition.EXECUTION_MODE_PREFIX + Source1.class.getName(), "CLUSTER_BATCH");
+    props.put("execution.mode_" + Source1.class.getName(), "CLUSTER_BATCH");
     StageLibraryDefinition libDef = new StageLibraryDefinition(TestStageDefinitionExtractor.class.getClassLoader(),
                                                                "mock", "MOCK", props, null, null, null);
 
@@ -490,9 +512,37 @@ public class TestStageDefinitionExtractor {
   }
 
   @Test
+  public void testLibraryExecutionOverrideCloud() {
+    try {
+      System.setProperty("streamsets.cloud", "true");
+      Properties props = new Properties();
+      props.put("cloud.execution.mode_" + Source1.class.getName(), "CLUSTER_BATCH");
+      StageLibraryDefinition libDef = new StageLibraryDefinition(TestStageDefinitionExtractor.class.getClassLoader(),
+          "mock", "MOCK", props, null, null, null
+      );
+
+      StageDefinition def = StageDefinitionExtractor.get().extract(libDef, Source1.class, "x");
+      Assert.assertEquals(ImmutableList.of(ExecutionMode.CLUSTER_BATCH), def.getExecutionModes());
+    } finally {
+      System.getProperties().remove("streamsets.cloud");
+    }
+  }
+
+  @Test
+  public void testLibraryExecutionWildcardOverride() {
+    Properties props = new Properties();
+    props.put(StageLibraryDefinition.getExecutionModePrefix() + StageLibraryDefinition.STAGE_WILDCARD, "CLUSTER_BATCH");
+    StageLibraryDefinition libDef = new StageLibraryDefinition(TestStageDefinitionExtractor.class.getClassLoader(),
+        "mock", "MOCK", props, null, null, null);
+
+    StageDefinition def = StageDefinitionExtractor.get().extract(libDef, Source1.class, "x");
+    Assert.assertEquals(ImmutableList.of(ExecutionMode.CLUSTER_BATCH),def.getExecutionModes());
+  }
+
+  @Test
   public void testProducesEvents() {
     Properties props = new Properties();
-    props.put(StageLibraryDefinition.EXECUTION_MODE_PREFIX + ProducesEventsTarger.class.getName(), "CLUSTER_BATCH");
+    props.put(StageLibraryDefinition.getExecutionModePrefix() + ProducesEventsTarger.class.getName(), "CLUSTER_BATCH");
     StageLibraryDefinition libDef = new StageLibraryDefinition(TestStageDefinitionExtractor.class.getClassLoader(),
                                                                "mock", "MOCK", props, null, null, null);
 
@@ -507,6 +557,12 @@ public class TestStageDefinitionExtractor {
     Assert.assertNotNull(def.getHideStage());
     Assert.assertEquals(1, def.getHideStage().size());
     Assert.assertEquals(HideStage.Type.FIELD_PROCESSOR, def.getHideStage().get(0));
+  }
+
+  @Test
+  public void testExtractYamlUpgrader() {
+    StageDefinition def = StageDefinitionExtractor.get().extract(MOCK_LIB_DEF, Source3.class, "x");
+    Assert.assertEquals("upgrader/source1.yaml", def.getYamlUpgrader());
   }
 
 }

@@ -50,13 +50,15 @@ angular
         $scope.filteredStageLibraries = [];
         angular.forEach($scope.stageLibraries, function(stageLibrary) {
           if (libraryFilter(stageLibrary) && !_.contains(stageNameList, stageLibrary.name) &&
-            regex.test(stageLibrary.label) && !stageLibrary.errorStage && !stageLibrary.statsAggregatorStage &&
+            regex.test(stageLibrary.label) &&
+            !stageLibrary.errorStage && !stageLibrary.statsAggregatorStage && !stageLibrary.connectionVerifierStage &&
             stageLibrary.hideStage.length === 0 &&
             stageLibrary.library !== 'streamsets-datacollector-stats-lib' &&
             stageLibrary.name.indexOf('_fragment_') === -1 &&
             ($scope.executionMode !== 'EDGE' || stageLibrary.executionModes.indexOf($scope.executionMode) !== -1) &&
             (!isMicroservicePipeline || stageLibrary.type !== pipelineConstant.SOURCE_STAGE_TYPE ||
-              stageLibrary.sendsResponse)
+              stageLibrary.sendsResponse) &&
+            (!stageLibrary.notInstalled || !$scope.$storage.dontShowMissingStages)
           ) {
             stageNameList.push(stageLibrary.name);
             $scope.filteredStageLibraries.push(stageLibrary);
@@ -113,7 +115,7 @@ angular
 
       var libraryList = _.chain($scope.stageLibraries)
         .filter(function (stageLibrary) {
-          return stageLibrary.library !== 'streamsets-datacollector-stats-lib';
+          return stageLibrary.library && stageLibrary.library !== 'streamsets-datacollector-stats-lib';
         })
         .sortBy('libraryLabel')
         .pluck("library")
@@ -142,6 +144,10 @@ angular
     updateStageGroups();
 
     $scope.$watch('stageLibraries', function() {
+      updateStageGroups();
+    });
+
+    $scope.$watch('$storage.dontShowMissingStages', function() {
       updateStageGroups();
     });
 

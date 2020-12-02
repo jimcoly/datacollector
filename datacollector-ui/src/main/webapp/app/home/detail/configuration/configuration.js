@@ -64,6 +64,13 @@ angular
       producingEventsConfig: {
         value: false
       },
+      fieldHash: {},
+      fieldParamHash: {},
+
+      onParamClick: function(configName){
+        $scope.fieldParamHash[configName] = !!!$scope.fieldParamHash[configName];
+        $scope.fieldHash[configName].value = '';
+      },
 
       /**
        * Callback function when tab is selected.
@@ -95,12 +102,24 @@ angular
         if (configDefinition.type !== 'TEXT') {
           codeMirrorOptions = {
             dictionary: $scope.getCodeMirrorHints(configDefinition),
-            lineWrapping: $rootScope.$storage.lineWrapping
+            lineWrapping: $rootScope.$storage.lineWrapping,
+            extraKeys: {
+              'Ctrl-Space': 'autocomplete'
+            }
           };
         } else {
           codeMirrorOptions = {
             dictionary: $scope.getTextCodeMirrorHints(configDefinition),
-            lineWrapping: $rootScope.$storage.lineWrapping
+            lineWrapping: $rootScope.$storage.lineWrapping,
+            extraKeys: {
+              'Ctrl-Space': 'autocomplete',
+              'F11': function(cm) {
+                cm.setOption('fullScreen', !cm.getOption('fullScreen'));
+              },
+              'Esc': function(cm) {
+                cm.setOption('fullScreen', !cm.getOption('fullScreen'));
+              }
+            }
           };
         }
 
@@ -532,6 +551,18 @@ angular
       },
 
       /**
+       * Checks if a configuration should be shown, based on displayMode and stage settings
+       * @param {String} configurationItemDisplayMode
+       * @param {String} stageDisplayMode
+       * @returns {Boolean}
+       */
+      isShownByConfigDisplayMode: function(configurationItemDisplayMode, stageDisplayMode) {
+        stageDisplayMode = stageDisplayMode || $scope.pipelineConstant.DISPLAY_MODE_ADVANCED;
+        return configurationItemDisplayMode === $scope.pipelineConstant.DISPLAY_MODE_BASIC ||
+          stageDisplayMode === $scope.pipelineConstant.DISPLAY_MODE_ADVANCED;
+      },
+
+      /**
        * Returns Config Model Object
        *
        * @param stageInstance
@@ -574,11 +605,21 @@ angular
       getValueChooserOptions: function(instance, definition) {
         var list = [];
         var filter = $scope.getConfig(definition.model.filteringConfig, instance);
+        var edgeOriginDataFormats = ['DELIMITED', 'JSON', 'SDC_JSON', 'TEXT', 'WHOLE_FILE', 'BINARY'];
+        var edgeDestinationDataFormats = ['JSON', 'SDC_JSON', 'TEXT', 'WHOLE_FILE', 'BINARY'];
+        var isEdgeExecutionMode = $scope.executionMode === 'EDGE';
 
         angular.forEach(definition.model.values, function(value, index) {
-
-          if(filter && filter.indexOf(value) < 0) {
+          if (filter && filter.indexOf(value) < 0) {
             return;
+          }
+
+          if (definition.name.endsWith('dataFormat') && isEdgeExecutionMode) {
+            if (isSourceInstance($scope.detailPaneConfig) && edgeOriginDataFormats.indexOf(value) < 0) {
+              return;
+            } else if (isTargetInstance($scope.detailPaneConfig) && edgeDestinationDataFormats.indexOf(value) < 0) {
+              return;
+            }
           }
 
           var entry = {
@@ -612,24 +653,112 @@ angular
 
 
       /**
+       * Returns true if at least one config is enabled in given group.
+       *
+       * @param stageInstance
+       * @param configDefinitions
+       * @param groupName
+       * @param displayMode Current display mode of stage
+       * @returns {*}
+       */
+      isGroupEnabled: function(stageInstance, configDefinitions, groupName, displayMode) {
+        var enabled = false;
+
+        angular.forEach(configDefinitions, function(configDefinition) {
+          if (configDefinition.group === groupName &&
+              $scope.verifyDependsOnMap(stageInstance, configDefinition) &&
+              $scope.isShownByConfigDisplayMode(configDefinition.displayMode, displayMode)
+            ) {
+          enabled = true;
+          }
+        });
+
+        return enabled;
+      },
+
+      /**
        * Returns true if at least one config is visible in given group.
        *
        * @param stageInstance
        * @param configDefinitions
        * @param groupName
+       * @param displayMode Current display mode of stage
        * @returns {*}
        */
-      isGroupVisible: function(stageInstance, configDefinitions, groupName) {
+      isGroupVisible: function(configDefinitions, displayMode, groupName) {
         var visible = false;
 
         angular.forEach(configDefinitions, function(configDefinition) {
           if (configDefinition.group === groupName &&
-            ($scope.verifyDependsOnMap(stageInstance, configDefinition))) {
+              $scope.isShownByConfigDisplayMode(configDefinition.displayMode, displayMode)) {
             visible = true;
           }
         });
 
         return visible;
+      },
+
+      internalGroupHasEnabledConfig: function(stageInstance, configDefinitions, groupName) {
+        return configDefinitions.some(function (configDefinition) {
+          return (
+            configDefinition.group === groupName &&
+            $scope.verifyDependsOnMap(stageInstance, configDefinition) &&
+            (configDefinition.displayMode === $scope.pipelineConstant.DISPLAY_MODE_ADVANCED ||
+              (configDefinition &&
+                configDefinition.model &&
+                configDefinition.model.configDefinitions &&
+                configDefinition.model.configDefinitions.some(function (x) {
+                  return (
+                    x.displayMode ===
+                    $scope.pipelineConstant.DISPLAY_MODE_ADVANCED
+                  );
+                })))
+          );
+        });
+      },
+
+      /**
+       * Returns true if at least one advanced config is enabled in given group. This will calculate
+       * what is enabled in the main stage configuration and all declared services.
+       *
+       * @param stageInstance
+       * @param stageDefinition
+       * @param services {[]}
+       * @param groupName
+       * @returns {boolean}
+       */
+      groupHasEnabledAdvancedConfig: function(stageInstance, configDefinitions, services, groupName) {
+        return $scope.internalGroupHasEnabledConfig(stageInstance, configDefinitions, groupName) || services.some(function(service) {
+          return $scope.internalGroupHasEnabledConfig(service.config, service.definition.configDefinitions, groupName);
+        });
+      },
+
+      /**
+       * Returns true if at least one config is enabled in given group. This will calculate
+       * what is enabled in the main stage configuration and all declared services.
+       *
+       * @param stageInstance
+       * @param stageDefinition
+       * @param services
+       * @param groupName
+       * @returns {*}
+       */
+      isStageGroupEnabled: function(stageInstance, stageDefinition, services, groupName) {
+        // First see if this tab is enabled in normal stage configurations
+        if (stageInstance && stageInstance.uiInfo &&
+          this.isGroupEnabled(stageInstance, stageDefinition.configDefinitions, groupName,
+            stageInstance.uiInfo.displayMode)) {
+          return true;
+        }
+
+        var enabled = false;
+        angular.forEach(services, function(service) {
+          if($scope.isGroupEnabled(service.config, service.definition.configDefinitions, groupName,
+            stageInstance.uiInfo.displayMode)) {
+            enabled = true;
+          }
+        });
+        return enabled;
       },
 
       /**
@@ -642,15 +771,15 @@ angular
        * @param groupName
        * @returns {*}
        */
-      isStageGroupVisible: function(stageInstance, stageDefinition, services, groupName) {
+      isStageGroupVisible: function(stageDefinition, services, displayMode, groupName) {
         // First see if this tab is visible in normal stage configurations
-        if(this.isGroupVisible(stageInstance, stageDefinition.configDefinitions, groupName)) {
+        if(this.isGroupVisible(stageDefinition.configDefinitions, displayMode, groupName)) {
           return true;
         }
 
         var visible = false;
         angular.forEach(services, function(service) {
-          if($scope.isGroupVisible(service.config, service.definition.configDefinitions, groupName)) {
+          if($scope.isGroupVisible(service.definition.configDefinitions, displayMode, groupName)) {
             visible = true;
           }
         });
@@ -725,6 +854,29 @@ angular
           }
           $scope.detailPaneConfig.eventLanes = [];
         }
+      },
+
+      showIssueDetails: function(issue) {
+        $modal.open({
+          templateUrl: 'errorModalContent.html',
+          controller: 'ErrorModalInstanceController',
+          size: 'lg',
+          backdrop: true,
+          resolve: {
+            errorObj: function () {
+              return {
+                RemoteException: {
+                  antennaDoctorMessages: issue.antennaDoctorMessages,
+                }
+              };
+            }
+          }
+        });
+      },
+
+      toggleConfigDisplayMode: function() {
+        $scope.detailPaneConfig.uiInfo.displayMode =
+          $scope.detailPaneConfig.uiInfo.displayMode === 'ADVANCED' ? 'BASIC' : 'ADVANCED';
       }
     });
 
@@ -752,6 +904,10 @@ angular
       return isStageInstance(instance) && instance.uiInfo.stageType === pipelineConstant.SOURCE_STAGE_TYPE;
     };
 
+    var isTargetInstance = function(instance) {
+      return instance && instance.uiInfo && instance.uiInfo.stageType === pipelineConstant.TARGET_STAGE_TYPE;
+    };
+
     /**
      * Update Stage Preview Data when stage selection changed.
      *
@@ -776,9 +932,9 @@ angular
                 dFieldPathsList = [];
 
               angular.forEach(inputRecords, function(record, index) {
-                var fieldPaths = [],
-                  fieldPathsType = [],
-                  dFieldPaths = [];
+                var fieldPaths = [];
+                var fieldPathsType = [];
+                var dFieldPaths = [];
 
                 pipelineService.getFieldPaths(record.value, fieldPaths, false, fieldPathsType, dFieldPaths);
 
@@ -812,6 +968,16 @@ angular
 
     var initializeGroupInformation = function(options) {
       var groupDefn = $scope.detailPaneConfigDefn ? $scope.detailPaneConfigDefn.configGroupDefinition : undefined;
+
+      // set flag for value or param (used for checkbox and lists)
+      if ($scope.detailPaneConfig.configuration) {
+        $scope.detailPaneConfig.configuration.forEach(function(c) {
+          $scope.fieldHash[c.name] = c;
+          if(c.value && typeof c.value === 'string' && c.value.startsWith('${')){
+            $scope.fieldParamHash[c.name] = true;
+          }
+        });
+      }
 
       if (groupDefn && groupDefn.groupNameToLabelMapList) {
         $scope.showGroups = (groupDefn.groupNameToLabelMapList.length > 0);
@@ -908,4 +1074,9 @@ angular
     $scope.$watch('previewMode', function() {
       refreshCodemirrorWidget();
     });
+
+    $scope.cronOptions = {
+      hideAdvancedTab: false, // Whether to hide the advanced tab
+      hideSeconds: true // Whether to show/hide the seconds time picker
+    };
   });

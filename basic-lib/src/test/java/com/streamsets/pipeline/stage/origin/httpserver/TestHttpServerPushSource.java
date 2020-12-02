@@ -21,7 +21,8 @@ import com.streamsets.pipeline.config.OriginAvroSchemaSource;
 import com.streamsets.pipeline.lib.http.AbstractHttpReceiverServer;
 import com.streamsets.pipeline.lib.http.HttpConstants;
 import com.streamsets.pipeline.lib.http.HttpReceiverServer;
-import com.streamsets.pipeline.lib.httpsource.RawHttpConfigs;
+import com.streamsets.pipeline.lib.httpsource.HttpSourceConfigs;
+import com.streamsets.pipeline.lib.tls.CredentialValueBean;
 import com.streamsets.pipeline.lib.util.SdcAvroTestUtil;
 import com.streamsets.pipeline.sdk.PushSourceRunner;
 import com.streamsets.pipeline.sdk.StageRunner;
@@ -54,8 +55,9 @@ public class TestHttpServerPushSource {
 
   @Test
   public void testSource() throws Exception {
-    RawHttpConfigs httpConfigs = new RawHttpConfigs();
-    httpConfigs.appId = () -> "id";
+    HttpSourceConfigs httpConfigs = new HttpSourceConfigs();
+    httpConfigs.appIds = new ArrayList<>();
+    httpConfigs.appIds.add(new CredentialValueBean("id"));
     httpConfigs.port = NetworkUtils.getRandomPort();
     httpConfigs.maxConcurrentRequests = 1;
     httpConfigs.tlsConfigBean.tlsEnabled = false;
@@ -115,8 +117,9 @@ public class TestHttpServerPushSource {
 
   @Test
   public void testWithAppIdViaQueryParam() throws Exception {
-    RawHttpConfigs httpConfigs = new RawHttpConfigs();
-    httpConfigs.appId = () -> "id";
+    HttpSourceConfigs httpConfigs = new HttpSourceConfigs();
+    httpConfigs.appIds = new ArrayList<>();
+    httpConfigs.appIds.add(new CredentialValueBean("id"));
     httpConfigs.port = NetworkUtils.getRandomPort();
     httpConfigs.maxConcurrentRequests = 1;
     httpConfigs.tlsConfigBean.tlsEnabled = false;
@@ -151,6 +154,15 @@ public class TestHttpServerPushSource {
       Assert.assertEquals(1, records.size());
       Assert.assertEquals("Hello", records.get(0).get("/text").getValue());
 
+      // for security reasons, the track http method should be disallowed
+      url = "http://localhost:" + httpConfigs.getPort() +
+          "?" + HttpConstants.SDC_APPLICATION_ID_QUERY_PARAM + "=id";
+      response = ClientBuilder.newClient()
+          .target(url)
+          .request()
+          .trace();
+      Assert.assertEquals(HttpURLConnection.HTTP_BAD_METHOD, response.getStatus());
+
       // Passing wrong App ID in query param should return 403 response
       url = "http://localhost:" + httpConfigs.getPort() +
           "?" + HttpConstants.SDC_APPLICATION_ID_QUERY_PARAM + "=wrongid";
@@ -170,8 +182,9 @@ public class TestHttpServerPushSource {
 
   @Test
   public void testAvroData() throws Exception {
-    RawHttpConfigs httpConfigs = new RawHttpConfigs();
-    httpConfigs.appId = () -> "id";
+    HttpSourceConfigs httpConfigs = new HttpSourceConfigs();
+    httpConfigs.appIds = new ArrayList<>();
+    httpConfigs.appIds.add(new CredentialValueBean("id"));
     httpConfigs.port = NetworkUtils.getRandomPort();
     httpConfigs.maxConcurrentRequests = 1;
     httpConfigs.tlsConfigBean.tlsEnabled = false;

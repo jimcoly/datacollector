@@ -21,8 +21,10 @@ import com.streamsets.datacollector.http.WebServerTask;
 import com.streamsets.datacollector.util.AuthzRole;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.lib.security.http.RemoteSSOService;
+import com.streamsets.pipeline.api.gateway.GatewayInfo;
 import com.streamsets.pipeline.api.impl.Utils;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +34,10 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.FileStore;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -47,24 +53,32 @@ public abstract class RuntimeInfo {
   public static final String SPLITTER = "|";
   public static final String CONFIG_DIR = ".conf.dir";
   public static final String DATA_DIR = ".data.dir";
+  public static final String SAMPLE_PIPELINES_DATA_DIR = ".sample-pipelines.dir";
   public static final String LOG_DIR = ".log.dir";
   public static final String RESOURCES_DIR = ".resources.dir";
   public static final String LIBEXEC_DIR = ".libexec.dir";
+  public static final String ASTER_CLIENT_LIB_DIR = ".asterClientLib.dir";
   public static final String STATIC_WEB_DIR = ".static-web.dir";
-  public static final String TRANSIENT_ENVIRONMENT = "sdc.transient-env";
+  public static final String TRANSIENT_ENVIRONMENT_SUFFIX = ".transient-env";
   public static final String UNDEF = "UNDEF";
   public static final String CALLBACK_URL = "/public-rest/v1/cluster/callbackWithResponse";
   public static final String SCH_CONF_OVERRIDE = "control-hub-pushed.properties";
 
+  public static final String SDC_PRODUCT = "sdc";
 
   public static final String SECURITY_PREFIX = "java.security.";
-  public static final String DATA_COLLECTOR_BASE_HTTP_URL = "sdc.base.http.url";
   public static final String PIPELINE_ACCESS_CONTROL_ENABLED = "pipeline.access.control.enabled";
   public static final boolean PIPELINE_ACCESS_CONTROL_ENABLED_DEFAULT = false;
+  public static final String DPM_COMPONENT_TYPE_CONFIG = "dpm.componentType";
+  public static final String DC_COMPONENT_TYPE = "dc";
+
+  public static final String EMBEDDED_FLAG = "EMBEDDED";
 
   private boolean DPMEnabled;
   private boolean aclEnabled;
+  private boolean remoteSsoDisabled;
   private String deploymentId;
+  private String componentType = DC_COMPONENT_TYPE;
 
   private final static String USER_ROLE = "user";
 
@@ -73,26 +87,38 @@ public abstract class RuntimeInfo {
 
   private static final String STREAMSETS_LIBRARIES_EXTRA_DIR_SYS_PROP = "STREAMSETS_LIBRARIES_EXTRA_DIR";
 
+  protected static final String BASE_HTTP_URL_ATTR = "%s.base.http.url";
+
+  private static final String GATEWAY_END_POINT_TEMPLATE = "{}/{}/v1/gateway/{}";
+
   private final MetricRegistry metrics;
   private final List<? extends ClassLoader> stageLibraryClassLoaders;
   private String httpUrl;
+  private String originalHttpUrl;
   private String appAuthToken;
   private final Map<String, Object> attributes;
   private ShutdownHandler shutdownRunnable;
   private final Map<String, String> authenticationTokens;
-  private final String propertyPrefix;
+  protected final String productName;
+  protected final String propertyPrefix;
   private final UUID randomUUID;
   private SSLContext sslContext;
   private boolean remoteRegistrationSuccessful;
+  private final Map<String, GatewayInfo> apiGatewayInfoMap = new HashMap<>();
 
-  public RuntimeInfo(String propertyPrefix, MetricRegistry metrics,
-                     List<? extends ClassLoader> stageLibraryClassLoaders) {
+  public RuntimeInfo(
+      String productName,
+      String propertyPrefix,
+      MetricRegistry metrics,
+      List<? extends ClassLoader> stageLibraryClassLoaders
+  ) {
     this.metrics = metrics;
     if(stageLibraryClassLoaders != null) {
       this.stageLibraryClassLoaders = ImmutableList.copyOf(stageLibraryClassLoaders);
     } else {
       this.stageLibraryClassLoaders = null;
     }
+    this.productName = productName;
     this.propertyPrefix = propertyPrefix;
     httpUrl = UNDEF;
     this.attributes = new ConcurrentHashMap<>();
@@ -127,6 +153,14 @@ public abstract class RuntimeInfo {
     return StringUtils.stripEnd(httpUrl, "/");
   }
 
+  public void setOriginalHttpUrl(String url) {
+    this.originalHttpUrl = url;
+  }
+
+  public String getOriginalHttpUrl() {
+    return StringUtils.stripEnd(originalHttpUrl, "/");
+  }
+
   public String getStaticWebDir() {
     return System.getProperty(propertyPrefix + STATIC_WEB_DIR, getRuntimeDir() + "/" + propertyPrefix + "-static-web");
   }
@@ -145,6 +179,16 @@ public abstract class RuntimeInfo {
 
   public String getDataDir() {
     return System.getProperty(propertyPrefix + DATA_DIR, getRuntimeDir() + "/var");
+  }
+
+  // _sdc sets the 'sdc.asterClientLib.dir' system property to the directory containing the aster-client JARs
+  // if not set we fallback to a default location.
+  public String getAsterClientDir() {
+    return System.getProperty(propertyPrefix + ASTER_CLIENT_LIB_DIR,  getRuntimeDir() + "/aster-client-lib");
+  }
+
+  public String getSamplePipelinesDir() {
+    return System.getProperty(propertyPrefix + SAMPLE_PIPELINES_DATA_DIR, getRuntimeDir() + "/samplePipelines");
   }
 
   public String getLibexecDir() {
@@ -188,11 +232,21 @@ public abstract class RuntimeInfo {
     log.info("Runtime info:");
     log.info("  Java version  : {}", System.getProperty("java.runtime.version"));
     log.info("  SDC ID        : {}", getId());
-    log.info("  Runtime dir   : {}", getRuntimeDir());
-    log.info("  Config dir    : {}", getConfigDir());
-    log.info("  Data dir      : {}", getDataDir());
-    log.info("  Log dir       : {}", getLogDir());
-    log.info("  Extra Libs dir: {}", getLibsExtraDir());
+    log.info("  Runtime dir   : {} {}", getRuntimeDir(), sizeOfDir(getRuntimeDir()));
+    log.info("  Config dir    : {} {}", getConfigDir(), sizeOfDir(getConfigDir()));
+    log.info("  Data dir      : {} {}", getDataDir(), sizeOfDir(getDataDir()));
+    log.info("  Log dir       : {} {}", getLogDir(), sizeOfDir(getLogDir()));
+    log.info("  Extra Libs dir: {} {}", getLibsExtraDir(), sizeOfDir(getLibsExtraDir()));
+  }
+
+  private String sizeOfDir(String directory) {
+    try {
+      Path path = Paths.get(directory);
+      FileStore store = Files.getFileStore(path.getRoot());
+      return Utils.format("(total {}, unallocated {}, root {})", FileUtils.byteCountToDisplaySize(store.getTotalSpace()), FileUtils.byteCountToDisplaySize(store.getUnallocatedSpace()), path.getRoot());
+    } catch (Exception e) {
+      return "";
+    }
   }
 
   public void setShutdownHandler(ShutdownHandler runnable) {
@@ -292,6 +346,14 @@ public abstract class RuntimeInfo {
     return DPMEnabled;
   }
 
+  public void setComponentType(String componentType) {
+    this.componentType = componentType;
+  }
+
+  public String getComponentType() {
+    return componentType;
+  }
+
   public boolean isAclEnabled() {
     return aclEnabled;
   }
@@ -300,17 +362,57 @@ public abstract class RuntimeInfo {
     this.aclEnabled = aclEnabled;
   }
 
+  public boolean isRemoteSsoDisabled() {
+    return remoteSsoDisabled;
+  }
+
+  public void setRemoteSsoDisabled(boolean remoteSsoDisabled) {
+    this.remoteSsoDisabled = remoteSsoDisabled;
+  }
+
+  public boolean isTransientEnv() {
+    return Boolean.getBoolean(productName + ".transient-env");
+  }
+
+  public String getProductName() {
+    return productName;
+  }
+
+  public String getPropertyPrefix() {
+    return propertyPrefix;
+  }
+
+  public String getBaseHttpUrlAttr() {
+    return getBaseHttpUrlAttr(getProductName());
+  }
+
+  public static String getBaseHttpUrlAttr(String productName) {
+    return String.format(BASE_HTTP_URL_ATTR, productName);
+  }
+
+  public File getPropertiesFile() {
+    return new File(getConfigDir(), getProductName() + ".properties");
+  }
+
   public static void loadOrReloadConfigs(RuntimeInfo runtimeInfo, Configuration conf) {
     // Load main SDC configuration as specified by the SDC admin
-    File configFile = new File(runtimeInfo.getConfigDir(), "sdc.properties");
+    //TODO: incorporate product name into properties file location when available
+    File configFile = runtimeInfo.getPropertiesFile();
     if (configFile.exists()) {
       try(FileReader reader = new FileReader(configFile)) {
         conf.load(reader);
-        runtimeInfo.setBaseHttpUrl(conf.get(DATA_COLLECTOR_BASE_HTTP_URL, runtimeInfo.getBaseHttpUrl()));
+        runtimeInfo.setBaseHttpUrl(conf.get(runtimeInfo.getBaseHttpUrlAttr(), runtimeInfo.getBaseHttpUrl()));
         String appAuthToken = conf.get(RemoteSSOService.SECURITY_SERVICE_APP_AUTH_TOKEN_CONFIG, "").trim();
         runtimeInfo.setAppAuthToken(appAuthToken);
         boolean isDPMEnabled = conf.get(RemoteSSOService.DPM_ENABLED, RemoteSSOService.DPM_ENABLED_DEFAULT);
         runtimeInfo.setDPMEnabled(isDPMEnabled);
+        String componentType = conf.get(DPM_COMPONENT_TYPE_CONFIG, DC_COMPONENT_TYPE).trim();
+        runtimeInfo.setComponentType(componentType);
+        boolean skipSsoService = conf.get(
+            RemoteSSOService.SECURITY_SERVICE_REMOTE_SSO_DISABLED_CONFIG,
+            RemoteSSOService.SECURITY_SERVICE_REMOTE_SSO_DISABLED_DEFAULT
+        );
+        runtimeInfo.setRemoteSsoDisabled(skipSsoService);
         String deploymentId = conf.get(RemoteSSOService.DPM_DEPLOYMENT_ID, null);
         runtimeInfo.setDeploymentId(deploymentId);
         boolean aclEnabled = conf.get(PIPELINE_ACCESS_CONTROL_ENABLED, PIPELINE_ACCESS_CONTROL_ENABLED_DEFAULT);
@@ -324,7 +426,7 @@ public abstract class RuntimeInfo {
         throw new RuntimeException(ex);
       }
     } else {
-      LOG.error("Error did not find sdc.properties at expected location: {}", configFile);
+      LOG.error("Error did not find {}.properties at expected location: {}", runtimeInfo.productName, configFile);
     }
 
     // Load separate configuration that was pushed down by control hub
@@ -385,6 +487,33 @@ public abstract class RuntimeInfo {
     try(FileWriter writer = new FileWriter(configFile)) {
       properties.store(writer, null);
     }
+  }
+
+  public synchronized String registerApiGateway(GatewayInfo gatewayInfo) {
+    if (apiGatewayInfoMap.containsKey(gatewayInfo.getServiceName())) {
+      throw new IllegalStateException(
+          Utils.format("Service name {} already registered", gatewayInfo.getServiceName())
+      );
+    }
+    apiGatewayInfoMap.put(gatewayInfo.getServiceName(), gatewayInfo);
+    String basePath = gatewayInfo.getNeedGatewayAuth() ? "rest" : "public-rest";
+    return Utils.format(GATEWAY_END_POINT_TEMPLATE, getBaseHttpUrl(), basePath, gatewayInfo.getServiceName());
+  }
+
+  public synchronized void unregisterApiGateway(GatewayInfo gatewayInfo) {
+    apiGatewayInfoMap.remove(gatewayInfo.getServiceName());
+  }
+
+  public GatewayInfo getApiGateway(String serviceName) {
+    return apiGatewayInfoMap.get(serviceName);
+  }
+
+  /**
+   * Checks whether this RuntimeInfo is in EMBEDDED mode
+   * @return true if the {@link #EMBEDDED_FLAG} is present and set to true
+   */
+  public boolean isEmbedded() {
+    return hasAttribute(EMBEDDED_FLAG) && this.<Boolean>getAttribute(EMBEDDED_FLAG);
   }
 
 }

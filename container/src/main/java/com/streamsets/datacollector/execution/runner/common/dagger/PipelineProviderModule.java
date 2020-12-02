@@ -36,6 +36,7 @@ import com.streamsets.datacollector.execution.runner.common.RulesConfigLoader;
 import com.streamsets.datacollector.execution.runner.common.ThreadHealthReporter;
 import com.streamsets.datacollector.execution.snapshot.file.FileSnapshotStore;
 import com.streamsets.datacollector.lineage.LineagePublisherTask;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.metrics.MetricsModule;
 import com.streamsets.datacollector.runner.Observer;
@@ -108,14 +109,21 @@ public class PipelineProviderModule {
   }
 
   @Provides @Singleton
-  public MetricsObserverRunner provideMetricsObserverRunner(MetricRegistry metricRegistry, AlertManager alertManager) {
+  public MetricsObserverRunner provideMetricsObserverRunner(
+      MetricRegistry metricRegistry,
+      AlertManager alertManager,
+      Configuration configuration,
+      RuntimeInfo runtimeInfo
+  ) {
     return new MetricsObserverRunner(
         pipelineId,
         rev,
         statsAggregationEnabled,
         metricRegistry,
         alertManager,
-        resolvedParameters
+        resolvedParameters,
+        configuration,
+        runtimeInfo
     );
   }
 
@@ -174,7 +182,8 @@ public class PipelineProviderModule {
       ThreadHealthReporter threadHealthReporter,
       MetricRegistry metricRegistry,
       AlertManager alertManager,
-      Configuration configuration
+      Configuration configuration,
+      RuntimeInfo runtimeInfo
   ) {
     return new DataObserverRunnable(
         pipelineId,
@@ -183,6 +192,7 @@ public class PipelineProviderModule {
         metricRegistry,
         alertManager,
         configuration,
+        runtimeInfo,
         resolvedParameters
     );
   }
@@ -199,6 +209,7 @@ public class PipelineProviderModule {
     @Named("rev") String rev,
     Configuration configuration,
     RuntimeInfo runtimeInfo,
+    BuildInfo buildInfo,
     StageLibraryTask stageLib,
     PipelineRunner runner,
     Observer observer,
@@ -211,6 +222,7 @@ public class PipelineProviderModule {
       rev,
       configuration,
       runtimeInfo,
+      buildInfo,
       stageLib,
       (ProductionPipelineRunner)runner,
       observer,

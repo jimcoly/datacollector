@@ -28,12 +28,14 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.AuthorizationException;
+import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.errors.WakeupException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,13 +64,13 @@ public abstract class BaseKafkaConsumer09 implements SdcKafkaConsumer, ConsumerR
   public static final String TIMESTAMPS = "timestamps.";
   public static final String KAFKA_AUTO_OFFSET_RESET = "kafkaAutoOffsetReset";
 
-  protected KafkaConsumer<String, byte[]> kafkaConsumer;
+  protected Consumer<Object, byte[]> kafkaConsumer;
 
   protected final String topic;
   private volatile long rebalanceTime;
 
   // blocking queue which is populated by the kafka consumer runnable that polls
-  private ArrayBlockingQueue<ConsumerRecord<String, byte[]>> recordQueue;
+  private ArrayBlockingQueue<ConsumerRecord<Object, byte[]>> recordQueue;
   private final ScheduledExecutorService executorService;
   // runnable that polls the kafka topic for records and populates the blocking queue
   private KafkaConsumerRunner kafkaConsumerRunner;
@@ -184,7 +186,7 @@ public abstract class BaseKafkaConsumer09 implements SdcKafkaConsumer, ConsumerR
         kafkaConsumer != null,
         "validate method must be called before init which creates the Kafka Consumer"
     );
-    kafkaConsumerRunner = new KafkaConsumerRunner(this);
+    kafkaConsumerRunner = new KafkaConsumerRunner(this, context);
     executorService.scheduleWithFixedDelay(kafkaConsumerRunner, 0, 20, TimeUnit.MILLISECONDS);
     isInited = true;
   }
@@ -274,7 +276,7 @@ public abstract class BaseKafkaConsumer09 implements SdcKafkaConsumer, ConsumerR
       return null;
     }
 
-    ConsumerRecord<String, byte[]> next;
+    ConsumerRecord<Object, byte[]> next;
     try {
        // If no record is available within the given time return null
        next = recordQueue.poll(500, TimeUnit.MILLISECONDS);
@@ -307,7 +309,7 @@ public abstract class BaseKafkaConsumer09 implements SdcKafkaConsumer, ConsumerR
     return Kafka09Constants.KAFKA_VERSION;
   }
 
-  private void updateEntry(ConsumerRecord<String, byte[]> next) {
+  private void updateEntry(ConsumerRecord<Object, byte[]> next) {
     TopicPartition topicPartition = new TopicPartition(topic, next.partition());
     // The committed offset should always be the offset of the next message that we will read.
     // http://www.confluent.io/blog/tutorial-getting-started-with-the-new-apache-kafka-0.9-consumer-client
@@ -325,15 +327,21 @@ public abstract class BaseKafkaConsumer09 implements SdcKafkaConsumer, ConsumerR
   static class KafkaConsumerRunner implements Runnable {
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final BaseKafkaConsumer09 consumer;
+    private final Source.Context context;
+    private boolean isErrorReported;
+    private int countOfErrorRecords;
 
-    public KafkaConsumerRunner(BaseKafkaConsumer09 consumer) {
+    public KafkaConsumerRunner(BaseKafkaConsumer09 consumer, Source.Context context) {
       this.consumer = consumer;
+      this.context = context;
+      isErrorReported = false;
+      countOfErrorRecords = 0;
     }
 
     @Override
     public void run() {
       try {
-        ConsumerRecords<String, byte[]> poll;
+        ConsumerRecords<Object, byte[]> poll;
         synchronized (consumer.pollCommitMutex) {
           LOG.debug(String.format(
               "Polling with current assignments: %s",
@@ -348,7 +356,7 @@ public abstract class BaseKafkaConsumer09 implements SdcKafkaConsumer, ConsumerR
             poll.count(),
             consumer.recordQueue.size()
         );
-        for(ConsumerRecord<String, byte[]> r : poll) {
+        for(ConsumerRecord<Object, byte[]> r : poll) {
           // If we need to call poll, we'll jump out and ignore the rest
           if(consumer.needToCallPoll.get()) {
             LOG.info("Discarding cached and uncommitted messages retrieved from Kafka due to need to call poll().");
@@ -364,6 +372,15 @@ public abstract class BaseKafkaConsumer09 implements SdcKafkaConsumer, ConsumerR
         if (!closed.get()) {
           throw e;
         }
+      } catch (Exception e) {
+        if(!isErrorReported || countOfErrorRecords > 1000){
+          isErrorReported = true;
+          countOfErrorRecords = 0;
+          LOG.error(String.format("%s catch trying to serialize Kafka Record: %s", e.getClass().toString(),
+              e.getLocalizedMessage()));
+          context.reportError(e);
+        }
+        countOfErrorRecords++;
       }
     }
 
@@ -373,9 +390,11 @@ public abstract class BaseKafkaConsumer09 implements SdcKafkaConsumer, ConsumerR
       consumer.kafkaConsumer.wakeup();
     }
 
-    private boolean putConsumerRecord(ConsumerRecord<String, byte[]> record) {
+    private boolean putConsumerRecord(ConsumerRecord<Object, byte[]> record) {
       try {
         consumer.recordQueue.put(record);
+        isErrorReported = false;
+        countOfErrorRecords = 0;
         return true;
       } catch (InterruptedException e) {
         LOG.error("Failed to poll KafkaConsumer, reason : {}", e.toString(), e);

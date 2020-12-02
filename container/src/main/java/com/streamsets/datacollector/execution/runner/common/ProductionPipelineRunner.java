@@ -29,8 +29,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.RateLimiter;
 import com.streamsets.datacollector.bundles.SupportBundleManager;
-import com.streamsets.datacollector.config.MemoryLimitConfiguration;
-import com.streamsets.datacollector.config.MemoryLimitExceeded;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.creation.PipelineConfigBean;
 import com.streamsets.datacollector.el.JobEL;
@@ -39,12 +37,12 @@ import com.streamsets.datacollector.execution.SnapshotInfo;
 import com.streamsets.datacollector.execution.SnapshotStore;
 import com.streamsets.datacollector.execution.metrics.MetricsEventRunnable;
 import com.streamsets.datacollector.json.ObjectMapperFactory;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.metrics.MetricsConfigurator;
-import com.streamsets.datacollector.restapi.bean.CounterJson;
-import com.streamsets.datacollector.restapi.bean.HistogramJson;
-import com.streamsets.datacollector.restapi.bean.MeterJson;
-import com.streamsets.datacollector.restapi.bean.MetricRegistryJson;
+import com.streamsets.datacollector.event.json.HistogramJson;
+import com.streamsets.datacollector.event.json.MeterJson;
+import com.streamsets.datacollector.event.json.MetricRegistryJson;
 import com.streamsets.datacollector.runner.BatchContextImpl;
 import com.streamsets.datacollector.runner.BatchImpl;
 import com.streamsets.datacollector.runner.BatchListener;
@@ -62,7 +60,7 @@ import com.streamsets.datacollector.runner.PushSourceContextDelegate;
 import com.streamsets.datacollector.runner.RunnerPool;
 import com.streamsets.datacollector.runner.SourceOffsetTracker;
 import com.streamsets.datacollector.runner.SourcePipe;
-import com.streamsets.datacollector.runner.SourceResponseSink;
+import com.streamsets.datacollector.runner.SourceResponseSinkImpl;
 import com.streamsets.datacollector.runner.StageContext;
 import com.streamsets.datacollector.runner.StageOutput;
 import com.streamsets.datacollector.runner.StagePipe;
@@ -71,6 +69,7 @@ import com.streamsets.datacollector.runner.production.BadRecordsHandler;
 import com.streamsets.datacollector.runner.production.PipelineErrorNotificationRequest;
 import com.streamsets.datacollector.runner.production.ReportErrorDelegate;
 import com.streamsets.datacollector.runner.production.StatsAggregationHandler;
+import com.streamsets.datacollector.usagestats.StatsCollector;
 import com.streamsets.datacollector.util.AggregatorUtil;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.datacollector.util.ContainerError;
@@ -115,6 +114,7 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
 
   private static final Logger LOG = LoggerFactory.getLogger(ProductionPipelineRunner.class);
 
+  private final BuildInfo buildInfo;
   private final RuntimeInfo runtimeInfo;
   private final com.streamsets.datacollector.util.Configuration configuration;
   private final MetricRegistry metrics;
@@ -125,6 +125,7 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
   private final String revision;
   private final SupportBundleManager supportBundleManager;
   private final List<ErrorListener> errorListeners;
+  private final StatsCollector statsCollector;
 
   private SourcePipe originPipe;
   private List<PipeRunner> pipes;
@@ -147,7 +148,6 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
   private final Counter batchOutputRecordsCounter;
   private final Counter batchErrorRecordsCounter;
   private final Counter batchErrorMessagesCounter;
-  private final Counter memoryConsumedCounter;
   private final Histogram runnersHistogram;
   private MetricRegistryJson metricRegistryJson;
   private Long rateLimit;
@@ -162,6 +162,8 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
   private volatile boolean running = false;
   /*indicates if the next batch of data should be captured, only the next batch*/
   private volatile int batchesToCapture = 0;
+  /* Indicates if we should reset offset at the end of the execution. */
+  private volatile boolean resetOffset = false;
   /*indicates the snapshot name to be captured*/
   private volatile String snapshotName;
   /*indicates the batch size to be captured*/
@@ -177,8 +179,6 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
   private Observer observer;
   private BlockingQueue<Record> statsAggregatorRequests;
   private final List<BatchListener> batchListenerList = new CopyOnWriteArrayList<>();
-  private MemoryLimitConfiguration memoryLimitConfiguration;
-  private long lastMemoryLimitNotification;
   private ThreadHealthReporter threadHealthReporter;
   private final List<List<StageOutput>> capturedBatches = new ArrayList<>();
   private PipeContext pipeContext = null;
@@ -195,11 +195,14 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
       @Named("rev") String revision,
       SupportBundleManager supportBundleManager,
       Configuration configuration,
+      BuildInfo buildInfo,
       RuntimeInfo runtimeInfo,
       MetricRegistry metrics,
       SnapshotStore snapshotStore,
-      ThreadHealthReporter threadHealthReporter
+      ThreadHealthReporter threadHealthReporter,
+      StatsCollector statsCollector
   ) {
+    this.buildInfo = buildInfo;
     this.runtimeInfo = runtimeInfo;
     this.configuration = configuration;
     this.metrics = metrics;
@@ -211,6 +214,7 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
     stageToErrorRecordsMap = new HashMap<>();
     stageToErrorMessagesMap = new HashMap<>();
     this.errorListeners = new ArrayList<>();
+    this.statsCollector = statsCollector;
 
     MetricsConfigurator.registerPipeline(pipelineName, revision);
     batchProcessingTimer = MetricsConfigurator.createTimer(metrics, "pipeline.batchProcessing", pipelineName, revision);
@@ -239,8 +243,6 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
     batchErrorRecordsCounter = MetricsConfigurator.createCounter(metrics, "pipeline.batchErrorRecords", pipelineName,
       revision);
     batchErrorMessagesCounter = MetricsConfigurator.createCounter(metrics, "pipeline.batchErrorMessages", pipelineName,
-      revision);
-    memoryConsumedCounter = MetricsConfigurator.createCounter(metrics, "pipeline.memoryConsumed", pipelineName,
       revision);
     runnersHistogram = MetricsConfigurator.createHistogram5Min(metrics, "pipeline.runners", pipelineName, revision);
   }
@@ -280,8 +282,6 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
     MeterJson batchErrorMessagesRecords = metricRegistryJson.getMeters().get("pipeline.batchErrorMessages" + MetricsConfigurator.METER_SUFFIX);
     batchErrorMessagesMeter.mark(batchErrorMessagesRecords.getCount());
     batchErrorMessagesCounter.inc(batchErrorMessagesRecords.getCount());
-    CounterJson memoryConsumer = metricRegistryJson.getCounters().get("pipeline.memoryConsumed" + MetricsConfigurator.COUNTER_SUFFIX);
-    memoryConsumedCounter.inc(memoryConsumer.getCount());
     HistogramJson runnersJson = metricRegistryJson.getHistograms().get("pipeline.runners" + MetricsConfigurator.HISTOGRAM_M5_SUFFIX);
     runnersHistogram.update(runnersJson.getCount());
   }
@@ -293,10 +293,6 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
 
   public void setDeliveryGuarantee(DeliveryGuarantee deliveryGuarantee) {
     this.deliveryGuarantee = deliveryGuarantee;
-  }
-
-  public void setMemoryLimitConfiguration(MemoryLimitConfiguration memoryLimitConfiguration) {
-    this.memoryLimitConfiguration = memoryLimitConfiguration;
   }
 
   public void setRateLimit(Long rateLimit) {
@@ -323,6 +319,11 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
   @Override
   public void setObserver(Observer observer) {
     this.observer = observer;
+  }
+
+  @Override
+  public BuildInfo getBuildInfo() {
+    return buildInfo;
   }
 
   @Override
@@ -360,7 +361,8 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
       stageRuntime.getDefinition().getType().isOneOf(StageType.EXECUTOR, StageType.TARGET),
       "Invalid lifecycle event stage type: " + stageRuntime.getDefinition().getType()
     );
-    stageRuntime.execute(null, 1000, batch, null, errorSink, new EventSink(), new ProcessedSink(), new SourceResponseSink());
+    stageRuntime.execute(null, 1000, batch, null, errorSink, new EventSink(),
+        new ProcessedSink(), new SourceResponseSinkImpl());
 
     // Pipeline lifecycle stage generating error record is fatal error
     if(!errorSink.getErrorRecords().isEmpty()) {
@@ -391,6 +393,7 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
     this.running = true;
 
     try {
+      LOG.debug("Staring pipeline with offset: {}", offsetTracker.getOffsets());
       if (originPipe.getStage().getStage() instanceof PushSource) {
         runPushSource();
       } else {
@@ -402,13 +405,13 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
       sendPipelineErrorNotificationRequest(throwable);
       errorNotification(originPipe, pipes, throwable);
 
-      if(supportBundleManager != null) {
-        supportBundleManager.uploadNewBundleOnError();
-      }
-
       Throwables.propagateIfInstanceOf(throwable, StageException.class);
       Throwables.propagateIfInstanceOf(throwable, PipelineRuntimeException.class);
       Throwables.propagate(throwable);
+    }
+
+    if(resetOffset) {
+      offsetTracker.resetOffset();
     }
   }
 
@@ -424,10 +427,29 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
       batchSize = snapshotBatchSize;
     }
 
-    // Push origin will block on the call until the either all data have been consumed or the pipeline stopped
-    originPipe.process(offsetTracker.getOffsets(), batchSize, this);
+    try {
+      // Push origin will block on the call until the either all data have been consumed or the pipeline stopped
+      originPipe.process(offsetTracker.getOffsets(), batchSize, this);
+    } catch (Throwable ex) {
+      LOG.error("Origin Pipe failed", ex);
+      // Execution failed, but this could be a "dependent" exception from other pipeline execution failure
+      if(exceptionFromExecution == null) {
+        exceptionFromExecution = ex;
+      }
+    }
+
     // If execution failed on exception, we should propagate it up
     if(exceptionFromExecution != null) {
+      // If applicable record the error codes
+      if(statsCollector != null) {
+        if(exceptionFromExecution instanceof StageException) {
+          statsCollector.errorCode(((StageException) exceptionFromExecution).getErrorCode());
+        }
+        if(exceptionFromExecution instanceof PipelineRuntimeException) {
+          statsCollector.errorCode(((PipelineRuntimeException) exceptionFromExecution).getErrorCode());
+        }
+      }
+
       Throwables.propagateIfInstanceOf(exceptionFromExecution, StageException.class);
       Throwables.propagateIfInstanceOf(exceptionFromExecution, PipelineRuntimeException.class);
       Throwables.propagate(exceptionFromExecution);
@@ -454,7 +476,7 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
     }
 
     FullPipeBatch pipeBatch = createFullPipeBatch(null,null);
-    BatchContextImpl batchContext = new BatchContextImpl(pipeBatch);
+    BatchContextImpl batchContext = new BatchContextImpl(pipeBatch, originPipe.getStage().getDefinition().getRecordsByRef());
 
     originPipe.prepareBatchContext(batchContext);
 
@@ -482,6 +504,8 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
     Map<String, Object> stageBatchMetrics = new HashMap<>();
 
     try {
+      batchContext.ensureState();
+
       Map<String, Object> batchMetrics = originPipe.finishBatchContext(batchContext);
 
       if (isStatsAggregationEnabled()) {
@@ -520,6 +544,7 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
       // Returning false so that origin can properly communicate back that this request wasn't processed
       return false;
     } finally {
+      batchContext.setProcessed(true);
       PipelineEL.unsetConstantsInContext();
       JobEL.unsetConstantsInContext();
     }
@@ -539,8 +564,9 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
   }
 
   @Override
-  public void setFinished() {
+  public void setFinished(boolean resetOffset) {
     finished = true;
+    this.resetOffset = resetOffset;
     ((StageContext)originPipe.getStage().getContext()).setStop(true);
   }
 
@@ -592,6 +618,16 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
         // We try to create partial batch on processing failure
         createFailureBatch(pipeBatch);
 
+        // If applicable record the error codes
+        if(statsCollector != null) {
+          if(exceptionFromExecution instanceof StageException) {
+            statsCollector.errorCode(((StageException) exceptionFromExecution).getErrorCode());
+          }
+          if(exceptionFromExecution instanceof PipelineRuntimeException) {
+            statsCollector.errorCode(((PipelineRuntimeException) exceptionFromExecution).getErrorCode());
+          }
+        }
+
         Throwables.propagateIfInstanceOf(t, StageException.class);
         Throwables.propagateIfInstanceOf(t, PipelineRuntimeException.class);
         Throwables.propagate(t);
@@ -614,7 +650,7 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
       listeners.add((ErrorListener) originPipe.getStage().getStage());
     }
     for(PipeRunner pipeRunner : pipes) {
-      pipeRunner.forEach(pipe -> {
+      pipeRunner.forEach("", pipe -> {
         Stage stage = pipe.getStage().getStage();
         if (stage instanceof ErrorListener) {
           listeners.add((ErrorListener) stage);
@@ -668,7 +704,11 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
       // Firstly destroy the runner, to make sure that any potential run away thread from origin will be denied
       // further processing.
       if (runnerPool != null) {
-        runnerPool.destroy();
+        try {
+          runnerPool.destroy();
+        } catch (PipelineRuntimeException e) {
+          LOG.warn(e.getMessage());
+        }
       }
 
       int batchSize = configuration.get(Constants.MAX_BATCH_SIZE_KEY, Constants.MAX_BATCH_SIZE_DEFAULT);
@@ -823,7 +863,6 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
     }
     pipe.process(pipeBatch);
     if (pipe instanceof StagePipe) {
-      memoryConsumedByStage.put(pipe.getStage().getInfo().getInstanceName(), ((StagePipe)pipe).getMemoryConsumed());
       if (isStatsAggregationEnabled()) {
         stageBatchMetrics.put(pipe.getStage().getInfo().getInstanceName(), ((StagePipe) pipe).getBatchMetrics());
       }
@@ -870,7 +909,6 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
 
     });
 
-    enforceMemoryLimit(memoryConsumedByStage);
     badRecordsHandler.handle(entityName, newOffset, pipeBatch.getErrorSink(), pipeBatch.getSourceResponseSink());
     if(!pipeBatch.isIdleBatch()) {
       if (deliveryGuarantee == DeliveryGuarantee.AT_LEAST_ONCE) {
@@ -1022,46 +1060,6 @@ public class ProductionPipelineRunner implements PipelineRunner, PushSourceConte
     return counter;
   }
 
-  private void enforceMemoryLimit(Map<String, Long> memoryConsumedByStage) throws PipelineRuntimeException {
-    long totalMemoryConsumed = 0;
-    for(Map.Entry<String, Long> entry : memoryConsumedByStage.entrySet()) {
-      totalMemoryConsumed += entry.getValue();
-    }
-    memoryConsumedCounter.inc(totalMemoryConsumed - memoryConsumedCounter.getCount());
-    long memoryLimit = memoryLimitConfiguration.getMemoryLimit();
-    if (memoryLimit > 0 && totalMemoryConsumed > memoryLimit) {
-      String largestConsumer = "unknown";
-      long largestConsumed = 0;
-      Map<String, String> humanReadableMemoryConsumptionByStage = new HashMap<>();
-      for(Map.Entry<String, Long> entry : memoryConsumedByStage.entrySet()) {
-        if (entry.getValue() > largestConsumed) {
-          largestConsumed = entry.getValue();
-          largestConsumer = entry.getKey();
-        }
-        humanReadableMemoryConsumptionByStage.put(entry.getKey(), entry.getValue() + " MB");
-      }
-      humanReadableMemoryConsumptionByStage.remove(largestConsumer);
-      PipelineRuntimeException ex = new PipelineRuntimeException(ContainerError.CONTAINER_0011, totalMemoryConsumed,
-        memoryLimit, largestConsumer, largestConsumed, humanReadableMemoryConsumptionByStage);
-      String msg = "Pipeline memory limit exceeded: " + ex;
-      long elapsedTimeSinceLastTriggerMins = TimeUnit.MILLISECONDS.
-        toMinutes(System.currentTimeMillis() - lastMemoryLimitNotification);
-      lastMemoryLimitNotification = System.currentTimeMillis();
-      if (elapsedTimeSinceLastTriggerMins < 60) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Memory limit has been triggered, will take {} in {} mins",
-            memoryLimitConfiguration.getMemoryLimitExceeded(), (60 - elapsedTimeSinceLastTriggerMins));
-        }
-      } else if (memoryLimitConfiguration.getMemoryLimitExceeded() == MemoryLimitExceeded.LOG) {
-        LOG.error(msg, ex);
-      } else if (memoryLimitConfiguration.getMemoryLimitExceeded() == MemoryLimitExceeded.ALERT) {
-        LOG.error(msg, ex);
-        sendPipelineErrorNotificationRequest(ex);
-      } else if (memoryLimitConfiguration.getMemoryLimitExceeded() == MemoryLimitExceeded.STOP_PIPELINE) {
-        throw ex;
-      }
-    }
-  }
   private void sendPipelineErrorNotificationRequest(Throwable throwable) {
     boolean offered = false;
     try {

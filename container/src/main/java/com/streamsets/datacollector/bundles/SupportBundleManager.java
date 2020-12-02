@@ -15,22 +15,6 @@
  */
 package com.streamsets.datacollector.bundles;
 
-import com.amazonaws.AmazonClientException;
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.internal.StaticCredentialsProvider;
-import com.amazonaws.regions.Region;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.s3.AmazonS3Client;
-import com.amazonaws.services.s3.S3ClientOptions;
-import com.amazonaws.services.s3.model.AbortMultipartUploadRequest;
-import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
-import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
-import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
-import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.amazonaws.services.s3.model.PartETag;
-import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,10 +25,11 @@ import com.streamsets.datacollector.execution.SnapshotStore;
 import com.streamsets.datacollector.json.ObjectMapperFactory;
 import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
+import com.streamsets.datacollector.store.PipelineStoreTask;
 import com.streamsets.datacollector.task.AbstractTask;
+import com.streamsets.datacollector.usagestats.StatsCollector;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.pipeline.api.impl.Utils;
-import com.streamsets.datacollector.store.PipelineStoreTask;
 import com.streamsets.pipeline.lib.executor.SafeScheduledExecutorService;
 import org.apache.commons.lang3.ArrayUtils;
 import org.cloudera.log4j.redactor.StringRedactor;
@@ -54,7 +39,6 @@ import org.slf4j.LoggerFactory;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -68,10 +52,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -105,12 +87,12 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
   private final BlobStoreTask blobStore;
   private final RuntimeInfo runtimeInfo;
   private final BuildInfo buildInfo;
+  private final StatsCollector statsCollector;
 
   /**
    * List describing auto discovered content generators.
    */
   private List<BundleContentGeneratorDefinition> definitions;
-  private Map<String, BundleContentGeneratorDefinition> definitionMap;
 
   /**
    * Redactor to remove sensitive data.
@@ -126,7 +108,8 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
     SnapshotStore snapshotStore,
     BlobStoreTask blobStore,
     RuntimeInfo runtimeInfo,
-    BuildInfo buildInfo
+    BuildInfo buildInfo,
+    StatsCollector statsCollector
   ) {
     super("Support Bundle Manager");
     this.executor = executor;
@@ -137,6 +120,7 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
     this.blobStore = blobStore;
     this.runtimeInfo = runtimeInfo;
     this.buildInfo = buildInfo;
+    this.statsCollector = statsCollector;
   }
 
   @Override
@@ -184,11 +168,6 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
 
     definitions = builder.build();
 
-    definitionMap = new HashMap<>();
-    for (BundleContentGeneratorDefinition definition : definitions) {
-      definitionMap.put(definition.getId(), definition);
-    }
-
     // Create shared instance of redactor
     try {
       redactor = StringRedactor.createFromJsonFile(runtimeInfo.getConfigDir() + "/" + Constants.REDACTOR_CONFIG);
@@ -208,24 +187,15 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
   /**
    * Return InputStream from which a new generated resource bundle can be retrieved.
    */
-  public SupportBundle generateNewBundle(List<String> generators, BundleType bundleType) throws IOException {
-    List<BundleContentGeneratorDefinition> defs = getRequestedDefinitions(generators);
-    return generateNewBundleFromInstances(defs.stream().map(BundleContentGeneratorDefinition::createInstance).collect(Collectors.toList()), bundleType);
-  }
+  public SupportBundle generateNewBundle(List<String> generatorNames, BundleType bundleType) throws IOException {
+    List<BundleContentGeneratorDefinition> defs = getRequestedDefinitions(generatorNames);
 
-  /**
-   * Return InputStream from which a new generated resource bundle can be retrieved.
-   */
-  public SupportBundle generateNewBundleFromInstances(
-    List<BundleContentGenerator> generators,
-    BundleType bundleType
-  ) throws IOException {
     PipedInputStream inputStream = new PipedInputStream();
     PipedOutputStream outputStream = new PipedOutputStream();
     inputStream.connect(outputStream);
     ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream);
 
-    executor.submit(() -> generateNewBundleInternal(generators, bundleType, zipOutputStream));
+    executor.submit(() -> generateNewBundleInternal(defs, bundleType, zipOutputStream));
 
     String bundleName = generateBundleName(bundleType);
     String bundleKey = generateBundleDate(bundleType) + "/" + bundleName;
@@ -235,142 +205,6 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
       bundleName,
       inputStream
     );
-  }
-
-  /**
-   * Instead of providing support bundle directly to user, upload it to StreamSets backend services.
-   */
-  public void uploadNewBundle(List<String> generators, BundleType bundleType) throws IOException {
-    List<BundleContentGeneratorDefinition> defs = getRequestedDefinitions(generators);
-    uploadNewBundleFromInstances(
-      defs.stream()
-        .map(BundleContentGeneratorDefinition::createInstance)
-        .collect(Collectors.toList()
-        ),
-      bundleType
-    );
-  }
-
-  /**
-   * Instead of providing support bundle directly to user, upload it to StreamSets backend services.
-   */
-  public void uploadNewBundleFromInstances(List<BundleContentGenerator> generators, BundleType bundleType) throws IOException {
-    // Generate bundle
-    SupportBundle bundle = generateNewBundleFromInstances(generators, bundleType);
-
-    boolean enabled = configuration.get(Constants.UPLOAD_ENABLED, Constants.DEFAULT_UPLOAD_ENABLED);
-    String accessKey = configuration.get(Constants.UPLOAD_ACCESS, Constants.DEFAULT_UPLOAD_ACCESS);
-    String secretKey = configuration.get(Constants.UPLOAD_SECRET, Constants.DEFAULT_UPLOAD_SECRET);
-    String bucket = configuration.get(Constants.UPLOAD_BUCKET, Constants.DEFAULT_UPLOAD_BUCKET);
-    int bufferSize = configuration.get(Constants.UPLOAD_BUFFER_SIZE, Constants.DEFAULT_UPLOAD_BUFFER_SIZE);
-
-    if(!enabled) {
-      throw new IOException("Uploading support bundles was disabled by administrator.");
-    }
-
-    AWSCredentialsProvider credentialsProvider = new StaticCredentialsProvider(new BasicAWSCredentials(accessKey, secretKey));
-    AmazonS3Client s3Client = new AmazonS3Client(credentialsProvider, new ClientConfiguration());
-    s3Client.setS3ClientOptions(new S3ClientOptions().withPathStyleAccess(true));
-    s3Client.setRegion(Region.getRegion(Regions.US_WEST_2));
-
-    // Object Metadata
-    ObjectMetadata s3Metadata = new ObjectMetadata();
-    for(Map.Entry<Object, Object> entry: getMetadata(bundleType).entrySet()) {
-      s3Metadata.addUserMetadata((String)entry.getKey(), (String)entry.getValue());
-    }
-
-    List<PartETag> partETags;
-    InitiateMultipartUploadResult initResponse = null;
-    try {
-      // Uploading part by part
-      LOG.info("Initiating multi-part support bundle upload");
-      partETags = new ArrayList<>();
-      InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(bucket, bundle.getBundleKey());
-      initRequest.setObjectMetadata(s3Metadata);
-      initResponse = s3Client.initiateMultipartUpload(initRequest);
-    } catch (AmazonClientException e) {
-      LOG.error("Support bundle upload failed: ", e);
-      throw new IOException("Support bundle upload failed", e);
-    }
-
-    try {
-      byte[] buffer = new byte[bufferSize];
-      int partId = 1;
-      int size = -1;
-      while ((size = readFully(bundle.getInputStream(), buffer)) != -1) {
-        LOG.debug("Uploading part {} of size {}", partId, size);
-        UploadPartRequest uploadRequest = new UploadPartRequest()
-          .withBucketName(bucket)
-          .withKey(bundle.getBundleKey())
-          .withUploadId(initResponse.getUploadId())
-          .withPartNumber(partId++)
-          .withInputStream(new ByteArrayInputStream(buffer))
-          .withPartSize(size);
-
-        partETags.add(s3Client.uploadPart(uploadRequest).getPartETag());
-      }
-
-      CompleteMultipartUploadRequest compRequest = new CompleteMultipartUploadRequest(
-        bucket,
-        bundle.getBundleKey(),
-        initResponse.getUploadId(),
-        partETags
-      );
-
-      s3Client.completeMultipartUpload(compRequest);
-      LOG.info("Support bundle upload finished");
-    } catch (Exception e) {
-      LOG.error("Support bundle upload failed", e);
-      s3Client.abortMultipartUpload(new AbortMultipartUploadRequest(
-        bucket,
-        bundle.getBundleKey(),
-        initResponse.getUploadId())
-      );
-
-      throw new IOException("Can't upload support bundle", e);
-    } finally {
-      // Close the client
-      s3Client.shutdown();
-    }
-  }
-
-  /**
-   * Try to upload bundle as part of internal SDC error (for example failing pipeline).
-   */
-  public void uploadNewBundleOnError() {
-    boolean enabled = configuration.get(Constants.UPLOAD_ON_ERROR, Constants.DEFAULT_UPLOAD_ON_ERROR);
-    LOG.info("Upload bundle on error: {}", enabled);
-
-    // We won't upload the bundle unless it's explicitly allowed
-    if(!enabled) {
-      return;
-    }
-
-    try {
-      uploadNewBundle(Collections.emptyList(), BundleType.SUPPORT);
-    } catch (IOException e) {
-      LOG.error("Failed to upload error bundle", e);
-    }
-  }
-
-  /**
-   * This method will read from the input stream until the whole buffer is loaded up with actual bytes or end of stream
-   * has been reached. Hence it will return buffer.length of all executions except the last two - one to the last call
-   * will return less then buffer.length (reminder of the data) and returns -1 on any subsequent calls.
-   */
-  private int readFully(InputStream inputStream, byte []buffer) throws IOException {
-    int readBytes = 0;
-
-    while(readBytes < buffer.length) {
-      int loaded = inputStream.read(buffer, readBytes, buffer.length - readBytes);
-      if(loaded == -1) {
-        return readBytes == 0 ? -1 : readBytes;
-      }
-
-      readBytes += loaded;
-    }
-
-    return readBytes;
   }
 
   private String getCustomerId() {
@@ -427,7 +261,7 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
   }
 
   private void generateNewBundleInternal(
-      List<BundleContentGenerator> generators,
+      List<BundleContentGeneratorDefinition> generatorDefinitions,
       BundleType bundleType,
       ZipOutputStream zipStream
   ) {
@@ -436,8 +270,7 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
       Properties failedGenerators = new Properties();
 
       // Let each individual content generator run to generate it's content
-      for(BundleContentGenerator generator : generators) {
-        BundleContentGeneratorDefinition definition = definitionMap.get(generator.getClass().getSimpleName());
+      for(BundleContentGeneratorDefinition definition : generatorDefinitions) {
         BundleWriterImpl writer = new BundleWriterImpl(
           definition.getKlass().getName(),
           redactor,
@@ -445,6 +278,7 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
         );
 
         try {
+          BundleContentGenerator generator = definition.createInstance();
           LOG.debug("Generating content with {} generator", definition.getKlass().getName());
           generator.generateContent(this, writer);
           runGenerators.put(definition.getKlass().getName(), String.valueOf(definition.getVersion()));
@@ -529,6 +363,11 @@ public class SupportBundleManager extends AbstractTask implements BundleContext 
   @Override
   public BlobStoreTask getBlobStore() {
     return blobStore;
+  }
+
+  @Override
+  public StatsCollector getStatsCollector() {
+    return statsCollector;
   }
 
   private static class BundleWriterImpl implements BundleWriter {

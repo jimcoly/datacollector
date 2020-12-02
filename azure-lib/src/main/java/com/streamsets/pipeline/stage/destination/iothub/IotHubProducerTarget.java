@@ -71,7 +71,7 @@ public class IotHubProducerTarget extends BaseTarget implements IotHubEventCallb
             CONNECTION_STRING_TEMPLATE,
             producerConfigBean.iotHubName,
             producerConfigBean.deviceId,
-            producerConfigBean.sasKey
+            producerConfigBean.sasKey.get()
         );
         iotHubClient = new DeviceClient(connString, IotHubClientProtocol.MQTT);
         iotHubClient.open();
@@ -98,6 +98,7 @@ public class IotHubProducerTarget extends BaseTarget implements IotHubEventCallb
         try (DataGenerator dataGenerator = generatorFactory.getGenerator(byteBufferOutputStream)) {
           dataGenerator.write(record);
           dataGenerator.flush();
+          dataGenerator.close();
           Message message = new Message(byteBufferOutputStream.toByteArray());
           iotHubClient.sendEventAsync(message, this, new MessageContext(record, countDownLatch));
         } catch(Exception ex) {

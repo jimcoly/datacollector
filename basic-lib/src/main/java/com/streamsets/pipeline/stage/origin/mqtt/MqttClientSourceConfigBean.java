@@ -30,9 +30,9 @@ public class MqttClientSourceConfigBean {
       required = true,
       type = ConfigDef.Type.LIST,
       label = "Topic Filter",
-      defaultValue = "[]",
       description = "Specify the topics to subscribe to, which can include wildcards.",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "MQTT"
   )
   public List<String> topicFilters;
@@ -43,6 +43,7 @@ public class MqttClientSourceConfigBean {
       label = "Data Format",
       description = "MQTT payload data format",
       displayPosition = 1,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT"
   )
   @ValueChooserModel(DataFormatChooserValues.class)

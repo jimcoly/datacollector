@@ -31,6 +31,7 @@ import com.streamsets.pipeline.stage.destination.rabbitmq.BasicPropertiesConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.security.KeyManagementException;
@@ -45,6 +46,7 @@ public final class RabbitUtil {
   private RabbitUtil() {}
 
   private static final Logger LOG = LoggerFactory.getLogger(RabbitUtil.class);
+  private static final String RABBIT_TLS_CONFIG_PREFIX = "conf.tlsConfig.";
   private static final String RABBIT_DATA_FORMAT_CONFIG_PREFIX = "conf.dataFormatConfig.";
 
 
@@ -57,6 +59,15 @@ public final class RabbitUtil {
       List<Stage.ConfigIssue> issues
   ) {
     conf.init(context, issues);
+
+    if (issues.isEmpty() && conf.tlsConfig.isEnabled()) {
+      conf.tlsConfig.init(
+          context,
+          Groups.TLS.name(),
+          RABBIT_TLS_CONFIG_PREFIX,
+          issues
+      );
+    }
 
     if (!issues.isEmpty()) {
       return;
@@ -102,7 +113,8 @@ public final class RabbitUtil {
             conf.uri,
             conf.credentialsConfig.username.get(),
             conf.credentialsConfig.password.get(),
-            conf.rabbitmqProperties
+            conf.rabbitmqProperties,
+            conf.tlsConfig.getSslContext()
         ).setConnectionTimeout(conf.advanced.connectionTimeout)
             .setAutomaticRecoveryEnabled(conf.advanced.automaticRecoveryEnabled)
             .setNetworkRecoveryInterval(conf.advanced.networkRecoveryInterval)
@@ -138,18 +150,20 @@ public final class RabbitUtil {
 
     builder.deliveryMode(basicPropertiesConfig.deliveryMode.getDeliveryMode());
 
-    if (basicPropertiesConfig.expiration < 0) {
-      LOG.error("Invalid Configuration value for AMQP Basic Properties Expiration", basicPropertiesConfig.expiration);
-      issues.add(context.createConfigIssue(
-          Groups.RABBITMQ.name(),
-          "conf.basicPropertiesConfig.expiration",
-          Errors.RABBITMQ_09,
-          basicPropertiesConfig.expiration,
-          "Expiration"
-      ));
-      return;
+    if (basicPropertiesConfig.setExpiration) {
+      if (basicPropertiesConfig.expiration < 0) {
+        LOG.error("Invalid Configuration value for AMQP Basic Properties Expiration", basicPropertiesConfig.expiration);
+        issues.add(context.createConfigIssue(
+            Groups.RABBITMQ.name(),
+            "conf.basicPropertiesConfig.expiration",
+            Errors.RABBITMQ_09,
+            basicPropertiesConfig.expiration,
+            "Expiration"
+        ));
+        return;
+      }
+      builder.expiration(String.valueOf(basicPropertiesConfig.expiration));
     }
-    builder.expiration(String.valueOf(basicPropertiesConfig.expiration));
 
     if (basicPropertiesConfig.headers != null && !basicPropertiesConfig.headers.isEmpty()) {
       builder.headers(basicPropertiesConfig.headers);
@@ -241,13 +255,18 @@ public final class RabbitUtil {
         String uri,
         String username,
         String password,
-        Map<String, Object> rabbitmqProperties
+        Map<String, Object> rabbitmqProperties,
+        SSLContext context
     ) {
       this.factory = new ConnectionFactory();
       this.uri = uri;
       this.factory.setUsername(username);
       this.factory.setPassword(password);
       this.factory.setClientProperties(rabbitmqProperties);
+
+      if (context != null) {
+        factory.useSslProtocol(context);
+      }
     }
 
     public RabbitCxnFactoryBuilder setConnectionTimeout(int connectionTimeout) {

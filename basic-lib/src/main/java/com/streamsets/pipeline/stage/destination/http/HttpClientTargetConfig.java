@@ -20,6 +20,8 @@ import com.streamsets.pipeline.api.ConfigDefBean;
 import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.config.DataFormat;
 import com.streamsets.pipeline.lib.el.RecordEL;
+import com.streamsets.pipeline.lib.el.TimeEL;
+import com.streamsets.pipeline.lib.el.TimeNowEL;
 import com.streamsets.pipeline.lib.el.VaultEL;
 import com.streamsets.pipeline.lib.http.HttpMethod;
 import com.streamsets.pipeline.lib.http.JerseyClientConfigBean;
@@ -54,9 +56,10 @@ public class HttpClientTargetConfig {
       type = ConfigDef.Type.STRING,
       label = "Resource URL",
       description = "The HTTP resource URL",
-      elDefs = RecordEL.class,
+          elDefs = {RecordEL.class, TimeEL.class, TimeNowEL.class},
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HTTP"
   )
   public String resourceUrl = "";
@@ -68,6 +71,7 @@ public class HttpClientTargetConfig {
       description = "Headers to include in the request",
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       elDefs = {RecordEL.class, VaultEL.class},
       group = "HTTP"
   )
@@ -82,6 +86,7 @@ public class HttpClientTargetConfig {
       elDefs = RecordEL.class,
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       displayPosition = 80,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HTTP"
   )
   @ValueChooserModel(HttpMethodChooserValues.class)
@@ -93,6 +98,7 @@ public class HttpClientTargetConfig {
       label = "HTTP Method Expression",
       description = "Expression used to determine the HTTP method to use",
       displayPosition = 90,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "httpMethod",
       elDefs = RecordEL.class,
       evaluation = ConfigDef.Evaluation.EXPLICIT,
@@ -111,6 +117,7 @@ public class HttpClientTargetConfig {
       label = "One Request per Batch",
       description = "Generates a single HTTP request with all records in the batch",
       displayPosition = 141,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "HTTP"
   )
   public boolean singleRequestPerBatch;
@@ -122,6 +129,7 @@ public class HttpClientTargetConfig {
       defaultValue = "0",
       description = "Maximum requests per second (0 for unlimited). Useful for rate-limited APIs.",
       displayPosition = 160,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "HTTP"
   )
   public int rateLimit;
@@ -133,6 +141,7 @@ public class HttpClientTargetConfig {
       defaultValue = "60",
       description = "Maximum time to wait for each request completion.",
       displayPosition = 250,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "HTTP"
   )
   public long maxRequestCompletionSecs = 60L;

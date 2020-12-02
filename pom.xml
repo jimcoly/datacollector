@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2017 StreamSets Inc.
+    Copyright 2019 StreamSets Inc.
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.streamsets</groupId>
   <artifactId>streamsets-datacollector</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector</description>
   <name>StreamSets Data Collector</name>
   <packaging>pom</packaging>
@@ -64,6 +64,7 @@
 
     <aerospike-lib>aerospike-lib</aerospike-lib>
     <aws-lib>aws-lib</aws-lib>
+    <aws-secrets-manager-credentialstore-lib>aws-secrets-manager-credentialstore-lib</aws-secrets-manager-credentialstore-lib>
     <azure-keyvault-credentialstore-lib>azure-keyvault-credentialstore-lib</azure-keyvault-credentialstore-lib>
     <basic-lib>basic-lib</basic-lib>
     <bigtable-lib>bigtable-lib</bigtable-lib>
@@ -80,17 +81,20 @@
     <mleap-lib>mleap-lib</mleap-lib>
     <mysql-binlog-lib>mysql-binlog-lib</mysql-binlog-lib>
     <omniture-lib>omniture-lib</omniture-lib>
+    <orchestrator-lib>orchestrator-lib</orchestrator-lib>
     <rabbitmq-lib>rabbitmq-lib</rabbitmq-lib>
     <redis-lib>redis-lib</redis-lib>
     <salesforce-lib>salesforce-lib</salesforce-lib>
+    <sap_hana-lib>sap_hana-lib</sap_hana-lib>
     <stats-lib>stats-lib</stats-lib>
     <tensorflow-lib>tensorflow-lib</tensorflow-lib>
     <vault-credentialstore-lib>vault-credentialstore-lib</vault-credentialstore-lib>
     <wholefile-transformer-lib>wholefile-transformer-lib</wholefile-transformer-lib>
     <windows-lib>windows-lib</windows-lib>
     <rootProject>true</rootProject>
-    <datacollector-api.version>3.7.0-SNAPSHOT</datacollector-api.version>
-    <datacollector-spark-api.version>3.7.0-SNAPSHOT</datacollector-spark-api.version>
+    <datacollector-api.version>3.21.0-SNAPSHOT</datacollector-api.version>
+    <datacollector-spark-api.version>3.21.0-SNAPSHOT</datacollector-spark-api.version>
+    <thycotic-credentialstore-lib>thycotic-credentialstore-lib</thycotic-credentialstore-lib>
   </properties>
 
   <!-- StreamSets Data Collector API being used -->
@@ -125,9 +129,13 @@
     <module>bootstrap</module>
     <module>utils</module>
     <module>sso</module>
+    <module>aster-client</module>
     <module>common</module>
+    <module>upgrader</module>
     <module>container-common</module>
+    <module>metadata-generator</module>
     <module>google-common</module>
+    <module>google-connection</module>
     <module>json-dto</module>
     <module>messaging-client</module>
     <module>container</module>
@@ -136,7 +144,18 @@
     <module>stage-lib-archetype</module>
     <module>hadoop-common</module>
     <module>mapr-common</module>
+    <module>jks-common</module>
     <module>aws-support</module>
+    <module>aws-s3-connection</module>
+    <module>aws-kinesis-connection</module>
+    <module>jdbc-connection</module>
+    <module>aws-sqs-connection</module>
+    <module>salesforce-connection</module>
+    <module>kafka-connection</module>
+    <module>aws-shared</module>
+
+    <!-- cluster connections -->
+    <module>cluster-connections/emr-cluster-connection</module>
 
     <module>root-lib</module>
 
@@ -146,13 +165,47 @@
     <module>httpcommonlib</module>
     <module>net-commonlib</module>
 
+    <module>aws-secrets-manager-credentialstore-protolib</module>
+    <module>azure-keyvault-credentialstore-protolib</module>
     <module>lookup-protolib</module>
     <module>hdfs-protolib</module>
+    <module>mapreduce-protolib</module>
+    <module>maprfs-protolib</module>
+    <module>maprdb-protolib</module>
+    <module>mapr_json-protolib</module>
+    <module>mapr_json-5_2-protolib</module>
+    <module>mapr_json-6_0-protolib</module>
+    <module>hive-protolib</module>
+    <module>jks-credentialstore-protolib</module>
+
     <module>dir-spooler-protolib</module>
 
+    <module>sdc-kafka-api</module>
+    <module>sdc-kafka_0_8</module>
+    <module>sdc-kafka_0_9-common</module>
+    <module>sdc-kafka_0_9</module>
+    <module>sdc-kafka_0_9_mapr_5_1</module>
+    <module>sdc-kafka_0_9_mapr_5_2</module>
+    <module>sdc-kafka_0_10</module>
+    <module>sdc-kafka_0_11-common</module>
+    <module>sdc-kafka_0_11</module>
+    <module>sdc-kafka_1_0</module>
+    <module>sdc-kafka_2_0</module>
+    <module>sdc-kafka_0_11_mapr_6_1</module>
+    <module>kafka-common</module>
+    <module>kafka_source-protolib</module>
+    <module>kafka_multisource-protolib</module>
+    <module>kafka_multisource-0_9-protolib</module>
+    <module>kafka_multisource-0_10-protolib</module>
+    <module>kafka_target-protolib</module>
+    <module>maprstreams-common</module>
+    <module>maprstreams-target-protolib</module>
+    <module>maprstreams-source-protolib</module>
+    <module>maprstreams-multisource-protolib</module>
     <module>jython-protolib</module>
     <module>groovy-protolib</module>
     <module>kinetica-protolib</module>
+    <module>kinetica-6_2-protolib</module>
     <module>couchbase-protolib</module>
 
     <module>elasticsearch-protolib</module>
@@ -169,6 +222,10 @@
     <module>cluster-bootstrap</module>
     <module>client-api</module>
     <module>cli</module>
+    <module>sdc-solr-api</module>
+    <module>sdc-solr_cdh_4</module>
+    <module>sdc-solr_6</module>
+    <module>sdc-solr_7</module>
     <module>spark-executor-protolib</module>
     <module>spark-processor-protolib</module>
     <module>scripting-protolib</module>
@@ -181,14 +238,35 @@
          IMPORTANT: define a property matching the module directory name
          for every stage library here with the directory name as value
     -->
+    <module>aerospike-lib</module>
+    <module>aws-lib</module>
+    <module>aws-secrets-manager-credentialstore-lib</module>
+    <module>azure-lib</module>
+    <module>azure-keyvault-credentialstore-lib</module>
     <module>basic-lib</module>
     <module>crypto-lib</module>
     <module>dev-lib</module>
     <module>dataformats-lib</module>
     <module>jdbc-lib</module>
+    <module>jdbc-protolib</module>
     <module>jms-lib</module>
+    <module>kinesis-lib</module>
+    <module>mleap-lib</module>
+    <module>mysql-binlog-lib</module>
+    <module>omniture-lib</module>
+    <module>orchestrator-lib</module>
+    <module>rabbitmq-lib</module>
+    <module>redis-lib</module>
+    <module>salesforce-lib</module>
+    <module>sap_hana-lib</module>
     <module>stats-lib</module>
     <module>windows-lib</module>
+    <module>pulsar-protolib</module>
+    <module>thycotic-credentialstore-lib</module>
+    <module>google-cloud-support</module>
+    <module>apache-kudu-connection</module>
+    <module>azure-connection</module>
+    <module>jms-connection</module>
   </modules>
 
   <build>
@@ -201,6 +279,111 @@
           <skip>false</skip>
         </configuration>
       </plugin>
+
+      <plugin>
+        <groupId>org.apache.rat</groupId>
+        <artifactId>apache-rat-plugin</artifactId>
+        <version>${rat-plugin.version}</version>
+        <configuration>
+          <excludeSubProjects>false</excludeSubProjects>
+          <excludes>
+            <exclude>CHANGES.txt</exclude>
+            <!-- Eclipse -->
+            <exclude>**/.settings/*</exclude>
+            <exclude>**/.classpath</exclude>
+            <exclude>**/.project</exclude>
+            <!-- IntelliJ IDE -->
+            <exclude>**/.idea/**</exclude>
+            <exclude>**/*.iml</exclude>
+
+            <!-- Git -->
+            <exclude>**/.gitignore</exclude>
+            <exclude>.gitreview</exclude>
+            <exclude>.git/**</exclude>
+
+            <!-- Jenkins -->
+            <exclude>**/buildInfo*.properties</exclude>
+
+            <!-- Maven -->
+            <exclude>**/target/**</exclude>
+            <exclude>.m2/**</exclude> <!-- maven on jenkins -->
+
+            <!-- Node.js Modules -->
+            <exclude>**/node_modules/**</exclude>
+
+            <!-- Bower -->
+            <exclude>**/.bowerrc</exclude>
+
+            <!-- Rat doesn't properly recognize header in some files -->
+            <exclude>salesforce-connection/src/main/java/com/streamsets/pipeline/lib/salesforce/connection/mutualauth/ClientSSLTransport.java</exclude>
+
+            <!-- Files that do not support comments, cannot have Licence header -->
+            <exclude>**/META-INF/services/**</exclude>
+            <exclude>sdk/src/main/services/**</exclude>
+            <exclude>**/*.conf</exclude>
+            <exclude>**/*.svg</exclude>
+            <exclude>**/MANIFEST.MF</exclude>
+            <exclude>**/service.sdl</exclude>
+            <exclude>**/*.avro</exclude>
+            <exclude>**/*.db</exclude>
+            <exclude>**/*.csv</exclude>
+            <exclude>**/*.txt</exclude>
+            <exclude>**/*.json</exclude>
+            <exclude>**/*.log</exclude>
+            <exclude>**/*.html</exclude>
+            <exclude>common/src/main/resources/*</exclude>
+            <exclude>**/*.desc</exclude>
+            <exclude>**/*.proto</exclude>
+            <exclude>**/*.md</exclude>
+            <exclude>**/*.xls</exclude>
+            <exclude>**/*.xlsx</exclude>
+            <exclude>**/*.properties</exclude>
+
+            <!-- Protobuf generated files which are checked in for testing-->
+            <exclude>commonlib/src/test/java/com/streamsets/pipeline/lib/util/EmployeeProto.java</exclude>
+            <exclude>commonlib/src/test/java/com/streamsets/pipeline/lib/util/EngineerProto.java</exclude>
+            <exclude>commonlib/src/test/java/com/streamsets/pipeline/lib/util/ExecutiveProto.java</exclude>
+            <exclude>commonlib/src/test/java/com/streamsets/pipeline/lib/util/ExtensionsProto.java</exclude>
+            <exclude>commonlib/src/test/java/com/streamsets/pipeline/lib/util/PersonProto.java</exclude>
+            <exclude>commonlib/src/test/java/com/streamsets/pipeline/lib/util/RepeatedProto.java</exclude>
+            <exclude>commonlib/src/test/java/com/streamsets/pipeline/lib/util/OneofProto.java</exclude>
+            <exclude>commonlib/src/test/resources/*.ser</exclude>
+            <exclude>commonlib/src/main/resources/*</exclude>
+            <exclude>basic-lib/src/test/resources/*.ser</exclude>
+            <exclude>**/id_rsa_test</exclude>
+            <exclude>**/id_rsa_test_unencrypted</exclude>
+            <exclude>**/*.pub</exclude>
+
+            <!-- TestOverrunStreamingXmlParser relies on this file being small, cannot add license header -->
+            <exclude>common/src/test/resources/TestStreamingXmlParser-records.xml</exclude>
+
+            <!-- Modules to exclude (for now), not java stuff -->
+            <exclude>python/**</exclude>
+            <exclude>docs/**</exclude>
+            <exclude>cloudera-integration/csd/**</exclude>
+            <exclude>datacollector-ui/src/main/webapp/common/directives/**</exclude>
+
+            <!-- Test Databricks ML Model files -->
+            <exclude>databricks-ml-protolib/src/test/resources/**</exclude>
+
+            <!-- Example scripts for scripting stages -->
+            <exclude>jython-protolib/src/main/resources/com/streamsets/pipeline/stage/processor/jython/default_init_script.py</exclude>
+            <exclude>jython-protolib/src/main/resources/com/streamsets/pipeline/stage/processor/jython/default_script.py</exclude>
+            <exclude>jython-protolib/src/main/resources/com/streamsets/pipeline/stage/processor/jython/default_destroy_script.py</exclude>
+            <exclude>basic-lib/src/main/resources/com/streamsets/pipeline/stage/processor/javascript/default_init_script.js</exclude>
+            <exclude>basic-lib/src/main/resources/com/streamsets/pipeline/stage/processor/javascript/default_script.js</exclude>
+            <exclude>basic-lib/src/main/resources/com/streamsets/pipeline/stage/processor/javascript/default_destroy_script.js</exclude>
+            <exclude>groovy-protolib/src/main/resources/com/streamsets/pipeline/stage/processor/groovy/default_init_script.groovy</exclude>
+            <exclude>groovy-protolib/src/main/resources/com/streamsets/pipeline/stage/processor/groovy/default_script.groovy</exclude>
+            <exclude>groovy-protolib/src/main/resources/com/streamsets/pipeline/stage/processor/groovy/default_destroy_script.groovy</exclude>
+            <exclude>groovy-protolib/src/main/resources/com/streamsets/pipeline/stage/origin/groovy/GeneratorOriginScript.groovy</exclude>
+            <exclude>basic-lib/src/main/resources/com/streamsets/pipeline/stage/origin/javascript/GeneratorOriginScript.js</exclude>
+            <exclude>jython-protolib/src/main/resources/com/streamsets/pipeline/stage/origin/jython/GeneratorOriginScript.py</exclude>
+
+          </excludes>
+          <goal>run</goal>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
   <reporting>
@@ -211,6 +394,13 @@
         <version>3.1.2</version>
         <inherited>false</inherited>
         <configuration>
+          <!-- The plugin's report is not manageable since we don't control what stage libraries ship. The
+            GitHub interface is a bit more useful than this one.
+          -->
+          <skip>true</skip>
+
+          <!-- We don't have any .NET code -->
+          <assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
           <!-- skip non-bundled jars -->
           <skipProvidedScope>true</skipProvidedScope>
           <skipRuntimeScope>true</skipRuntimeScope>
@@ -248,6 +438,327 @@
   </reporting>
 
   <profiles>
+    <profile>
+      <id>rat-check</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+        <property>
+          <name>!skipRat</name>
+
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <inherited>false</inherited>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>1.6.0</version>
+            <executions>
+              <execution>
+                <id>rat-check</id>
+                <phase>generate-sources</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <executable>mvn</executable>
+              <workingDirectory>${basedir}</workingDirectory>
+              <arguments>
+                <argument>apache-rat:check</argument>
+                <argument>-N</argument>
+              </arguments>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>all-libs</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+        <property>
+          <name>release</name>
+        </property>
+      </activation>
+      <properties>
+        <!--
+             IMPORTANT: keep this in alphabetical order
+
+             IMPORTANT: define a property matching the module directory name
+             for every stage library here with the directory name as value
+        -->
+        <apache-kafka_0_8_1-lib>apache-kafka_0_8_1-lib</apache-kafka_0_8_1-lib>
+        <apache-kafka_0_8_2-lib>apache-kafka_0_8_2-lib</apache-kafka_0_8_2-lib>
+        <apache-kafka_0_9-lib>apache-kafka_0_9-lib</apache-kafka_0_9-lib>
+        <apache-kafka_0_10-lib>apache-kafka_0_10-lib</apache-kafka_0_10-lib>
+        <apache-kafka_0_11-lib>apache-kafka_0_11-lib</apache-kafka_0_11-lib>
+        <apache-kafka_1_0-lib>apache-kafka_1_0-lib</apache-kafka_1_0-lib>
+        <apache-kafka_1_1-lib>apache-kafka_1_1-lib</apache-kafka_1_1-lib>
+        <apache-kafka_2_0-lib>apache-kafka_2_0-lib</apache-kafka_2_0-lib>
+        <apache-kafka_2_1-lib>apache-kafka_2_1-lib</apache-kafka_2_1-lib>
+        <apache-kafka_2_2-lib>apache-kafka_2_2-lib</apache-kafka_2_2-lib>
+        <apache-kafka_2_3-lib>apache-kafka_2_3-lib</apache-kafka_2_3-lib>
+        <apache-kafka_2_4-lib>apache-kafka_2_4-lib</apache-kafka_2_4-lib>
+        <apache-kafka_2_5-lib>apache-kafka_2_5-lib</apache-kafka_2_5-lib>
+        <apache-kafka_2_6-lib>apache-kafka_2_6-lib</apache-kafka_2_6-lib>
+        <apache-kudu_1_0-lib>apache-kudu_1_0-lib</apache-kudu_1_0-lib>
+        <apache-kudu_1_1-lib>apache-kudu_1_1-lib</apache-kudu_1_1-lib>
+        <apache-kudu_1_2-lib>apache-kudu_1_2-lib</apache-kudu_1_2-lib>
+        <apache-kudu_1_3-lib>apache-kudu_1_3-lib</apache-kudu_1_3-lib>
+        <apache-kudu_1_4-lib>apache-kudu_1_4-lib</apache-kudu_1_4-lib>
+        <apache-kudu_1_5-lib>apache-kudu_1_5-lib</apache-kudu_1_5-lib>
+        <apache-kudu_1_6-lib>apache-kudu_1_6-lib</apache-kudu_1_6-lib>
+        <apache-kudu_1_7-lib>apache-kudu_1_7-lib</apache-kudu_1_7-lib>
+        <apache-pulsar_2-lib>apache-pulsar_2-lib</apache-pulsar_2-lib>
+        <apache-solr_6_1_0-lib>apache-solr_6_1_0-lib</apache-solr_6_1_0-lib>
+        <cassandra_3-lib>cassandra_3-lib</cassandra_3-lib>
+        <cdh_5_2-lib>cdh_5_2-lib</cdh_5_2-lib>
+        <cdh_5_3-lib>cdh_5_3-lib</cdh_5_3-lib>
+        <cdh_5_4-lib>cdh_5_4-lib</cdh_5_4-lib>
+        <cdh_5_5-lib>cdh_5_5-lib</cdh_5_5-lib>
+        <cdh_5_7-lib>cdh_5_7-lib</cdh_5_7-lib>
+        <cdh_5_8-lib>cdh_5_8-lib</cdh_5_8-lib>
+        <cdh_5_9-lib>cdh_5_9-lib</cdh_5_9-lib>
+        <cdh_5_10-lib>cdh_5_10-lib</cdh_5_10-lib>
+        <cdh_5_11-lib>cdh_5_11-lib</cdh_5_11-lib>
+        <cdh_5_12-lib>cdh_5_12-lib</cdh_5_12-lib>
+        <cdh_5_13-lib>cdh_5_13-lib</cdh_5_13-lib>
+        <cdh_5_14-lib>cdh_5_14-lib</cdh_5_14-lib>
+        <cdh_5_15-lib>cdh_5_15-lib</cdh_5_15-lib>
+        <cdh_5_16-lib>cdh_5_16-lib</cdh_5_16-lib>
+        <cdh-spark_2_1-lib>cdh-spark_2_1-lib</cdh-spark_2_1-lib>
+        <cdh-spark_2_2-lib>cdh-spark_2_2-lib</cdh-spark_2_2-lib>
+        <cdh-spark_2_3-lib>cdh-spark_2_3-lib</cdh-spark_2_3-lib>
+        <cdh-spark_2_3_r3-lib>cdh-spark_2_3_r3-lib</cdh-spark_2_3_r3-lib>
+        <cdh-spark_2_3_r4-lib>cdh-spark_2_3_r4-lib</cdh-spark_2_3_r4-lib>
+        <cdh_6_0-lib>cdh_6_0-lib</cdh_6_0-lib>
+        <cdh_6_1-lib>cdh_6_1-lib</cdh_6_1-lib>
+        <cdh_6_2-lib>cdh_6_2-lib</cdh_6_2-lib>
+        <cdh_6_3-lib>cdh_6_3-lib</cdh_6_3-lib>
+        <cdp_7_1-lib>cdp_7_1-lib</cdp_7_1-lib>
+        <cdh_kafka_1_2-lib>cdh_kafka_1_2-lib</cdh_kafka_1_2-lib>
+        <cdh_kafka_1_3-lib>cdh_kafka_1_3-lib</cdh_kafka_1_3-lib>
+        <cdh_kafka_2_0-lib>cdh_kafka_2_0-lib</cdh_kafka_2_0-lib>
+        <cdh_kafka_2_1-lib>cdh_kafka_2_1-lib</cdh_kafka_2_1-lib>
+        <cdh_kafka_3_0-lib>cdh_kafka_3_0-lib</cdh_kafka_3_0-lib>
+        <cdh_kafka_3_1-lib>cdh_kafka_3_1-lib</cdh_kafka_3_1-lib>
+        <cdh_kafka_4_1-lib>cdh_kafka_4_1-lib</cdh_kafka_4_1-lib>
+        <couchbase_5-lib>couchbase_5-lib</couchbase_5-lib>
+        <cdh_spark_2_1_r1-lib>cdh_spark_2_1_r1-lib</cdh_spark_2_1_r1-lib>
+        <elasticsearch_5-lib>elasticsearch_5-lib</elasticsearch_5-lib>
+        <elasticsearch_6-lib>elasticsearch_6-lib</elasticsearch_6-lib>
+        <elasticsearch_7-lib>elasticsearch_7-lib</elasticsearch_7-lib>
+        <emr_hadoop_2_8_3-lib>emr_hadoop_2_8_3-lib</emr_hadoop_2_8_3-lib>
+        <groovy_2_4-lib>groovy_2_4-lib</groovy_2_4-lib>
+        <hdp_2_2-lib>hdp_2_2-lib</hdp_2_2-lib>
+        <hdp_2_3-lib>hdp_2_3-lib</hdp_2_3-lib>
+        <hdp_2_3-hive1-lib>hdp_2_3-hive1-lib</hdp_2_3-hive1-lib>
+        <hdp_2_4-lib>hdp_2_4-lib</hdp_2_4-lib>
+        <hdp_2_4-hive1-lib>hdp_2_4-hive1-lib</hdp_2_4-hive1-lib>
+        <hdp_2_5-lib>hdp_2_5-lib</hdp_2_5-lib>
+        <hdp_2_5-flume-lib>hdp_2_5-flume-lib</hdp_2_5-flume-lib>
+        <hdp_2_6-lib>hdp_2_6-lib</hdp_2_6-lib>
+        <hdp_2_6_1-hive1-lib>hdp_2_6_1-hive1-lib</hdp_2_6_1-hive1-lib>
+        <hdp_2_6_2-hive1-lib>hdp_2_6_2-hive1-lib</hdp_2_6_2-hive1-lib>
+        <hdp_2_6-hive2-lib>hdp_2_6-hive2-lib</hdp_2_6-hive2-lib>
+        <hdp_2_6-flume-lib>hdp_2_6-flume-lib</hdp_2_6-flume-lib>
+        <hdp_3_1-lib>hdp_3_1-lib</hdp_3_1-lib>
+        <jython_2_7-lib>jython_2_7-lib</jython_2_7-lib>
+        <kinetica_6_0-lib>kinetica_6_0-lib</kinetica_6_0-lib>
+        <kinetica_6_1-lib>kinetica_6_1-lib</kinetica_6_1-lib>
+        <kinetica_6_2-lib>kinetica_6_2-lib</kinetica_6_2-lib>
+        <kinetica_7_0-lib>kinetica_7_0-lib</kinetica_7_0-lib>
+        <mapr_6_0-lib>mapr_6_0-lib</mapr_6_0-lib>
+        <mapr_6_0-mep4-lib>mapr_6_0-mep4-lib</mapr_6_0-mep4-lib>
+        <mapr_6_0-mep5-lib>mapr_6_0-mep5-lib</mapr_6_0-mep5-lib>
+        <mapr_6_1-lib>mapr_6_1-lib</mapr_6_1-lib>
+        <mapr_6_1-mep6-lib>mapr_6_1-mep6-lib</mapr_6_1-mep6-lib>
+        <mongodb_3-lib>mongodb_3-lib</mongodb_3-lib>
+        <mongodb_4-lib>mongodb_4-lib</mongodb_4-lib>
+        <databricks-ml_2-lib>databricks-ml_2-lib</databricks-ml_2-lib>
+      </properties>
+      <modules>
+        <!--
+             IMPORTANT: keep this in alphabetical order
+
+             IMPORTANT: the modules for all stage libraries
+        -->
+        <module>apache-kafka_0_8_1-lib</module>
+        <module>apache-kafka_0_8_2-lib</module>
+        <module>apache-kafka_0_9-lib</module>
+        <module>apache-kafka_0_10-lib</module>
+        <module>apache-kafka_0_11-lib</module>
+        <module>apache-kafka_1_0-lib</module>
+        <module>apache-kafka_1_1-lib</module>
+        <module>apache-kafka_2_0-lib</module>
+        <module>apache-kafka_2_1-lib</module>
+        <module>apache-kafka_2_2-lib</module>
+        <module>apache-kafka_2_3-lib</module>
+        <module>apache-kafka_2_4-lib</module>
+        <module>apache-kafka_2_5-lib</module>
+        <module>apache-kafka_2_6-lib</module>
+        <module>apache-kudu_1_0-lib</module>
+        <module>apache-kudu_1_1-lib</module>
+        <module>apache-kudu_1_2-lib</module>
+        <module>apache-kudu_1_3-lib</module>
+        <module>apache-kudu_1_4-lib</module>
+        <module>apache-kudu_1_5-lib</module>
+        <module>apache-kudu_1_6-lib</module>
+        <module>apache-kudu_1_7-lib</module>
+        <module>apache-pulsar_2-lib</module>
+        <module>apache-solr_6_1_0-lib</module>
+        <module>cassandra_3-lib</module>
+        <module>cdh_5_2-lib</module>
+        <module>cdh_5_3-lib</module>
+        <module>cdh_5_4-lib</module>
+        <module>cdh_5_5-lib</module>
+        <module>cdh_5_7-lib</module>
+        <module>cdh_5_8-lib</module>
+        <module>cdh_5_9-lib</module>
+        <module>cdh_5_10-lib</module>
+        <module>cdh_5_11-lib</module>
+        <module>cdh_5_12-lib</module>
+        <module>cdh_5_13-lib</module>
+        <module>cdh_5_14-lib</module>
+        <module>cdh_5_15-lib</module>
+        <module>cdh_5_16-lib</module>
+        <module>cdh_6_0-lib</module>
+        <module>cdh_6_1-lib</module>
+        <module>cdh_6_2-lib</module>
+        <module>cdh_6_3-lib</module>
+        <module>cdp_7_1-lib</module>
+        <module>cdh_kafka_1_2-lib</module>
+        <module>cdh_kafka_1_3-lib</module>
+        <module>cdh_kafka_2_0-lib</module>
+        <module>cdh_kafka_2_1-lib</module>
+        <module>cdh_kafka_3_0-lib</module>
+        <module>cdh_kafka_3_1-lib</module>
+        <module>cdh_kafka_4_1-lib</module>
+        <module>cdh_spark_2_1_r1-lib</module>
+        <module>cdh-spark_2_1-lib</module>
+        <module>cdh-spark_2_2-lib</module>
+        <module>cdh-spark_2_3-lib</module>
+        <module>cdh-spark_2_3_r3-lib</module>
+        <module>cdh-spark_2_3_r4-lib</module>
+        <module>couchbase_5-lib</module>
+        <module>elasticsearch_5-lib</module>
+        <module>elasticsearch_6-lib</module>
+        <module>elasticsearch_7-lib</module>
+        <module>emr_hadoop_2_8_3-lib</module>
+        <module>groovy_2_4-lib</module>
+        <module>kinetica_6_0-lib</module>
+        <module>kinetica_6_1-lib</module>
+        <module>kinetica_6_2-lib</module>
+        <module>kinetica_7_0-lib</module>
+        <module>hdp_2_2-lib</module>
+        <module>hdp_2_3-lib</module>
+        <module>hdp_2_3-hive1-lib</module>
+        <module>hdp_2_4-lib</module>
+        <module>hdp_2_4-hive1-lib</module>
+        <module>hdp_2_5-lib</module>
+        <module>hdp_2_5-flume-lib</module>
+        <module>hdp_2_6-lib</module>
+        <module>hdp_2_6_1-hive1-lib</module>
+        <module>hdp_2_6_2-hive1-lib</module>
+        <module>hdp_2_6-hive2-lib</module>
+        <module>hdp_2_6-flume-lib</module>
+        <module>hdp_3_1-lib</module>
+        <module>jython_2_7-lib</module>
+        <module>mapr_6_0-lib</module>
+        <module>mapr_6_0-mep4-lib</module>
+        <module>mapr_6_0-mep5-lib</module>
+        <module>mapr_6_1-lib</module>
+        <module>mapr_6_1-mep6-lib</module>
+        <module>mongodb_3-lib</module>
+        <module>mongodb_4-lib</module>
+        <module>databricks-ml_2-lib</module>
+      </modules>
+    </profile>
+
+    <profile>
+      <id>sample-dev-libs</id>
+      <activation>
+        <property>
+          <name>!protolibs-only</name>
+        </property>
+      </activation>
+      <properties>
+        <!--
+             Use only the latest versions here. If new version needs to be added, move the older version in all-libs
+
+             IMPORTANT: keep this in alphabetical order
+
+             IMPORTANT: define a property matching the module directory name
+             for all the sample dev stage libraries here with the directory name as value
+        -->
+        <apache-kafka_2_6-lib>apache-kafka_2_6-lib</apache-kafka_2_6-lib>
+        <apache-kudu_1_7-lib>apache-kudu_1_7-lib</apache-kudu_1_7-lib>
+        <apache-pulsar_2-lib>apache-pulsar_2-lib</apache-pulsar_2-lib>
+        <apache-solr_6_1_0-lib>apache-solr_6_1_0-lib</apache-solr_6_1_0-lib>
+        <cassandra_3-lib>cassandra_3-lib</cassandra_3-lib>
+        <cdh-spark_2_3-lib>cdh-spark_2_3-lib</cdh-spark_2_3-lib>
+        <cdh_5_16-lib>cdh_5_16-lib</cdh_5_16-lib>
+        <cdh_6_3-lib>cdh_6_3-lib</cdh_6_3-lib>
+        <cdp_7_1-lib>cdp_7_1-lib</cdp_7_1-lib>
+        <cdh_kafka_4_1-lib>cdh_kafka_4_1-lib</cdh_kafka_4_1-lib>
+        <cdh_spark_2_1_r1-lib>cdh_spark_2_1_r1-lib</cdh_spark_2_1_r1-lib>
+        <couchbase_5-lib>couchbase_5-lib</couchbase_5-lib>
+        <elasticsearch_7-lib>elasticsearch_7-lib</elasticsearch_7-lib>
+        <emr_hadoop_2_8_3-lib>emr_hadoop_2_8_3-lib</emr_hadoop_2_8_3-lib>
+        <groovy_2_4-lib>groovy_2_4-lib</groovy_2_4-lib>
+        <hdp_2_6-lib>hdp_2_6-lib</hdp_2_6-lib>
+        <hdp_2_6_2-hive1-lib>hdp_2_6_2-hive1-lib</hdp_2_6_2-hive1-lib>
+        <hdp_2_6-hive2-lib>hdp_2_6-hive2-lib</hdp_2_6-hive2-lib>
+        <hdp_2_6-flume-lib>hdp_2_6-flume-lib</hdp_2_6-flume-lib>
+        <hdp_3_1-lib>hdp_3_1-lib</hdp_3_1-lib>
+        <jython_2_7-lib>jython_2_7-lib</jython_2_7-lib>
+        <kinetica_7_0-lib>kinetica_7_0-lib</kinetica_7_0-lib>
+        <mapr_6_1-lib>mapr_6_1-lib</mapr_6_1-lib>
+        <mapr_6_1-mep6-lib>mapr_6_1-mep6-lib</mapr_6_1-mep6-lib>
+        <mongodb_4-lib>mongodb_4-lib</mongodb_4-lib>
+        <azure-lib>azure_lib</azure-lib>
+        <databricks-ml_2-lib>databricks-ml_2-lib</databricks-ml_2-lib>
+      </properties>
+      <modules>
+        <!--
+             Use only the latest versions here. If new version needs to be added, move the older version in all-libs
+
+             IMPORTANT: keep this in alphabetical order
+
+             IMPORTANT: the modules for the sample dev stage libraries
+        -->
+        <module>apache-kafka_2_6-lib</module>
+        <module>apache-kudu_1_7-lib</module>
+        <module>apache-pulsar_2-lib</module>
+        <module>apache-solr_6_1_0-lib</module>
+        <module>cassandra_3-lib</module>
+        <module>cdh-spark_2_1-lib</module>
+        <module>cdh_5_16-lib</module>
+        <module>cdh_6_3-lib</module>
+        <module>cdp_7_1-lib</module>
+        <module>cdh_kafka_4_1-lib</module>
+        <module>cdh-spark_2_3-lib</module>
+        <module>couchbase_5-lib</module>
+        <module>elasticsearch_7-lib</module>
+        <module>emr_hadoop_2_8_3-lib</module>
+        <module>groovy_2_4-lib</module>
+        <module>kinetica_7_0-lib</module>
+        <module>hdp_2_6-lib</module>
+        <module>hdp_2_6_2-hive1-lib</module>
+        <module>hdp_2_6-hive2-lib</module>
+        <module>hdp_2_6-flume-lib</module>
+        <module>hdp_3_1-lib</module>
+        <module>jython_2_7-lib</module>
+        <module>mapr_6_1-lib</module>
+        <module>mapr_6_1-mep6-lib</module>
+        <module>mongodb_4-lib</module>
+        <module>databricks-ml_2-lib</module>
+      </modules>
+    </profile>
 
     <profile>
       <id>archetype</id>
@@ -275,13 +786,17 @@
       </modules>
     </profile>
 
-   <profile>
-      <id>hdp-stagelib-base</id>
+    <profile>
+      <!-- include all "base" modules, where a set of stagelibs needs a common parent pom that doesn't necessarily
+           need to be imported as a module in its own right; this is necessary in order to run the version update
+           properly -->
+      <id>all-poms</id>
       <activation>
         <activeByDefault>false</activeByDefault>
       </activation>
       <modules>
         <module>hdp-stagelib-base</module>
+        <module>cdh_6-stagelib-base</module>
       </modules>
     </profile>
 
@@ -375,12 +890,35 @@
         </plugins>
       </build>
     </profile>
+
+    <profile>
+      <id>generate-sources</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <pluginRepositories>
     <pluginRepository>
       <id>cdh.plugin.repo</id>
-      <url>https://repository.cloudera.com/content/groups/cloudera-repos</url>
+      <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
       <name>Cloudera Repositories</name>
       <snapshots>
         <enabled>false</enabled>
@@ -391,7 +929,7 @@
   <repositories>
     <repository>
       <id>cdh.repo</id>
-      <url>https://repository.cloudera.com/content/groups/cloudera-repos</url>
+      <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
       <name>Cloudera Repositories</name>
       <snapshots>
         <enabled>false</enabled>
@@ -413,7 +951,7 @@
     </repository>
     <repository>
       <id>mapr-releases</id>
-      <url>http://repository.mapr.com/maven/</url>
+      <url>https://repository.mapr.com/maven/</url>
       <snapshots>
         <enabled>false</enabled>
       </snapshots>

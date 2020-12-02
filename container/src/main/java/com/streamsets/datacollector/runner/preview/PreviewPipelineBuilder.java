@@ -16,9 +16,15 @@
 package com.streamsets.datacollector.runner.preview;
 
 import com.streamsets.datacollector.blobstore.BlobStoreTask;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.StageConfiguration;
+import com.streamsets.datacollector.config.StageDefinition;
+import com.streamsets.datacollector.creation.PipelineBeanCreator;
+import com.streamsets.datacollector.event.dto.PipelineStartEvent;
 import com.streamsets.datacollector.lineage.LineagePublisherTask;
+import com.streamsets.datacollector.main.BuildInfo;
+import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.runner.Pipeline;
 import com.streamsets.datacollector.runner.PipelineRunner;
 import com.streamsets.datacollector.runner.PipelineRuntimeException;
@@ -33,9 +39,11 @@ import com.streamsets.datacollector.validation.PipelineConfigurationValidator;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -60,7 +68,9 @@ public class PreviewPipelineBuilder {
   }
 
   private final StageLibraryTask stageLib;
+  private final BuildInfo buildInfo;
   private final Configuration configuration;
+  private final RuntimeInfo runtimeInfo;
   private final String name;
   private final String rev;
   private PipelineConfiguration pipelineConf;
@@ -69,6 +79,8 @@ public class PreviewPipelineBuilder {
   private final LineagePublisherTask lineagePublisherTask;
   private final StatsCollector statsCollector;
   private final boolean testOrigin;
+  private final List<PipelineStartEvent.InterceptorConfiguration> interceptorConfs;
+  private Map<String, ConnectionConfiguration> connections;
 
   /**
    * Constructor
@@ -81,7 +93,9 @@ public class PreviewPipelineBuilder {
    */
   public PreviewPipelineBuilder(
     StageLibraryTask stageLib,
+    BuildInfo buildInfo,
     Configuration configuration,
+    RuntimeInfo runtimeInfo,
     String name,
     String rev,
     PipelineConfiguration pipelineConf,
@@ -89,10 +103,14 @@ public class PreviewPipelineBuilder {
     BlobStoreTask blobStoreTask,
     LineagePublisherTask lineagePublisherTask,
     StatsCollector statsCollector,
-    boolean testOrigin
+    boolean testOrigin,
+    List<PipelineStartEvent.InterceptorConfiguration> interceptorConfs,
+    Map<String, ConnectionConfiguration> connections
   ) {
     this.stageLib = new PreviewStageLibraryTask(stageLib);
+    this.buildInfo = buildInfo;
     this.configuration = configuration;
+    this.runtimeInfo = runtimeInfo;
     this.name = name;
     this.rev = rev;
     this.pipelineConf = pipelineConf;
@@ -101,13 +119,22 @@ public class PreviewPipelineBuilder {
     this.lineagePublisherTask = lineagePublisherTask;
     this.statsCollector = statsCollector;
     this.testOrigin = testOrigin;
+    this.interceptorConfs = interceptorConfs;
+    this.connections = connections;
+    PipelineBeanCreator.prepareForConnections(configuration, runtimeInfo);
   }
 
   public PreviewPipeline build(UserContext userContext, PipelineRunner runner) throws PipelineRuntimeException {
     if (testOrigin) {
+      // Validate that the test origin can indeed be inserted & executed in this pipeline
+      StageConfiguration testOrigin = pipelineConf.getTestOriginStage();
+      StageDefinition testOriginDef = stageLib.getStage(testOrigin.getLibrary(), testOrigin.getStageName(), false);
+      if(!pipelineConf.getStages().get(0).getEventLanes().isEmpty() && !testOriginDef.isProducingEvents()) {
+        throw new PipelineRuntimeException(ContainerError.CONTAINER_0167, testOriginDef.getLabel());
+      }
+
       // Replace origin with test origin
       StageConfiguration origin = pipelineConf.getStages().remove(0);
-      StageConfiguration testOrigin = pipelineConf.getTestOriginStage();
       testOrigin.setOutputLanes(origin.getOutputLanes());
       testOrigin.setEventLanes(origin.getEventLanes());
       pipelineConf.getStages().add(0, pipelineConf.getTestOriginStage());
@@ -147,7 +174,14 @@ public class PreviewPipelineBuilder {
       pipelineConf.setStages(stages);
     }
 
-    PipelineConfigurationValidator validator = new PipelineConfigurationValidator(stageLib, name, pipelineConf);
+    PipelineConfigurationValidator validator = new PipelineConfigurationValidator(
+        stageLib,
+        buildInfo,
+        name,
+        pipelineConf,
+        userContext.getUser(),
+        connections
+    );
     pipelineConf = validator.validate();
     if (!validator.getIssues().hasIssues() || validator.canPreview()) {
       List<String> openLanes = validator.getOpenLanes();
@@ -161,6 +195,7 @@ public class PreviewPipelineBuilder {
      Pipeline.Builder builder = new Pipeline.Builder(
        stageLib,
        configuration,
+       runtimeInfo,
        name + ":preview",
        name,
        rev,
@@ -170,7 +205,8 @@ public class PreviewPipelineBuilder {
        blobStoreTask,
        lineagePublisherTask,
        statsCollector,
-       Collections.emptyList()
+       interceptorConfs,
+       connections
      );
      Pipeline pipeline = builder.build(runner);
      if (pipeline != null) {
@@ -181,4 +217,11 @@ public class PreviewPipelineBuilder {
     }
   }
 
+  public Map<String, ConnectionConfiguration> getConnections() {
+    return connections;
+  }
+
+  public void setConnections(HashMap<String, ConnectionConfiguration> connections) {
+    this.connections = connections;
+  }
 }

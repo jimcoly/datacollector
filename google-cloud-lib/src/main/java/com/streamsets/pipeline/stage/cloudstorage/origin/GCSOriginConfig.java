@@ -21,7 +21,7 @@ import com.streamsets.pipeline.api.ConfigDefBean;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.config.DataFormat;
-import com.streamsets.pipeline.stage.lib.GoogleCloudCredentialsConfig;
+import com.streamsets.pipeline.lib.googlecloud.CloudStorageCredentialsConfig;
 import com.streamsets.pipeline.stage.origin.lib.BasicConfig;
 import com.streamsets.pipeline.stage.origin.lib.DataParserFormatConfig;
 
@@ -34,6 +34,7 @@ public class GCSOriginConfig {
         label = "Bucket",
         description = "Expression that will identify bucket for each record.",
         displayPosition = 20,
+        displayMode = ConfigDef.DisplayMode.BASIC,
         evaluation = ConfigDef.Evaluation.IMPLICIT,
         //TODO SDC-7719
         group = "GCS"
@@ -46,6 +47,7 @@ public class GCSOriginConfig {
         label = "Common Prefix",
         description = "The common Prefix",
         displayPosition = 100,
+        displayMode = ConfigDef.DisplayMode.BASIC,
         group = "GCS"
     )
     public String commonPrefix;
@@ -56,6 +58,7 @@ public class GCSOriginConfig {
         label = "Prefix Pattern",
         description = "An Ant-style path pattern that defines the remaining portion of prefix excluding the common prefix",
         displayPosition = 100,
+        displayMode = ConfigDef.DisplayMode.BASIC,
         group = "GCS"
     )
     public String prefixPattern;
@@ -65,7 +68,8 @@ public class GCSOriginConfig {
         type = ConfigDef.Type.NUMBER,
         defaultValue = "1000",
         label = "Max Result Queue Size",
-        group = "GCS"
+        group = "GCS",
+        displayMode = ConfigDef.DisplayMode.ADVANCED
     )
     public int maxResultQueueSize;
 
@@ -74,7 +78,8 @@ public class GCSOriginConfig {
         type = ConfigDef.Type.MODEL,
         label = "Data Format",
         displayPosition = 1,
-        group = "DATA_FORMAT"
+        group = "DATA_FORMAT",
+        displayMode = ConfigDef.DisplayMode.BASIC
     )
     @ValueChooserModel(DataFormatChooserValues.class)
     public DataFormat dataFormat;
@@ -89,7 +94,7 @@ public class GCSOriginConfig {
     public GcsOriginErrorConfig gcsOriginErrorConfig;
 
     @ConfigDefBean(groups = "CREDENTIALS")
-    public GoogleCloudCredentialsConfig credentials = new GoogleCloudCredentialsConfig();
+    public CloudStorageCredentialsConfig credentials = new CloudStorageCredentialsConfig();
 
     List<Stage.ConfigIssue> init(Stage.Context context, List<Stage.ConfigIssue> issues) {
         dataParserFormatConfig.init(

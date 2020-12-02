@@ -16,8 +16,10 @@
 package com.streamsets.pipeline.stage.processor.statsaggregation;
 
 import com.codahale.metrics.Counter;
+import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Meter;
+import com.codahale.metrics.Metric;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.streamsets.datacollector.alerts.AlertsUtil;
@@ -25,10 +27,11 @@ import com.streamsets.datacollector.config.MetricsRuleDefinition;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.RuleDefinition;
 import com.streamsets.datacollector.config.StageConfiguration;
+import com.streamsets.datacollector.el.PipelineEL;
 import com.streamsets.datacollector.execution.alerts.AlertManagerHelper;
 import com.streamsets.datacollector.execution.alerts.MetricRuleEvaluatorHelper;
 import com.streamsets.datacollector.metrics.MetricsConfigurator;
-import com.streamsets.datacollector.restapi.bean.MetricRegistryJson;
+import com.streamsets.datacollector.event.json.MetricRegistryJson;
 import com.streamsets.datacollector.util.AggregatorUtil;
 import com.streamsets.datacollector.util.ObserverException;
 import com.streamsets.pipeline.api.Field;
@@ -247,20 +250,34 @@ public class MetricRuleHandler {
     if (metricsRuleDefinition.isEnabled()) {
       Object value = null;
       try {
-        value = MetricRuleEvaluatorHelper.getMetricValue(
-          metrics,
-          metricsRuleDefinition.getMetricId(),
-          metricsRuleDefinition.getMetricType(),
-          metricsRuleDefinition.getMetricElement()
+        Metric metric = MetricRuleEvaluatorHelper.getMetric(metrics,
+            metricsRuleDefinition.getMetricId(),
+            metricsRuleDefinition.getMetricType()
         );
+        if (metric != null) {
+          value = MetricRuleEvaluatorHelper.getMetricValue(metricsRuleDefinition.getMetricElement(),
+              metricsRuleDefinition.getMetricType(),
+              metric
+          );
 
-        if(value != null) {
-          if (MetricRuleEvaluatorHelper.evaluate(value, metricsRuleDefinition.getCondition())) {
-            evaluator.raiseAlert(metrics, metricsRuleDefinition, value);
+          if (value != null) {
+            // We get start time from PipelineEL directly
+            if (MetricRuleEvaluatorHelper.evaluate(
+                PipelineEL.startTime().getTime(),
+                value,
+                metricsRuleDefinition.getCondition()
+            )) {
+              evaluator.raiseAlert(metrics, metricsRuleDefinition, value);
+            }
           }
         }
       } catch (ObserverException ex) {
-        LOG.error("Error processing metric definition alertDataRule '{}', reason: {}", metricsRuleDefinition.getId(), ex.toString(), ex);
+        LOG.error(
+            "Error processing metric definition alertDataRule '{}', reason: {}",
+            metricsRuleDefinition.getId(),
+            ex.toString(),
+            ex
+        );
         AlertManagerHelper.alertException(pipelineName, revision, metrics, value, metricsRuleDefinition);
       }
     }

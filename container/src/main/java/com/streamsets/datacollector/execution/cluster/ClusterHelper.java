@@ -16,6 +16,7 @@
 package com.streamsets.datacollector.execution.cluster;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.streamsets.datacollector.aster.AsterUtil;
 import com.streamsets.datacollector.cluster.ApplicationState;
 import com.streamsets.datacollector.cluster.ClusterPipelineStatus;
 import com.streamsets.datacollector.cluster.ClusterProvider;
@@ -25,17 +26,20 @@ import com.streamsets.datacollector.config.RuleDefinitions;
 import com.streamsets.datacollector.creation.PipelineConfigBean;
 import com.streamsets.datacollector.credential.CredentialStoresTask;
 import com.streamsets.datacollector.main.RuntimeInfo;
+import com.streamsets.datacollector.runner.InterceptorCreatorContextBuilder;
 import com.streamsets.datacollector.security.SecurityConfiguration;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
-import com.streamsets.datacollector.util.SystemProcessFactory;
 import com.streamsets.datacollector.util.Configuration;
+import com.streamsets.datacollector.util.SystemProcessFactory;
 import com.streamsets.lib.security.acl.dto.Acl;
+import com.streamsets.pipeline.SDCClassLoader;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.impl.Utils;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URLClassLoader;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
@@ -49,14 +53,22 @@ public class ClusterHelper {
   private final File tempDir;
   private URLClassLoader apiCL;
   private URLClassLoader containerCL;
+  private URLClassLoader asterClientCL;
   private Configuration configuration;
 
-  public ClusterHelper(RuntimeInfo runtimeInfo, SecurityConfiguration securityConfiguration,
-                       File tempDir, Configuration conf, StageLibraryTask stageLibraryTask) {
+  public ClusterHelper(
+      RuntimeInfo runtimeInfo,
+      SecurityConfiguration securityConfiguration,
+      File tempDir,
+      Configuration conf,
+      StageLibraryTask stageLibraryTask
+  ) {
     this(
+        runtimeInfo,
         new SystemProcessFactory(),
         new ClusterProviderSelector(runtimeInfo, securityConfiguration, conf, stageLibraryTask),
         tempDir,
+        null,
         null,
         null,
         securityConfiguration
@@ -65,25 +77,33 @@ public class ClusterHelper {
 
   @VisibleForTesting
   public ClusterHelper(
+      RuntimeInfo runtimeInfo,
       SystemProcessFactory systemProcessFactory,
       ClusterProvider clusterProvider,
       File tempDir,
       URLClassLoader apiCL,
       URLClassLoader containerCL,
+      URLClassLoader asterClientCL,
       SecurityConfiguration securityConfiguration
   ) {
     this.systemProcessFactory = systemProcessFactory;
     this.clusterProvider = clusterProvider;
     this.tempDir = tempDir;
-    if (containerCL == null) {
+    // JDK 11 issue - https://issues.streamsets.com/browse/SDC-15791
+    if (containerCL == null && getClass().getClassLoader() instanceof URLClassLoader) {
       this.containerCL = (URLClassLoader) getClass().getClassLoader();
     } else {
       this.containerCL = containerCL;
     }
-    if (apiCL == null) {
+    if (apiCL == null && getClass().getClassLoader() instanceof URLClassLoader) {
       this.apiCL = (URLClassLoader) this.containerCL.getParent();
     } else {
       this.apiCL = apiCL;
+    }
+    if (asterClientCL == null) {
+      this.asterClientCL = SDCClassLoader.getAsterClassLoader(AsterUtil.getAsterJars(runtimeInfo), this.containerCL);
+    } else {
+      this.asterClientCL = asterClientCL;
     }
     Utils.checkState(tempDir.isDirectory(), errorString("Temp directory does not exist: {}", tempDir));
   }
@@ -100,7 +120,10 @@ public class ClusterHelper {
       final Map<String, String> sourceInfo,
       final long timeout,
       RuleDefinitions ruleDefinitions,
-      Acl acl
+      Acl acl,
+      InterceptorCreatorContextBuilder interceptorCreatorContextBuilder,
+      List<String> blobStoreResources,
+      String user
   ) throws TimeoutException, IOException, StageException {
 
     return clusterProvider.startPipeline(
@@ -115,9 +138,13 @@ public class ClusterHelper {
         bootstrapDir,
         apiCL,
         containerCL,
+        asterClientCL,
         timeout,
         ruleDefinitions,
-        acl
+        acl,
+        interceptorCreatorContextBuilder,
+        blobStoreResources,
+        user
     );
   }
 
@@ -126,7 +153,7 @@ public class ClusterHelper {
       final PipelineConfiguration pipelineConfiguration,
       PipelineConfigBean pipelineConfigBean
   )
-    throws TimeoutException, IOException, StageException {
+      throws TimeoutException, IOException, StageException {
     clusterProvider.killPipeline(tempDir, applicationState, pipelineConfiguration, pipelineConfigBean);
   }
 
@@ -136,6 +163,7 @@ public class ClusterHelper {
       PipelineConfigBean pipelineConfigBean
   )
       throws IOException, StageException {
+    this.asterClientCL.close();
     clusterProvider.cleanUp(applicationState, pipelineConfiguration, pipelineConfigBean);
   }
 

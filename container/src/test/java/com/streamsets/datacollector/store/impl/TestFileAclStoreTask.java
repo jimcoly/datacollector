@@ -16,7 +16,10 @@
 package com.streamsets.datacollector.store.impl;
 
 import com.streamsets.datacollector.config.PipelineConfiguration;
+import com.streamsets.datacollector.execution.EventListenerManager;
 import com.streamsets.datacollector.execution.PipelineStateStore;
+import com.streamsets.datacollector.main.BuildInfo;
+import com.streamsets.datacollector.main.ProductBuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.UserGroupManager;
 import com.streamsets.datacollector.runner.MockStages;
@@ -24,9 +27,11 @@ import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.datacollector.store.AclStoreTask;
 import com.streamsets.datacollector.store.PipelineInfo;
 import com.streamsets.datacollector.store.PipelineStoreTask;
+import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.datacollector.util.LockCache;
 import com.streamsets.datacollector.util.LockCacheModule;
 import com.streamsets.datacollector.util.PipelineException;
+import com.streamsets.datacollector.util.credential.PipelineCredentialHandler;
 import com.streamsets.lib.security.acl.dto.Acl;
 import com.streamsets.lib.security.acl.dto.Action;
 import com.streamsets.lib.security.acl.dto.Permission;
@@ -54,17 +59,42 @@ public class TestFileAclStoreTask {
   protected PipelineStoreTask store;
   protected AclStoreTask aclStore;
 
-  @dagger.Module(injects = {PipelineStoreTask.class, FileAclStoreTask.class, LockCache.class, UserGroupManager.class},
-      includes = LockCacheModule.class)
+  @dagger.Module(injects = {
+      Configuration.class,
+      PipelineStoreTask.class,
+      FileAclStoreTask.class,
+      LockCache.class,
+      UserGroupManager.class
+  }, includes = LockCacheModule.class)
   public static class Module {
     public Module() {
     }
+
+    @Provides
+    @Singleton
+    public BuildInfo provideBuildInfo() {
+      return ProductBuildInfo.getDefault();
+    }
+
+    @Provides
+    @Singleton
+    public Configuration provideConfiguration() {
+      return new Configuration();
+    }
+
     @Provides
     @Singleton
     public RuntimeInfo provideRuntimeInfo() {
       RuntimeInfo mock = Mockito.mock(RuntimeInfo.class);
       Mockito.when(mock.getDataDir()).thenReturn("target/" + UUID.randomUUID());
+      Mockito.when(mock.getSamplePipelinesDir()).thenReturn("target/" + UUID.randomUUID());
       return mock;
+    }
+
+    @Provides
+    @Singleton
+    public EventListenerManager provideEventListenerManager() {
+      return Mockito.spy(new EventListenerManager());
     }
 
     @Provides
@@ -90,12 +120,24 @@ public class TestFileAclStoreTask {
     @Provides
     @Singleton
     public PipelineStoreTask providePipelineStoreTask(
+        BuildInfo buildInfo,
+        Configuration configuration,
         RuntimeInfo runtimeInfo,
         StageLibraryTask stageLibraryTask,
         PipelineStateStore pipelineStateStore,
+        EventListenerManager eventListenerManager,
         LockCache<String> lockCache
     ) {
-      return new FilePipelineStoreTask(runtimeInfo, stageLibraryTask, pipelineStateStore, lockCache);
+      return new FilePipelineStoreTask(
+          buildInfo,
+          runtimeInfo,
+          stageLibraryTask,
+          pipelineStateStore,
+          eventListenerManager,
+          lockCache,
+          Mockito.mock(PipelineCredentialHandler.class),
+          configuration
+      );
     }
 
     @Provides
@@ -246,7 +288,7 @@ public class TestFileAclStoreTask {
         "label",
         TestCachePipelineStoreTask.DEFAULT_PIPELINE_DESCRIPTION,
         false,
-        false
+        false, new HashMap<String, Object>()
     );
   }
 
@@ -257,7 +299,7 @@ public class TestFileAclStoreTask {
         "label",
         TestFilePipelineStoreTask.DEFAULT_PIPELINE_DESCRIPTION,
         false,
-        false
+        false, new HashMap<String, Object>()
     );
   }
 }

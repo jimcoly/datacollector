@@ -21,6 +21,7 @@ import com.streamsets.datacollector.config.StageDefinition;
 import com.streamsets.pipeline.api.ExecutionMode;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class StageDefinitionJson {
@@ -161,4 +162,33 @@ public class StageDefinitionJson {
   public boolean isBeta() {
     return stageDefinition.isBeta();
   }
+
+  public int getInputStreams() {
+    return stageDefinition.getInputStreams();
+  }
+
+  public String getInputStreamLabelProviderClass() {
+    return stageDefinition.getInputStreamLabelProviderClass();
+  }
+
+  public List<String> getInputStreamLabels() {
+    return stageDefinition.getInputStreamLabels();
+  }
+
+  public Boolean isBisectable() {
+    return stageDefinition.isBisectable();
+  }
+
+  public List<String> getEventDefs() {
+    return stageDefinition.getEventDefs().stream().map(Class::getCanonicalName).collect(Collectors.toList());
+  }
+
+  public String getYamlUpgrader() {
+    return stageDefinition.getYamlUpgrader();
+  }
+
+  public boolean isConnectionVerifierStage() {
+    return stageDefinition.isConnectionVerifierStage();
+  }
+
 }

@@ -25,11 +25,12 @@ import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.base.configurablestage.DSource;
 
 @StageDef(
-    version = 3,
+    version = 4,
     label = "Redis Consumer",
     description = "Reads data from Redis",
     icon = "redis.png",
     upgrader = RedisSourceUpgrader.class,
+    upgraderDef = "upgrader/RedisDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_dtz_npv_jw",
     execution = ExecutionMode.STANDALONE,
     recordsByRef = true

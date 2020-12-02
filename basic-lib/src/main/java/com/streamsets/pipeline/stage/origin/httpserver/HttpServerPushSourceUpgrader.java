@@ -19,9 +19,13 @@ import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.StageUpgrader;
 import com.streamsets.pipeline.api.impl.Utils;
+import com.streamsets.pipeline.config.upgrade.UpgraderUtils;
 import com.streamsets.pipeline.stage.util.tls.TlsConfigBeanUpgradeUtil;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class HttpServerPushSourceUpgrader implements StageUpgrader {
 
@@ -46,11 +50,31 @@ public class HttpServerPushSourceUpgrader implements StageUpgrader {
             "sslEnabled",
             "tlsEnabled"
         );
+        if(toVersion==10) {
+          break;
+        }
+      case 10:
+        upgradeFromV10toV11(configs);
+        if(toVersion==11) {
+          break;
+        }
+      case 11:
         break;
       default:
         throw new IllegalStateException(Utils.format("Unexpected fromVersion {}", fromVersion));
     }
     return configs;
+  }
+
+  private void upgradeFromV10toV11(List<Config> configs) {
+    Config appIdConfig = UpgraderUtils.getAndRemoveConfigWithName(configs,"httpConfigs.appId");
+    if(appIdConfig != null) {
+      List<Map<String,Object>> credentialValueBeanList = new ArrayList<>();
+      Map<String,Object> mapCredentialValueBean = new HashMap<>();
+      mapCredentialValueBean.put("appId",appIdConfig.getValue());
+      credentialValueBeanList.add(mapCredentialValueBean);
+      configs.add(new Config("httpConfigs.appIds", credentialValueBeanList));
+    }
   }
 
 }

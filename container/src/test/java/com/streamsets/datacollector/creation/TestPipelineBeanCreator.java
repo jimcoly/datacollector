@@ -17,6 +17,8 @@ package com.streamsets.datacollector.creation;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
+import com.streamsets.pipeline.api.BlobStoreDef;
 import com.streamsets.datacollector.config.InterceptorDefinition;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.ServiceDefinition;
@@ -38,6 +40,10 @@ import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.ConfigDef;
 import com.streamsets.pipeline.api.ConfigDefBean;
 import com.streamsets.pipeline.api.ConfigIssue;
+import com.streamsets.pipeline.api.ConnectionDef;
+import com.streamsets.pipeline.api.ConnectionEngine;
+import com.streamsets.pipeline.api.ConnectionVerifier;
+import com.streamsets.pipeline.api.Dependency;
 import com.streamsets.pipeline.api.ErrorStage;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.ListBeanModel;
@@ -70,6 +76,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -307,6 +314,24 @@ public class TestPipelineBeanCreator {
     )
     public CredentialValue password3;
 
+    @ConfigDef(
+        label = "L",
+        type = ConfigDef.Type.MODEL,
+        connectionType = "MYCONN",
+        defaultValue = ConnectionDef.Constants.CONNECTION_SELECT_MANUAL,
+        required = false
+    )
+    @ValueChooserModel(ConnectionDef.Constants.ConnectionChooserValues.class)
+    public String connectionSelection = ConnectionDef.Constants.CONNECTION_SELECT_MANUAL;
+
+    @ConfigDefBean(
+        dependencies = @Dependency(
+            configName = "connectionSelection",
+            triggeredByValues = ConnectionDef.Constants.CONNECTION_SELECT_MANUAL
+        )
+    )
+    public MyConnection myConnection;
+
     @Override
     public String produce(String lastSourceOffset, int maxBatchSize, BatchMaker batchMaker) throws StageException {
       return null;
@@ -368,6 +393,11 @@ public class TestPipelineBeanCreator {
     public Interceptor create(Context context) {
       return new MyInterceptor(context.getStageType().name() + " " + context.getInterceptorType().name());
     }
+
+    @Override
+    public List<BlobStoreDef> blobStoreResource(BaseContext context){
+      return new ArrayList<>();
+    }
   }
 
   @InterceptorDef(
@@ -384,6 +414,24 @@ public class TestPipelineBeanCreator {
     public List<Record> intercept(List<Record> records) {
       return records;
     }
+  }
+
+  @ConnectionDef(
+      label = "My Connection",
+      description = "",
+      type = "MYCONN",
+      version = 1,
+      upgraderDef = "foo.yaml",
+      supportedEngines = ConnectionEngine.COLLECTOR
+  )
+  public static class MyConnection {
+    @ConfigDef(
+        label = "URL",
+        type = ConfigDef.Type.STRING,
+        defaultValue = "http://location.place",
+        required = true
+    )
+    public String URL = "http://location.place";
   }
 
   @Test
@@ -412,6 +460,8 @@ public class TestPipelineBeanCreator {
       s -> serviceDef,
       null,
       constants,
+      "user",
+      new HashMap<>(),
       issues
     );
 
@@ -476,6 +526,8 @@ public class TestPipelineBeanCreator {
       s -> serviceDef,
       null,
       constants,
+      "user",
+      new HashMap<>(),
       issues
     );
 
@@ -533,12 +585,19 @@ public class TestPipelineBeanCreator {
     constants.add(constantValue);
     List<Config> pipelineConfigs = ImmutableList.of(
         new Config("executionMode", ExecutionMode.CLUSTER_BATCH.name()),
-        new Config("memoryLimit", "${MEMORY_LIMIT}"),
         new Config("constants", constants)
     );
 
+    String connectionId = "connId";
+    HashMap<String, ConnectionConfiguration> connections = new HashMap<>();
+    connections.put(connectionId,
+        new ConnectionConfiguration("MYCONN", 1, Collections.singletonList(new Config("URL", "http://new.place"))));
+
     StageConfiguration sourceConf = new StageConfigurationBuilder("si", "s")
-      .withConfig(new Config("list", ImmutableList.of("S")))
+      .withConfig(
+          new Config("list", ImmutableList.of("S")),
+          new Config("connectionSelection", connectionId)
+      )
       .build();
     StageConfiguration targetConf = new StageConfigurationBuilder("si", "t")
       .withConfig(new Config("list", ImmutableList.of("T")))
@@ -576,18 +635,18 @@ public class TestPipelineBeanCreator {
     );
 
     List<Issue> issues = new ArrayList<>();
-    PipelineBean bean = PipelineBeanCreator.get().create(false, library, pipelineConf, null, issues);
+    PipelineBean bean = PipelineBeanCreator.get().create(false, library, pipelineConf, null, "user", connections, issues);
 
     Assert.assertNotNull(bean);
 
     // pipeline configs
     Assert.assertEquals(ExecutionMode.CLUSTER_BATCH, bean.getConfig().executionMode);
-    Assert.assertEquals(1000, bean.getConfig().memoryLimit);
 
     // Origin
     Assert.assertNotNull(bean.getOrigin());
     MySource source = (MySource) bean.getOrigin().getStage();
     Assert.assertEquals(ImmutableList.of("S"), source.list);
+    Assert.assertEquals("http://new.place", source.myConnection.URL);
 
     // Target
     Assert.assertEquals(1, bean.getPipelineStageBeans().size());
@@ -617,11 +676,10 @@ public class TestPipelineBeanCreator {
     // pass runtime parameters
     Map<String, Object> runtimeParameters = ImmutableMap.of("MEMORY_LIMIT", 2000);
     issues = new ArrayList<>();
-    bean = PipelineBeanCreator.get().create(false, library, pipelineConf, null, issues, runtimeParameters);
+    bean = PipelineBeanCreator.get().create(false, library, pipelineConf, null, issues, runtimeParameters, "user", connections);
     Assert.assertNotNull(bean);
     // pipeline configs
     Assert.assertEquals(ExecutionMode.CLUSTER_BATCH, bean.getConfig().executionMode);
-    Assert.assertEquals(2000, bean.getConfig().memoryLimit);
 
     // Verify duplicate stage bean
     issues = new ArrayList<>();
@@ -630,6 +688,8 @@ public class TestPipelineBeanCreator {
       bean.getPipelineStageBeans(),
       null,
       Collections.emptyMap(),
+      "user",
+      connections,
       issues
     );
     Assert.assertNotNull(duplicate);
@@ -660,8 +720,7 @@ public class TestPipelineBeanCreator {
     Mockito.when(libraryDef.getClassLoader()).thenReturn(Thread.currentThread().getContextClassLoader());
 
     List<Config> pipelineConfigs = ImmutableList.of(
-        new Config("executionMode", ExecutionMode.CLUSTER_BATCH.name()),
-        new Config("memoryLimit", 1000)
+        new Config("executionMode", ExecutionMode.CLUSTER_BATCH.name())
     );
 
     StageConfiguration sourceConf = new StageConfigurationBuilder("si", "s")
@@ -693,7 +752,7 @@ public class TestPipelineBeanCreator {
     );
 
     List<Issue> issues = new ArrayList<>();
-    PipelineBean bean = PipelineBeanCreator.get().create(false, library, pipelineConf, null, issues);
+    PipelineBean bean = PipelineBeanCreator.get().create(false, library, pipelineConf, null, "user", new HashMap<>(), issues);
 
     Assert.assertNotNull(bean);
 
@@ -747,6 +806,8 @@ public class TestPipelineBeanCreator {
       s -> null,
       null,
       constants,
+      "user",
+      new HashMap<>(),
       issues
     );
 
@@ -772,8 +833,7 @@ public class TestPipelineBeanCreator {
     Mockito.when(libraryDef.getClassLoader()).thenReturn(Thread.currentThread().getContextClassLoader());
 
     List<Config> pipelineConfigs = ImmutableList.of(
-        new Config("executionMode", ExecutionMode.CLUSTER_BATCH.name()),
-        new Config("memoryLimit", 1000)
+        new Config("executionMode", ExecutionMode.CLUSTER_BATCH.name())
     );
 
     StageConfiguration stageConf = new StageConfigurationBuilder("si", "s")
@@ -803,7 +863,7 @@ public class TestPipelineBeanCreator {
     );
 
     List<Issue> issues = new ArrayList<>();
-    PipelineBean bean = PipelineBeanCreator.get().create(false, library, pipelineConf, null, issues);
+    PipelineBean bean = PipelineBeanCreator.get().create(false, library, pipelineConf, null, "user", new HashMap<>(), issues);
 
     MySource source = (MySource) bean.getOrigin().getStage();
 
@@ -836,8 +896,7 @@ public class TestPipelineBeanCreator {
     Mockito.when(libraryDef.getClassLoader()).thenReturn(Thread.currentThread().getContextClassLoader());
 
     List<Config> pipelineConfigs = ImmutableList.of(
-        new Config("executionMode", ExecutionMode.CLUSTER_BATCH.name()),
-        new Config("memoryLimit", 1000)
+        new Config("executionMode", ExecutionMode.CLUSTER_BATCH.name())
     );
 
     StageConfiguration sourceConf = new StageConfigurationBuilder("si", "s")
@@ -871,7 +930,7 @@ public class TestPipelineBeanCreator {
 
     List<Issue> issues = new ArrayList<>();
     InterceptorCreatorContextBuilder contextBuilder = new InterceptorCreatorContextBuilder(null, null);
-    PipelineBean bean = PipelineBeanCreator.get().create(false, library, pipelineConf, contextBuilder, issues);
+    PipelineBean bean = PipelineBeanCreator.get().create(false, library, pipelineConf, contextBuilder, "user", new HashMap<>(), issues);
 
     Assert.assertNotNull(bean.getOrigin());
     Assert.assertEquals(1, bean.getOrigin().getPreInterceptors().size());

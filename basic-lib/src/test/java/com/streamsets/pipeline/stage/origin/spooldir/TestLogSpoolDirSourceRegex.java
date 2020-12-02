@@ -116,7 +116,7 @@ public class TestLogSpoolDirSourceRegex {
     conf.overrunLimit = 100;
     conf.spoolDir = createTestDir();
     conf.batchSize = 10;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].log";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -209,6 +209,7 @@ public class TestLogSpoolDirSourceRegex {
       Assert.assertEquals("2326", record.get("/bytesSent").getValueAsString());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -297,6 +298,7 @@ public class TestLogSpoolDirSourceRegex {
       Assert.assertEquals(0, records.size());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -310,7 +312,7 @@ public class TestLogSpoolDirSourceRegex {
     conf.overrunLimit = 100;
     conf.spoolDir = createTestDir();
     conf.batchSize = 10;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].log";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -352,7 +354,7 @@ public class TestLogSpoolDirSourceRegex {
     conf.overrunLimit = 100;
     conf.spoolDir = createTestDir();
     conf.batchSize = 10;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].log";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -375,6 +377,7 @@ public class TestLogSpoolDirSourceRegex {
     SpoolDirSource spoolDirSource = new SpoolDirSource(conf);
     PushSourceRunner runner = new PushSourceRunner.Builder(SpoolDirDSource.class, spoolDirSource).addOutputLane("lane").build();
     runner.runInit();
+    spoolDirSource.destroy();
   }
 
 }

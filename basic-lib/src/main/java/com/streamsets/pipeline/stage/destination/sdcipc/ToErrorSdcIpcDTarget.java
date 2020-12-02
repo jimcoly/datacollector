@@ -25,18 +25,22 @@ import com.streamsets.pipeline.api.StageDef;
 @StageDef(
   // We're reusing upgrader for both ToErrorSdcIpcDTarget and SdcIpcDTarget, make sure that you
   // upgrade both versions at the same time when changing.
-    version = 2,
+    version = 3,
     label = "Write to Another Pipeline",
     description = "",
     icon = "",
     onlineHelpRefUrl ="index.html?contextID=concept_kgc_l4y_5r",
-    upgrader = SdcIpcTargetUpgrader.class
+    upgrader = SdcIpcTargetUpgrader.class,
+    upgraderDef = "upgrader/ToErrorSdcIpcDTarget.yaml"
 )
 @HideConfigs(
     preconditions = true,
     onErrorRecord = true,
     value = {
+        "config.tlsConfigBean.useRemoteKeyStore",
         "config.tlsConfigBean.keyStoreFilePath",
+        "config.tlsConfigBean.privateKey",
+        "config.tlsConfigBean.certificateChain",
         "config.tlsConfigBean.keyStoreType",
         "config.tlsConfigBean.keyStorePassword",
         "config.tlsConfigBean.keyStoreAlgorithm"

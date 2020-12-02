@@ -35,12 +35,13 @@ import java.util.List;
 
 @GenerateResourceBundle
 @StageDef(
-    version = 3,
+    version = 4,
     label = "HBase",
     description = "Writes data to HBase",
     icon = "hbase.png",
     privateClassLoader = true,
     upgrader = HBaseTargetUpgrader.class,
+    upgraderDef = "upgrader/HBaseDTarget.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_pyq_qx5_vr"
 )
 @ConfigGroups(Groups.class)
@@ -53,8 +54,9 @@ public class HBaseDTarget extends DTarget {
       type = ConfigDef.Type.STRING,
       defaultValue = "",
       label = "Row Key",
-      description = "Field path row key",
+      description = "Field path for the field in the record that acts as the row key in the table",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HBASE")
   public String hbaseRowKey;
 
@@ -65,6 +67,7 @@ public class HBaseDTarget extends DTarget {
       label = "Storage Type",
       description = "The storage type for row key",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HBASE")
   @ValueChooserModel(RowKeyStorageTypeChooserValues.class)
   public StorageType rowKeyStorageType;
@@ -73,8 +76,9 @@ public class HBaseDTarget extends DTarget {
       type = ConfigDef.Type.MODEL,
       defaultValue = "",
       label = "Fields",
-      description = "Column names, their values and storage type",
+      description = "Map record fields to table columns",
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HBASE")
   @ListBeanModel
   public List<HBaseFieldMappingConfig> hbaseFieldColumnMapping;
@@ -86,16 +90,18 @@ public class HBaseDTarget extends DTarget {
     description = "If set, the record will not be treated as error record when a field path is not present in the " +
         "record or if the field value is null",
     displayPosition = 80,
+    displayMode = ConfigDef.DisplayMode.BASIC,
     group = "HBASE")
   public boolean ignoreMissingFieldPath;
 
   @ConfigDef(required = false,
     type = ConfigDef.Type.BOOLEAN,
     defaultValue = "false",
-    label = "Implicit field mapping",
+    label = "Implicit Field Mapping",
     description = "If set, field paths will be implicitly mapped to HBase columns; " + "E.g record field cf:a will be inserted"
       + " in the given HBase table with column family 'cf' and qualifier 'a'",
     displayPosition = 90,
+    displayMode = ConfigDef.DisplayMode.BASIC,
     group = "HBASE")
   public boolean implicitFieldMapping;
 
@@ -108,8 +114,23 @@ public class HBaseDTarget extends DTarget {
     dependsOn = "implicitFieldMapping",
     triggeredByValue = "true",
     displayPosition = 100,
+    displayMode = ConfigDef.DisplayMode.BASIC,
     group = "HBASE")
   public boolean ignoreInvalidColumn;
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "true",
+      label = "Validate Table Existence",
+      description = "If enabled, write to HBase will obtain a table descriptor to determine if the table exists and"
+        + " validate column family. This requires administrator rights in HBase. Otherwise, error records will be"
+        + " generated if the target table does not exist at runtime.",
+      displayPosition = 110,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "HBASE"
+  )
+  public boolean validateTableExistence;
 
   @ConfigDef(
       required = false,
@@ -120,6 +141,7 @@ public class HBaseDTarget extends DTarget {
           "processing time, enter ${time:now()}. To use field values, use '${record:value(\"<fieldpath>\")}'. If left blank," +
           "system time will be used.",
       displayPosition = 130,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HBASE",
       elDefs = {RecordEL.class, TimeNowEL.class},
       evaluation = ConfigDef.Evaluation.EXPLICIT
@@ -136,6 +158,7 @@ public class HBaseDTarget extends DTarget {
         implicitFieldMapping,
         ignoreMissingFieldPath,
         ignoreInvalidColumn,
+        validateTableExistence,
         timeDriver
     );
   }

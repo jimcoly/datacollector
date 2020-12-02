@@ -40,6 +40,11 @@ public enum DefinitionError implements ErrorCode {
   DEF_014("{}, configuration field is '{}', it must be 'CredentialValue'"),
   DEF_015("{}, configuration field is '{}', it must be String or Number"),
 
+  DEF_016("{}, configuration field is a connection selection ('connectionType' is non-empty), it must be a 'Model' type"),
+  DEF_017("{}, configuration field is a connection selection ('connectionType' is non-empty), it must be a 'String'"),
+  DEF_018("{}, configuration field is a connection selection ('connectionType' is non-empty), it must have a the" +
+          "'ConnectionChooserValues' chooser"),
+
   //ConfigGroupExtractor
   DEF_100("{} ConfigGroup='{}' is not an enum"),
   DEF_101("{} group '{}' defined more than once"),

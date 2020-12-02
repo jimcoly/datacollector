@@ -28,35 +28,9 @@ import org.apache.kudu.client.RowResult;
 
 import java.util.Date;
 import java.util.List;
+import java.nio.ByteBuffer;
 
 public class KuduUtils {
-
-  /**
-   * Check network connection to the kudu master.
-   * @param kuduClient AsyncKuduClient
-   * @param context
-   * @param KUDU_MASTER
-   * @param issues
-   */
-  public static void checkConnection(AsyncKuduClient kuduClient,
-                                     Context context,
-                                     String KUDU_MASTER,
-                                     final List<Stage.ConfigIssue> issues
-  ){
-    try {
-      kuduClient.getTablesList().join();
-    } catch (Exception ex) {
-      issues.add(
-          context.createConfigIssue(
-              Groups.KUDU.name(),
-              KuduLookupConfig.CONF_PREFIX + KUDU_MASTER ,
-              Errors.KUDU_00,
-              ex.toString(),
-              ex
-          )
-      );
-    }
-  }
 
   /**
    * Convert from Kudu type to SDC Field type
@@ -103,7 +77,11 @@ public class KuduUtils {
         return Field.create(Field.Type.LONG, result.getLong(fieldName));
       case BINARY:
         try {
-          return Field.create(Field.Type.BYTE_ARRAY, result.getBinary(fieldName));
+          ByteBuffer bBuffer = result.getBinary(fieldName);
+          byte[] bArray = new byte[bBuffer.remaining()];
+          bBuffer.get(bArray);
+
+          return Field.create(Field.Type.BYTE_ARRAY, bArray);
         } catch (IllegalArgumentException ex) {
           throw new OnRecordErrorException(Errors.KUDU_35, fieldName);
         }

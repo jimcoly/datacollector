@@ -18,12 +18,11 @@ package com.streamsets.pipeline.stage.origin.kinesis;
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.regions.Region;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.cloudwatch.AmazonCloudWatch;
-import com.amazonaws.services.cloudwatch.AmazonCloudWatchClient;
+import com.amazonaws.services.cloudwatch.AmazonCloudWatchClientBuilder;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.amazonaws.services.dynamodbv2.document.DynamoDB;
 import com.amazonaws.services.dynamodbv2.document.Table;
 import com.amazonaws.services.dynamodbv2.model.AmazonDynamoDBException;
@@ -53,10 +52,11 @@ import com.streamsets.pipeline.api.BatchMaker;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.base.BasePushSource;
 import com.streamsets.pipeline.api.impl.Utils;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
 import com.streamsets.pipeline.lib.parser.DataParserException;
 import com.streamsets.pipeline.lib.parser.DataParserFactory;
-import com.streamsets.pipeline.stage.lib.aws.AWSUtil;
+import com.streamsets.pipeline.stage.lib.aws.AWSKinesisUtil;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
+import com.streamsets.pipeline.stage.lib.kinesis.AdditionalClientConfiguration;
 import com.streamsets.pipeline.stage.lib.kinesis.Errors;
 import com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil;
 import org.slf4j.Logger;
@@ -65,8 +65,10 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -79,9 +81,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
 import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.KINESIS_CONFIG_BEAN;
+import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.KINESIS_CONFIG_BEAN_CONNECTION;
 import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.ONE_MB;
 import static org.awaitility.Awaitility.await;
 
@@ -97,6 +101,7 @@ public class KinesisSource extends BasePushSource {
   private ExecutorService executor;
 
   private ClientConfiguration clientConfiguration;
+  private KinesisClientLibConfiguration kclConfig;
   private AWSCredentialsProvider credentials;
   private AmazonDynamoDB dynamoDBClient;
   private AmazonCloudWatch cloudWatchClient;
@@ -112,20 +117,35 @@ public class KinesisSource extends BasePushSource {
   protected List<ConfigIssue> init() {
     List<ConfigIssue> issues = super.init();
 
-    if (conf.region == AwsRegion.OTHER && (conf.endpoint == null || conf.endpoint.isEmpty())) {
+    if (conf.connection.region == AwsRegion.OTHER && (conf.connection.endpoint == null || conf.
+        connection.endpoint.isEmpty())) {
       issues.add(getContext().createConfigIssue(
           Groups.KINESIS.name(),
-          KINESIS_CONFIG_BEAN + ".endpoint",
+          KINESIS_CONFIG_BEAN_CONNECTION + ".endpoint",
           Errors.KINESIS_09
       ));
 
       return issues;
     }
 
+    Map<String, String> kinesisConsumerValidConfigurations = conf.kinesisConsumerConfigs;
+    for (Map.Entry<String, String> property : conf.kinesisConsumerConfigs.entrySet()) {
+      if (!AdditionalClientConfiguration.propertyExists(property.getKey())) {
+        issues.add(getContext().createConfigIssue(Groups.KINESIS.name(),
+            KINESIS_CONFIG_BEAN + ".kinesisConsumerConfigs",
+            Errors.KINESIS_24,
+            property.getKey()
+        ));
+        kinesisConsumerValidConfigurations.remove(property.getKey());
+      }
+    }
+
+    boolean clientConfigurationCredentialsCorrect = true;
+    clientConfiguration = AWSKinesisUtil.getClientConfiguration(conf.connection.proxyConfig);
     try {
       KinesisUtil.checkStreamExists(
-          AWSUtil.getClientConfiguration(conf.proxyConfig),
-          conf,
+          clientConfiguration,
+          conf.connection,
           conf.streamName,
           issues,
           getContext()
@@ -134,17 +154,44 @@ public class KinesisSource extends BasePushSource {
       LOG.error(Utils.format(Errors.KINESIS_12.getMessage(), ex.toString()), ex);
       issues.add(getContext().createConfigIssue(
           Groups.KINESIS.name(),
-          KINESIS_CONFIG_BEAN + ".awsConfig.awsAccessKeyId",
+          KINESIS_CONFIG_BEAN_CONNECTION + ".awsConfig.awsAccessKeyId",
           Errors.KINESIS_12,
           ex.toString()
       ));
+      clientConfigurationCredentialsCorrect = false;
+    }
+
+    if (kinesisConsumerValidConfigurations != null) {
+      AWSKinesisUtil.addAdditionalClientConfiguration(clientConfiguration,
+          kinesisConsumerValidConfigurations,
+          issues,
+          getContext()
+      );
+
+      if (clientConfigurationCredentialsCorrect) {
+        try {
+          KinesisUtil.checkStreamExists(
+              clientConfiguration,
+              conf.connection,
+              conf.streamName,
+              issues,
+              getContext()
+          );
+        } catch (StageException ex) {
+          LOG.error(Utils.format(Errors.KINESIS_23.getMessage(), ex.toString()), ex);
+          issues.add(getContext().createConfigIssue(Groups.KINESIS.name(),
+              KINESIS_CONFIG_BEAN + ".kinesisConsumerConfigs",
+              Errors.KINESIS_23,
+              ex.toString()
+          ));
+        }
+      }
     }
 
     conf.dataFormatConfig.stringBuilderPoolSize = getNumberOfThreads();
 
     if (issues.isEmpty()) {
-      conf.dataFormatConfig.init(
-          getContext(),
+      conf.dataFormatConfig.init(getContext(),
           conf.dataFormat,
           Groups.KINESIS.name(),
           KINESIS_DATA_FORMAT_CONFIG_PREFIX,
@@ -155,33 +202,62 @@ public class KinesisSource extends BasePushSource {
       parserFactory = conf.dataFormatConfig.getParserFactory();
     }
 
+    issues.addAll(buildDynamoAndCloudWatchClients());
+
+    resetOffsetAttempted = new AtomicBoolean(false);
+
+    kclConfig = new KinesisClientLibConfiguration(conf.applicationName, conf.streamName, credentials, getWorkerId());
+    if (kinesisConsumerValidConfigurations != null) {
+      KinesisUtil.addAdditionalKinesisClientConfiguration(kclConfig,
+          kinesisConsumerValidConfigurations,
+          issues,
+          getContext()
+      );
+    }
+
+    return issues;
+  }
+
+  private List<ConfigIssue> buildDynamoAndCloudWatchClients() {
+    List<ConfigIssue> issues = new ArrayList<>();
     try {
-      clientConfiguration = AWSUtil.getClientConfiguration(conf.proxyConfig);
-      credentials = AWSUtil.getCredentialsProvider(conf.awsConfig);
+      // KCL currently requires a mutable client
+      AmazonDynamoDBClientBuilder dynamoBuilder = AmazonDynamoDBClientBuilder.standard().withClientConfiguration(
+          clientConfiguration);
+
+      AmazonCloudWatchClientBuilder cloudWatchBuilder = AmazonCloudWatchClientBuilder.standard()
+                                                                                     .withClientConfiguration(
+                                                                                         clientConfiguration);
+
+      Regions region = Regions.DEFAULT_REGION;
+
+      if (conf.connection.region == AwsRegion.OTHER) {
+        Matcher matcher = KinesisUtil.REGION_PATTERN.matcher(conf.connection.endpoint);
+        if (matcher.find()) {
+          region = Regions.fromName(matcher.group(1).toLowerCase());
+        } else {
+          issues.add(getContext().createConfigIssue(Groups.KINESIS.name(),
+              KINESIS_CONFIG_BEAN_CONNECTION + ".endpoint",
+              Errors.KINESIS_19
+          ));
+        }
+      } else {
+        region = Regions.fromName(conf.connection.region.getId().toLowerCase());
+      }
+
+      credentials = AWSKinesisUtil.getCredentialsProvider(conf.connection.awsConfig, getContext(), region);
+      dynamoBuilder.withRegion(region).withCredentials(credentials);
+      cloudWatchBuilder.withRegion(region).withCredentials(credentials);
+      dynamoDBClient = dynamoBuilder.build();
+      cloudWatchClient = cloudWatchBuilder.build();
     } catch (StageException ex) {
       LOG.error(Utils.format(Errors.KINESIS_12.getMessage(), ex.toString()), ex);
-      issues.add(getContext().createConfigIssue(
-          Groups.KINESIS.name(),
-          KINESIS_CONFIG_BEAN + ".awsConfig.awsAccessKeyId",
+      issues.add(getContext().createConfigIssue(Groups.KINESIS.name(),
+          KINESIS_CONFIG_BEAN_CONNECTION + ".awsConfig.awsAccessKeyId",
           Errors.KINESIS_12,
           ex.toString()
       ));
     }
-
-    // KCL currently requires a mutable client
-    dynamoDBClient = new AmazonDynamoDBClient(credentials, clientConfiguration);
-    cloudWatchClient = new AmazonCloudWatchClient(credentials, clientConfiguration);
-    if (conf.region == AwsRegion.OTHER) {
-      dynamoDBClient.setEndpoint(conf.endpoint);
-      cloudWatchClient.setEndpoint(conf.endpoint);
-    } else {
-      Region region = Region.getRegion(Regions.valueOf(conf.region.name()));
-      dynamoDBClient.setRegion(region);
-      cloudWatchClient.setRegion(region);
-    }
-
-    resetOffsetAttempted = new AtomicBoolean(false);
-
     return issues;
   }
 
@@ -195,40 +271,46 @@ public class KinesisSource extends BasePushSource {
     this.metricsFactory = metricsFactory;
   }
 
-  private Worker createKinesisWorker(IRecordProcessorFactory recordProcessorFactory, int maxBatchSize) {
-    KinesisClientLibConfiguration kclConfig =
-        new KinesisClientLibConfiguration(
-            conf.applicationName,
-            conf.streamName,
-            credentials,
-            getWorkerId()
-        );
+  @VisibleForTesting
+  Map<String, String> getAdditionalProperties() {
+    Map<String, String> additionalProperties = new HashMap<>();
+    additionalProperties.put("maxConsecutiveRetriesBeforeThrottling",
+        Integer.toString(this.clientConfiguration.getMaxConnections())
+    );
+    additionalProperties.put("maxLeaseRenewalThreads", Integer.toString(this.kclConfig.getMaxLeaseRenewalThreads()));
+    return additionalProperties;
+  }
 
-    kclConfig
-        .withMaxRecords(maxBatchSize)
-        .withCallProcessRecordsEvenForEmptyRecordList(false)
-        .withIdleTimeBetweenReadsInMillis(conf.idleTimeBetweenReads)
-        .withInitialPositionInStream(conf.initialPositionInStream)
-        .withKinesisClientConfig(clientConfiguration);
+  private Worker createKinesisWorker(IRecordProcessorFactory recordProcessorFactory, int maxBatchSize) {
+    kclConfig.withMaxRecords(maxBatchSize)
+             .withCallProcessRecordsEvenForEmptyRecordList(false)
+             .withIdleTimeBetweenReadsInMillis(conf.idleTimeBetweenReads)
+             .withKinesisClientConfig(clientConfiguration);
 
     if (conf.initialPositionInStream == InitialPositionInStream.AT_TIMESTAMP) {
       kclConfig.withTimestampAtInitialPositionInStream(new Date(conf.initialTimestamp));
+    } else if (conf.initialPositionInStream == InitialPositionInStream.LATEST ||
+        conf.initialPositionInStream == InitialPositionInStream.TRIM_HORIZON) {
+      kclConfig.withInitialPositionInStream(conf.initialPositionInStream);
     }
 
-    if (conf.region == AwsRegion.OTHER) {
-      kclConfig.withKinesisEndpoint(conf.endpoint);
+    if (conf.connection.region == AwsRegion.OTHER) {
+      Matcher matcher = KinesisUtil.REGION_PATTERN.matcher(conf.connection.endpoint);
+      if (matcher.find()) {
+        kclConfig.withRegionName(matcher.group(1));
+        kclConfig.withKinesisEndpoint(conf.connection.endpoint.substring(matcher.start(), matcher.end()));
+      }
     } else {
-      kclConfig.withRegionName(conf.region.getId());
+      kclConfig.withRegionName(conf.connection.region.getId());
     }
 
-    return new Worker.Builder()
-        .recordProcessorFactory(recordProcessorFactory)
-        .metricsFactory(metricsFactory)
-        .dynamoDBClient(dynamoDBClient)
-        .cloudWatchClient(cloudWatchClient)
-        .execService(executor)
-        .config(kclConfig)
-        .build();
+    return new Worker.Builder().recordProcessorFactory(recordProcessorFactory)
+                               .metricsFactory(metricsFactory)
+                               .dynamoDBClient(dynamoDBClient)
+                               .cloudWatchClient(cloudWatchClient)
+                               .execService(executor)
+                               .config(kclConfig)
+                               .build();
   }
 
   private String getWorkerId() {
@@ -241,36 +323,37 @@ public class KinesisSource extends BasePushSource {
     return hostname + ":" + UUID.randomUUID();
   }
 
-  private void previewProcess(
-      int maxBatchSize,
-      BatchMaker batchMaker
-  ) throws IOException, StageException {
-    ClientConfiguration awsClientConfig = AWSUtil.getClientConfiguration(conf.proxyConfig);
-
-    String shardId = KinesisUtil.getLastShardId(awsClientConfig, conf, conf.streamName);
+  private void previewProcess(int maxBatchSize, BatchMaker batchMaker) throws IOException {
+    String shardId = KinesisUtil.getLastShardId(clientConfiguration, conf, conf.streamName, getContext());
 
     GetShardIteratorRequest getShardIteratorRequest = new GetShardIteratorRequest();
     getShardIteratorRequest.setStreamName(conf.streamName);
     getShardIteratorRequest.setShardId(shardId);
     getShardIteratorRequest.setShardIteratorType(conf.initialPositionInStream.name());
 
+    if (conf.initialPositionInStream == InitialPositionInStream.AT_TIMESTAMP) {
+      getShardIteratorRequest.setTimestamp(new Date(conf.initialTimestamp));
+    }
+
+    if (!getContext().isPreview() && conf.maxBatchSize > maxBatchSize) {
+      getContext().reportError(Errors.KINESIS_18, maxBatchSize);
+    }
+
     List<com.amazonaws.services.kinesis.model.Record> results = KinesisUtil.getPreviewRecords(
-        awsClientConfig,
+        clientConfiguration,
         conf,
         Math.min(conf.maxBatchSize, maxBatchSize),
-        getShardIteratorRequest
+        getShardIteratorRequest,
+        getContext()
     );
 
-    int batchSize = results.size() > maxBatchSize ? maxBatchSize : results.size();
+    int batchSize = Math.min(results.size(), maxBatchSize);
 
     for (int index = 0; index < batchSize; index++) {
       com.amazonaws.services.kinesis.model.Record record = results.get(index);
       UserRecord userRecord = new UserRecord(record);
-      KinesisUtil.processKinesisRecord(
-          getShardIteratorRequest.getShardId(),
-          userRecord,
-          parserFactory
-      ).forEach(batchMaker::addRecord);
+      KinesisUtil.processKinesisRecord(getShardIteratorRequest.getShardId(), userRecord, parserFactory).forEach(
+          batchMaker::addRecord);
     }
   }
 
@@ -320,7 +403,7 @@ public class KinesisSource extends BasePushSource {
   }
 
   @Override
-  public void produce(Map<String, String> lastOffsets, int maxBatchSize) throws StageException {
+  public void produce(Map<String, String> lastOffsets, int maxBatchSize) {
     if (getContext().isPreview()) {
       try {
         BatchContext previewBatchContext = getContext().startBatch();
@@ -337,11 +420,12 @@ public class KinesisSource extends BasePushSource {
     createLeaseTableIfNotExists();
 
     executor = Executors.newFixedThreadPool(getNumberOfThreads());
-    IRecordProcessorFactory recordProcessorFactory = new StreamSetsRecordProcessorFactory(
-        getContext(),
+    IRecordProcessorFactory recordProcessorFactory = new StreamSetsRecordProcessorFactory(getContext(),
         parserFactory,
         Math.min(conf.maxBatchSize, maxBatchSize),
-        error
+        error,
+        conf.throttleWaitTime,
+        conf.throttleMaxRetries
     );
 
     // Create the KCL worker with the StreamSets record processor factory
@@ -372,7 +456,7 @@ public class KinesisSource extends BasePushSource {
     }
   }
 
-  private void createLeaseTableIfNotExists() throws StageException {
+  private void createLeaseTableIfNotExists() {
     // Lease table doesn't need creation
     if (leaseTableExists()) {
       return;
@@ -380,28 +464,32 @@ public class KinesisSource extends BasePushSource {
 
     DynamoDB dynamoDB = new DynamoDB(dynamoDBClient);
     KinesisClientLeaseSerializer leaseSerializer = new KinesisClientLeaseSerializer();
-    CreateTableRequest createTableRequest = new CreateTableRequest()
-        .withTableName(conf.applicationName)
-        .withKeySchema(leaseSerializer.getKeySchema())
-        .withAttributeDefinitions(leaseSerializer.getAttributeDefinitions())
-        .withProvisionedThroughput(new ProvisionedThroughput().withReadCapacityUnits(
-            DEFAULT_INITIAL_LEASE_TABLE_READ_CAPACITY)
-            .withWriteCapacityUnits(DEFAULT_INITIAL_LEASE_TABLE_WRITE_CAPACITY));
+    CreateTableRequest createTableRequest = new CreateTableRequest().withTableName(conf.applicationName)
+                                                                    .withKeySchema(leaseSerializer.getKeySchema())
+                                                                    .withAttributeDefinitions(leaseSerializer.getAttributeDefinitions())
+                                                                    .withProvisionedThroughput(new ProvisionedThroughput()
+                                                                        .withReadCapacityUnits(
+                                                                            DEFAULT_INITIAL_LEASE_TABLE_READ_CAPACITY)
+                                                                        .withWriteCapacityUnits(
+                                                                            DEFAULT_INITIAL_LEASE_TABLE_WRITE_CAPACITY));
 
     try {
       Table leaseTable = dynamoDB.createTable(createTableRequest);
       LOG.debug("Waiting up to 2 minutes for table creation and readiness");
       await().atMost(2, TimeUnit.MINUTES).until(this::leaseTableExists);
       Collection<Tag> tags = conf.leaseTable.tags.entrySet()
-          .stream()
-          .map(e -> new Tag().withKey(e.getKey()).withValue(e.getValue())).collect(Collectors.toSet());
+                                                 .stream()
+                                                 .map(e -> new Tag().withKey(e.getKey())
+                                                                    .withValue(e.getValue()))
+                                                 .collect(Collectors.toSet());
 
       if (!tags.isEmpty()) {
-        TagResourceRequest tagRequest = new TagResourceRequest().withTags(tags).withResourceArn(leaseTable.getDescription().getTableArn());
+        TagResourceRequest tagRequest = new TagResourceRequest().withTags(tags)
+                                                                .withResourceArn(leaseTable.getDescription()
+                                                                                           .getTableArn());
 
         if (LOG.isInfoEnabled()) {
-          LOG.info(
-              "Tagging lease table {} with tags: '{}'",
+          LOG.info("Tagging lease table {} with tags: '{}'",
               conf.applicationName,
               Joiner.on(",").withKeyValueSeparator("=").join(conf.leaseTable.tags)
           );
@@ -439,7 +527,7 @@ public class KinesisSource extends BasePushSource {
     return tableStatus == TableStatus.ACTIVE;
   }
 
-  private void resetOffsets(Map<String, String> lastOffsets) throws StageException {
+  private void resetOffsets(Map<String, String> lastOffsets) {
     if (lastOffsets.isEmpty() && !resetOffsetAttempted.getAndSet(true)) {
       DynamoDB dynamoDB = new DynamoDB(dynamoDBClient);
       Table offsetTable = dynamoDB.getTable(conf.applicationName);

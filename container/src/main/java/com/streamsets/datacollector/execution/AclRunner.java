@@ -17,6 +17,7 @@ package com.streamsets.datacollector.execution;
 
 import com.streamsets.datacollector.callback.CallbackInfo;
 import com.streamsets.datacollector.callback.CallbackObjectType;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.execution.alerts.AlertInfo;
 import com.streamsets.datacollector.execution.runner.common.PipelineRunnerException;
@@ -56,13 +57,18 @@ public class AclRunner implements Runner {
   }
 
   @Override
+  public Map<String, ConnectionConfiguration> getConnections() {
+    return runner.getConnections();
+  }
+
+  @Override
   public String getPipelineTitle() throws PipelineException {
     return runner.getPipelineTitle();
   }
 
   @Override
-  public PipelineConfiguration getPipelineConfiguration() throws PipelineException {
-    return runner.getPipelineConfiguration();
+  public PipelineConfiguration getPipelineConfiguration(String user) throws PipelineException {
+    return runner.getPipelineConfiguration(user);
   }
 
   @Override
@@ -241,13 +247,8 @@ public class AclRunner implements Runner {
   }
 
   @Override
-  public void updateSlaveCallbackInfo(CallbackInfo callbackInfo) {
-    runner.updateSlaveCallbackInfo(callbackInfo);
-  }
-
-  @Override
-  public Map getUpdateInfo() {
-    return runner.getUpdateInfo();
+  public Map<String, Object> updateSlaveCallbackInfo(CallbackInfo callbackInfo) {
+    return runner.updateSlaveCallbackInfo(callbackInfo);
   }
 
   @Override

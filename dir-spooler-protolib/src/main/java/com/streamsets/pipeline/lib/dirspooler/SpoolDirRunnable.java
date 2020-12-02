@@ -32,6 +32,8 @@ import com.streamsets.pipeline.api.lineage.EndPointType;
 import com.streamsets.pipeline.api.lineage.LineageEvent;
 import com.streamsets.pipeline.api.lineage.LineageEventType;
 import com.streamsets.pipeline.api.lineage.LineageSpecificAttribute;
+import com.streamsets.pipeline.lib.event.FinishedFileEvent;
+import com.streamsets.pipeline.lib.event.NewFileEvent;
 import com.streamsets.pipeline.lib.io.fileref.FileRefUtil;
 import com.streamsets.pipeline.lib.parser.DataParser;
 import com.streamsets.pipeline.lib.parser.DataParserException;
@@ -46,10 +48,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.channels.ClosedByInterruptException;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
-
 
 public class SpoolDirRunnable implements Runnable {
   public static final String SPOOL_DIR_METRICS = "Spool Directory Metrics for Thread - ";
@@ -76,6 +81,7 @@ public class SpoolDirRunnable implements Runnable {
   private final Map<String, Object> gaugeMap;
   private final boolean useLastModified;
   private final WrappedFileSystem fs;
+  private final SpoolDirBaseContext spoolDirBaseContext;
 
   private DataParser parser;
   private SpoolDirConfigBean conf;
@@ -105,7 +111,8 @@ public class SpoolDirRunnable implements Runnable {
       String lastSourcFileName,
       DirectorySpooler spooler,
       SpoolDirConfigBean conf,
-      WrappedFileSystem fs
+      WrappedFileSystem fs,
+      SpoolDirBaseContext spoolDirBaseContext
   ) {
     this.context = context;
     this.threadNumber = threadNumber;
@@ -120,6 +127,7 @@ public class SpoolDirRunnable implements Runnable {
     this.rateLimitElVars = context.createELVars();
     this.useLastModified = conf.useLastModified == FileOrdering.TIMESTAMP;
     this.fs = fs;
+    this.spoolDirBaseContext = spoolDirBaseContext;
 
     // Metrics
     this.gaugeMap = context.createGauge(SPOOL_DIR_METRICS + threadNumber).getValue();
@@ -150,13 +158,17 @@ public class SpoolDirRunnable implements Runnable {
     // if lastSourceOffset is NULL (beginning of source) it returns NULL
     String file = lastSourceOffset.getRawFile();
     String lastSourceFile = file;
-    String fullPath = (file != null) ? spooler.getSpoolDir() + FILE_SEPARATOR + file : null;
+    String fullPath = processFullPath(file);
+
     // if lastSourceOffset is NULL (beginning of source) it returns 0
     String offset = lastSourceOffset.getOffset();
 
     try {
       if (hasToFetchNextFileFromSpooler(file, offset)) {
         updateGauge(Status.SPOOLING, null);
+        if (currentFile != null) {
+          spooler.removeFileBeingProcessed(currentFile);
+        }
         currentFile = null;
         try {
           WrappedFile nextAvailFile = null;
@@ -167,6 +179,7 @@ public class SpoolDirRunnable implements Runnable {
                   nextAvailFile.getAbsolutePath(),
                   fullPath
               );
+              spooler.removeFileBeingProcessed(nextAvailFile);
             }
             nextAvailFile = spooler.poolForFile(conf.poolingTimeoutSecs, TimeUnit.SECONDS);
           } while (!isFileFromSpoolerEligible(nextAvailFile, fullPath, offset));
@@ -196,20 +209,27 @@ public class SpoolDirRunnable implements Runnable {
             if (file == null) {
               pickFileFromSpooler = true;
             } else if (useLastModified) {
-              WrappedFile fileObject = fs.getFile(spooler.getSpoolDir(), file);
-              //try {
+              try {
+                WrappedFile fileObject = SpoolDirUtil.getFileFromOffsetFile(fs, spooler.getSpoolDir(), file);
                 if (SpoolDirUtil.compareFiles(fs, nextAvailFile, fileObject)) {
                   pickFileFromSpooler = true;
                 }
-              /*} catch (IOException ex) {
+              } catch (NoSuchFileException nsfe) {
+                // Error getting file metadata. Probably file does not exist so we can pick file from spooler
+                pickFileFromSpooler = true;
+              }
 
-              }*/
-            } else if (nextAvailFile.getFileName().compareTo(file) > 0) {
+            } else if (processFullPath(nextAvailFile.getAbsolutePath()).compareTo(processFullPath(file)) > 0) {
               pickFileFromSpooler = true;
             }
 
             if (pickFileFromSpooler) {
-              file = currentFile.toString().replaceFirst(spooler.getSpoolDir() + FILE_SEPARATOR, "");
+              file = currentFile.getAbsolutePath();
+              if (conf.processSubdirectories) {
+                // Since you are working from the specified path, all the paths MUST be relative to this base
+                // path that's why we are removing the first '/'
+                file = SpoolDirUtil.getFilenameForOffsetFile(currentFile.toString(), spooler.getSpoolDir());
+              }
               if (offsets.containsKey(file)) {
                 offset = offsets.get(file).getOffset();
               } else {
@@ -221,7 +241,9 @@ public class SpoolDirRunnable implements Runnable {
           if (currentFile != null && !offset.equals(MINUS_ONE)) {
             perFileRecordCount = 0;
             perFileErrorCount = 0;
-            SpoolDirEvents.NEW_FILE.create(context, batchContext).with("filepath", currentFile.getAbsolutePath()).createAndSend();
+            NewFileEvent.EVENT_CREATOR.create(context, batchContext)
+                .with(NewFileEvent.FILE_PATH, currentFile.getAbsolutePath())
+                .createAndSend();
             noMoreDataFileCount++;
             totalFiles++;
           }
@@ -246,10 +268,10 @@ public class SpoolDirRunnable implements Runnable {
         offset = generateBatch(currentFile, offset, batchSize, batchContext.getBatchMaker());
 
         if (MINUS_ONE.equals(offset)) {
-          SpoolDirEvents.FINISHED_FILE.create(context, batchContext)
-              .with("filepath", currentFile.getAbsolutePath())
-              .with("error-count", perFileErrorCount)
-              .with("record-count", perFileRecordCount)
+          FinishedFileEvent.EVENT_CREATOR.create(context, batchContext)
+              .with(FinishedFileEvent.FILE_PATH, currentFile.getAbsolutePath())
+              .with(FinishedFileEvent.ERROR_COUNT, perFileErrorCount)
+              .with(FinishedFileEvent.RECORD_COUNT, perFileRecordCount)
               .createAndSend();
 
           LineageEvent event = context.createLineageEvent(LineageEventType.ENTITY_READ);
@@ -267,8 +289,8 @@ public class SpoolDirRunnable implements Runnable {
 
         try {
           // then we ask the dirspooler to error handle the failed file
-          spooler.handleCurrentFileAsError();
-
+          spooler.handleFileAsError(currentFile);
+          spooler.removeFileBeingProcessed(currentFile);
         } catch (IOException ex1) {
           throw new StageException(Errors.SPOOLDIR_00, currentFile, ex1.toString(), ex1);
         }
@@ -277,19 +299,25 @@ public class SpoolDirRunnable implements Runnable {
       }
     }
 
+    // Generate no more data if needed before sending batch as the event is really sent when the batch is sent
     if (shouldSendNoMoreDataEvent) {
-      LOG.info("sending no-more-data event.  records {} errors {} files {} ",
-          noMoreDataRecordCount, noMoreDataErrorCount, noMoreDataFileCount
+      LOG.info("Setting no-more-data for thread {}.", threadNumber);
+      spoolDirBaseContext.setNoMoreData(
+          threadNumber,
+          true,
+          batchContext,
+          noMoreDataRecordCount,
+          noMoreDataErrorCount,
+          noMoreDataFileCount
       );
-      SpoolDirEvents.NO_MORE_DATA.create(context, batchContext)
-          .with("record-count", noMoreDataRecordCount)
-          .with("error-count", noMoreDataErrorCount)
-          .with("file-count", noMoreDataFileCount)
-          .createAndSend();
-      shouldSendNoMoreDataEvent = false;
+
       noMoreDataRecordCount = 0;
       noMoreDataErrorCount = 0;
       noMoreDataFileCount = 0;
+    } else {
+      // setting to false the no more data for current thread, batchContext is not used counters shall not be
+      // incremented in this case
+      spoolDirBaseContext.setNoMoreData(threadNumber, false, null, 0, 0, 0);
     }
 
     Offset newOffset = new Offset(Offset.VERSION_ONE, file, offset);
@@ -304,13 +332,28 @@ public class SpoolDirRunnable implements Runnable {
       }
 
       // if this is the end of the file, do post processing
-      if (currentFile != null && newOffset.getOffset().equals(MINUS_ONE)) {
-        spooler.doPostProcessing(fs.getFile(conf.spoolDir, newOffset.getFile()));
+      if (currentFile != null && newOffset.getOffset().equals(MINUS_ONE) && fs.exists(currentFile)) {
+        spooler.doPostProcessing(currentFile);
       }
     }
 
     updateGauge(Status.BATCH_GENERATED, offset);
+
     return newOffset;
+  }
+
+  private String processFullPath(String file) {
+    if (file != null) {
+      Path filePath = Paths.get(file);
+      if (!filePath.isAbsolute()) {
+        Utils.checkState(!SpoolDirUtil.isGlobPattern(spooler.getSpoolDir()),
+            "[" + spooler.getSpoolDir() + "] is not supported with filename [" + file + "]");
+        return new StringJoiner(FILE_SEPARATOR).add(spooler.getSpoolDir()).add(file).toString();
+      } else {
+        return file;
+      }
+    }
+    return null;
   }
 
   /**
@@ -436,18 +479,41 @@ public class SpoolDirRunnable implements Runnable {
     return offset;
   }
 
-  private boolean hasToFetchNextFileFromSpooler(String file, String offset) throws IOException {
-    return
-        // we don't have a current file half way processed in the current agent execution
-        currentFile == null ||
-            // we don't have a file half way processed from a previous agent execution via offset tracking
-            file == null ||
-            (useLastModified && SpoolDirUtil.compareFiles(fs, fs.getFile(spooler.getSpoolDir(), file), currentFile)) ||
-            // the current file is lexicographically lesser than the one reported via offset tracking
-            // this can happen if somebody drop
-            (!useLastModified && currentFile.getFileName().compareTo(file) < 0) ||
-            // the current file has been fully processed
-            MINUS_ONE.equals(offset);
+  private boolean hasToFetchNextFileFromSpooler(String file, String offset) {
+    boolean hasToFetch = false;
+    if (currentFile == null || file == null) {
+      hasToFetch = true;
+    }
+
+    if (!hasToFetch) {
+      if (useLastModified) {
+        try {
+          if (SpoolDirUtil.compareFiles(fs, SpoolDirUtil.getFileFromOffsetFile(fs, spooler.getSpoolDir(), file), currentFile)) {
+            hasToFetch = true;
+          } else {
+            if (!fs.exists(fs.getFile(spooler.getSpoolDir(), file))) {
+              // file does not exist so we have to fetch
+              if (!currentFile.getAbsolutePath().equals(file)) {
+                hasToFetch = true;
+              }
+            }
+          }
+        } catch (IOException e) {
+          // File probably exists or there was an issue trying to get file metadata so we have to fetch
+          if (!currentFile.getAbsolutePath().equals(file)) {
+            hasToFetch = true;
+          }
+        }
+      } else {
+        if (currentFile.getFileName().compareTo(file) < 0) {
+          hasToFetch = true;
+        }
+      }
+
+      hasToFetch = hasToFetch || MINUS_ONE.equals(offset);
+    }
+
+    return hasToFetch;
   }
 
   private boolean isFileFromSpoolerEligible(WrappedFile spoolerFile, String offsetFile, String offsetInFile) {
@@ -460,7 +526,7 @@ public class SpoolDirRunnable implements Runnable {
       return true;
     }
 
-    String fileName = spoolerFile.toString().replaceFirst(spooler.getSpoolDir() + FILE_SEPARATOR, "");
+    String fileName = SpoolDirUtil.getFilenameForOffsetFile(spoolerFile.toString(), spooler.getSpoolDir());
     if (offsets.containsKey(fileName)) {
       offsetInFile = offsets.get(fileName).getOffset();
       if (offsetInFile.equals(MINUS_ONE)) {
@@ -470,13 +536,31 @@ public class SpoolDirRunnable implements Runnable {
       // check is newer then any other files in the offset
       for (String offsetFileName : offsets.keySet()) {
         if (useLastModified) {
-          if (fs.exists(fs.getFile(spooler.getSpoolDir(), offsetFileName)) &&
-              SpoolDirUtil.compareFiles(
-                  fs,
-                  fs.getFile(spooler.getSpoolDir(), offsetFileName),
-                  spoolerFile
-              )) {
-            LOG.debug("File '{}' is less then offset file {}, ignoring", fileName, offsetFileName);
+          try {
+            WrappedFile fileFromOffsetFile = SpoolDirUtil.getFileFromOffsetFile(
+                fs,
+                spooler.getSpoolDir(),
+                offsetFileName
+            );
+            if (fs.exists(fileFromOffsetFile) && SpoolDirUtil.compareFiles(fs, fileFromOffsetFile, spoolerFile)) {
+              LOG.debug("File '{}' is less then offset file {}, ignoring", fileName, offsetFileName);
+              return false;
+            }
+          } catch (NoSuchFileException nsfe) {
+            LOG.warn(
+                "File form saved offsets does not exist. File is: '{}'. It has ben processed by another thread. " +
+                    "Discarding file.",
+                offsetFileName,
+                nsfe
+            );
+            // Just ignore non existing file from saved offsets and process next offset
+          } catch (IOException ex) {
+            LOG.warn(
+                "Error when getting information for saved offset to check if file is newer than current offset saved." +
+                    " Discarding offset: '{}'.",
+                offsetFileName,
+                ex
+            );
             return false;
           }
         } else {
@@ -494,7 +578,12 @@ public class SpoolDirRunnable implements Runnable {
       return true;
     }
     if (useLastModified) {
-      if (SpoolDirUtil.compareFiles(fs, spoolerFile, fs.getFile(offsetFile))) {
+      try {
+        if (SpoolDirUtil.compareFiles(fs, spoolerFile, fs.getFile(offsetFile))) {
+          return true;
+        }
+      } catch (IOException e) {
+        // File is elegible as there was an issue when trying to get file metadata information for offsetFile
         return true;
       }
     } else {

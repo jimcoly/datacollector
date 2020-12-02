@@ -23,12 +23,12 @@
   <parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-root-lib</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <relativePath>../root-lib</relativePath>
   </parent>
   <groupId>com.streamsets</groupId>
   <artifactId>streamsets-datacollector-kafka-common</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector Kafka Common</description>
   <name>StreamSets Data Collector Kafka Common</name>
   <packaging>jar</packaging>
@@ -72,6 +72,23 @@
       <scope>compile</scope>
     </dependency>
     <dependency>
+      <groupId>com.streamsets</groupId>
+      <artifactId>streamsets-utils</artifactId>
+      <scope>compile</scope>
+      <!-- don't bring in jackson or Gauva here; anything that pulls in kafka-common will already have its
+           own versions of those -->
+      <exclusions>
+        <exclusion>
+          <groupId>com.fasterxml.jackson.core</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.guava</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
       <groupId>com.101tec</groupId>
       <artifactId>zkclient</artifactId>
       <version>${tec.version}</version>
@@ -108,6 +125,12 @@
       <groupId>org.mockito</groupId>
       <artifactId>mockito-core</artifactId>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.streamsets</groupId>
+      <artifactId>streamsets-datacollector-kafka-connection</artifactId>
+      <version>${project.version}</version>
+      <scope>compile</scope>
     </dependency>
   </dependencies>
 

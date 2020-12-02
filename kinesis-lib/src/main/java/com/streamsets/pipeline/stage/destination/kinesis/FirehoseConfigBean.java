@@ -21,17 +21,19 @@ import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.config.DataFormat;
 import com.streamsets.pipeline.config.JsonMode;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
 import com.streamsets.pipeline.stage.common.DataFormatGroups;
 import com.streamsets.pipeline.stage.destination.lib.DataGeneratorFormatConfig;
 import com.streamsets.pipeline.stage.lib.kinesis.Errors;
-import com.streamsets.pipeline.stage.lib.kinesis.KinesisConfigBean;
+import com.streamsets.pipeline.stage.lib.kinesis.KinesisFirehoseConfigBean;
+import com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil;
 
 import java.util.List;
 
 import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.KINESIS_CONFIG_BEAN;
+import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.KINESIS_CONFIG_BEAN_CONNECTION;
 
-public class FirehoseConfigBean extends KinesisConfigBean {
+public class FirehoseConfigBean extends KinesisFirehoseConfigBean {
 
   @ConfigDef(
       required = true,
@@ -68,6 +70,7 @@ public class FirehoseConfigBean extends KinesisConfigBean {
       label = "Maximum Record Size (KB)",
       description = "Records larger than this will be sent to the error pipeline.",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0"
   )
   public int maxRecordSize = 1000;
@@ -94,11 +97,11 @@ public class FirehoseConfigBean extends KinesisConfigBean {
       );
     }
 
-    if (region == AwsRegion.OTHER && (endpoint == null || endpoint.isEmpty())) {
+    if (connection.region == AwsRegion.OTHER && (connection.endpoint == null || connection.endpoint.isEmpty())) {
       issues.add(
           context.createConfigIssue(
               Groups.KINESIS.name(),
-              KINESIS_CONFIG_BEAN + ".endpoint",
+              KINESIS_CONFIG_BEAN_CONNECTION + ".endpoint",
               Errors.KINESIS_09
           )
       );

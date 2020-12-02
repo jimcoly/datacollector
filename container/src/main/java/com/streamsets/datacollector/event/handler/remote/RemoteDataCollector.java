@@ -20,12 +20,17 @@ import com.google.common.annotations.VisibleForTesting;
 import com.streamsets.datacollector.blobstore.BlobStoreTask;
 import com.streamsets.datacollector.callback.CallbackInfo;
 import com.streamsets.datacollector.callback.CallbackObjectType;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.RuleDefinitions;
 import com.streamsets.datacollector.config.dto.ValidationStatus;
+import com.streamsets.datacollector.creation.PipelineBeanCreator;
+import com.streamsets.datacollector.event.client.api.EventClient;
+import com.streamsets.datacollector.event.client.impl.EventClientImpl;
 import com.streamsets.datacollector.event.dto.AckEvent;
 import com.streamsets.datacollector.event.dto.AckEventStatus;
 import com.streamsets.datacollector.event.dto.EventType;
+import com.streamsets.datacollector.event.dto.PipelineStartEvent;
 import com.streamsets.datacollector.event.dto.WorkerInfo;
 import com.streamsets.datacollector.event.handler.DataCollector;
 import com.streamsets.datacollector.execution.Manager;
@@ -36,11 +41,11 @@ import com.streamsets.datacollector.execution.PreviewOutput;
 import com.streamsets.datacollector.execution.PreviewStatus;
 import com.streamsets.datacollector.execution.Previewer;
 import com.streamsets.datacollector.execution.Runner;
-import com.streamsets.datacollector.execution.StartPipelineContextBuilder;
 import com.streamsets.datacollector.json.ObjectMapperFactory;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
-import com.streamsets.datacollector.restapi.RestAPIUtils;
 import com.streamsets.datacollector.restapi.bean.SourceOffsetJson;
+import com.streamsets.datacollector.runner.StageOutput;
 import com.streamsets.datacollector.runner.production.OffsetFileUtil;
 import com.streamsets.datacollector.runner.production.SourceOffset;
 import com.streamsets.datacollector.security.GroupsInScope;
@@ -56,6 +61,8 @@ import com.streamsets.datacollector.util.PipelineException;
 import com.streamsets.datacollector.validation.Issues;
 import com.streamsets.datacollector.validation.PipelineConfigurationValidator;
 import com.streamsets.lib.security.acl.dto.Acl;
+import com.streamsets.lib.security.http.RemoteSSOService;
+import com.streamsets.lib.security.http.SSOConstants;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.impl.Utils;
@@ -72,6 +79,7 @@ import javax.inject.Named;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -80,12 +88,18 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
+import java.util.function.Function;
+
+import static com.streamsets.datacollector.event.handler.remote.RemoteEventHandlerTask.sendPipelineMetrics;
 
 public class RemoteDataCollector implements DataCollector {
 
   public static final String IS_REMOTE_PIPELINE = "IS_REMOTE_PIPELINE";
+  public static final String SCH_GENERATED_PIPELINE_NAME = "SCH_GENERATED_PIPELINE_NAME";
   private static final String NAME_AND_REV_SEPARATOR = "::";
   private static final Logger LOG = LoggerFactory.getLogger(RemoteDataCollector.class);
+  public static final String JOB_METRICS_URL = "jobrunner/rest/v1/jobs/metrics";
+  public static final String MESSAGING_EVENTS_URL = "messaging/rest/v1/events";
   private final Configuration configuration;
   private final Manager manager;
   private final PipelineStoreTask pipelineStore;
@@ -95,9 +109,16 @@ public class RemoteDataCollector implements DataCollector {
   private final AclStoreTask aclStoreTask;
   private final AclCacheHelper aclCacheHelper;
   private final RuntimeInfo runtimeInfo;
+  private final BuildInfo buildInfo;
   private final StageLibraryTask stageLibrary;
   private final BlobStoreTask blobStoreTask;
   private final SafeScheduledExecutorService eventHandlerExecutor;
+  private final EventClient eventClient;
+  private String jobRunnerMetricsUrl;
+  private final Map<String, String> requestHeader;
+  protected static final String SEND_METRIC_ATTEMPTS =  "pipeline.metrics.attempts";
+  protected static final int DEFAULT_SEND_METRIC_ATTEMPTS = 0;
+
 
   @Inject
   public RemoteDataCollector(
@@ -108,6 +129,7 @@ public class RemoteDataCollector implements DataCollector {
       AclStoreTask aclStoreTask,
       RemoteStateEventListener stateEventListener,
       RuntimeInfo runtimeInfo,
+      BuildInfo buildInfo,
       AclCacheHelper aclCacheHelper,
       StageLibraryTask stageLibrary,
       BlobStoreTask blobStoreTask,
@@ -120,29 +142,42 @@ public class RemoteDataCollector implements DataCollector {
     this.validatorIdList = new ArrayList<>();
     this.stateEventListener = stateEventListener;
     this.runtimeInfo = runtimeInfo;
+    this.buildInfo = buildInfo;
     this.aclStoreTask = aclStoreTask;
     this.aclCacheHelper = aclCacheHelper;
     this.stageLibrary = stageLibrary;
     this.blobStoreTask = blobStoreTask;
     this.eventHandlerExecutor = eventHandlerExecutor;
+    PipelineBeanCreator.prepareForConnections(configuration, runtimeInfo);
+    String remoteBaseURL = RemoteSSOService.getValidURL(configuration.get(RemoteSSOService.DPM_BASE_URL_CONFIG,
+        RemoteSSOService.DPM_BASE_URL_DEFAULT
+    ));
+    requestHeader = new HashMap<>();
+    requestHeader.put(SSOConstants.X_REST_CALL, SSOConstants.SDC_COMPONENT_NAME);
+    requestHeader.put(SSOConstants.X_APP_AUTH_TOKEN, runtimeInfo.getAppAuthToken());
+    requestHeader.put(SSOConstants.X_APP_COMPONENT_ID, runtimeInfo.getId());
+    jobRunnerMetricsUrl = remoteBaseURL + JOB_METRICS_URL;
+    eventClient = new EventClientImpl(configuration);
   }
 
-  public void init() {
-    stateEventListener.init();
-    this.manager.addStateEventListener(stateEventListener);
-    this.pipelineStore.registerStateListener(stateEventListener);
+  PipelineStoreTask getPipelineStoreTask() {
+    return pipelineStore;
   }
 
   @Override
-  public void start(Runner.StartPipelineContext context, String name, String rev) throws PipelineException, StageException {
-    //TODO we should receive the groups from DPM, SDC-6793
+  public void init() {
+    stateEventListener.init();
+    this.manager.addStateEventListener(stateEventListener);
+  }
 
+  @Override
+  public void start(Runner.StartPipelineContext context, String name, String rev, Set<String> groups) throws PipelineException, StageException {
     try {
-      // we need to skip enforcement user groups in scope.
-      GroupsInScope.executeIgnoreGroups(() -> {
+      Callable<String> callable = () -> {
         PipelineState pipelineState = pipelineStateStore.getState(name, rev);
         if (pipelineState.getStatus().isActive()) {
-          LOG.warn("Pipeline {}:{} is already in active state {}",
+          LOG.warn(
+              "Pipeline {}:{} is already in active state {}",
               pipelineState.getPipelineId(),
               pipelineState.getRev(),
               pipelineState.getStatus()
@@ -154,7 +189,13 @@ public class RemoteDataCollector implements DataCollector {
           manager.getRunner(name, rev).start(context);
         }
         return null;
-      });
+      };
+      if (groups != null) {
+        GroupsInScope.execute(groups, callable);
+      } else {
+        // For SCH versions < 3.16.0, we don't send user groups so we need to just revert back to old functionality of not checking group credentials
+        GroupsInScope.executeIgnoreGroups(callable);
+      }
     } catch (Exception ex) {
       LOG.warn(Utils.format("Error while starting pipeline: {} is {}", name, ex), ex);
       if (ex.getCause() != null) {
@@ -197,40 +238,61 @@ public class RemoteDataCollector implements DataCollector {
   }
 
   @Override
-  public void savePipeline(
+  public String savePipeline(
       String user,
       String name,
       String rev,
       String description,
       SourceOffset offset,
-      PipelineConfiguration pipelineConfiguration,
+      final PipelineConfiguration pipelineConfiguration,
       RuleDefinitions ruleDefinitions,
-      Acl acl
-  ) throws PipelineException {
-    // Due to some reason, if pipeline folder doesn't exist but state file exists then remove the state file.
-    if (!pipelineStore.hasPipeline(name) && pipelineStateExists(name, rev)) {
-      LOG.warn("Deleting state file for pipeline {} as pipeline is deleted", name);
-      pipelineStateStore.delete(name, rev);
+      Acl acl,
+      Map<String, Object> metadata,
+      Map<String, ConnectionConfiguration> connections
+  ) {
+    UUID uuid = null;
+    try {
+      uuid = GroupsInScope.executeIgnoreGroups(() -> {
+        // Due to some reason, if pipeline folder doesn't exist but state file exists then remove the state file.
+        if (!pipelineStore.hasPipeline(name) && pipelineStateExists(name, rev)) {
+          LOG.warn("Deleting state file for pipeline {} as pipeline is deleted", name);
+          pipelineStateStore.delete(name, rev);
+        }
+        UUID uuidRet = pipelineStore.create(user, name, name, description, true, false, metadata).getUuid();
+        pipelineConfiguration.setUuid(uuidRet);
+        pipelineConfiguration.setPipelineId(name);
+        PipelineConfigurationValidator validator = new PipelineConfigurationValidator(stageLibrary,
+            buildInfo,
+            name,
+            pipelineConfiguration,
+            user,
+            connections
+        );
+        PipelineConfiguration validatedPipelineConfig = validator.validate();
+        //By default encrypt credentials from Remote data collector
+        pipelineStore.save(user, name, rev, description, validatedPipelineConfig, true);
+        pipelineStore.storeRules(name, rev, ruleDefinitions, false);
+        if (acl != null) { // can be null for old dpm or when DPM jobs have no acl
+          aclStoreTask.saveAcl(name, acl);
+        }
+        LOG.info("Offset for remote pipeline '{}:{}' is {}", name, rev, offset);
+        if (offset != null) {
+          OffsetFileUtil.saveSourceOffset(runtimeInfo, name, rev, offset);
+        }
+        return uuidRet;
+      });
+    } catch (Exception ex) {
+      LOG.warn(Utils.format("Error while saving pipeline: {} is {}", name, ex), ex);
+      if (ex.getCause() != null) {
+        ExceptionUtils.throwUndeclared(ex.getCause());
+      } else {
+        ExceptionUtils.throwUndeclared(ex);
+      }
+    } finally {
+      MDC.clear();
     }
-    UUID uuid = pipelineStore.create(user, name, name, description, true, false).getUuid();
-    pipelineConfiguration.setUuid(uuid);
-    PipelineConfigurationValidator validator = new PipelineConfigurationValidator(
-        stageLibrary,
-        name,
-        pipelineConfiguration
-    );
-    pipelineConfiguration = validator.validate();
-    pipelineStore.save(user, name, rev, description, pipelineConfiguration);
-    pipelineStore.storeRules(name, rev, ruleDefinitions, false);
-    if (acl != null) { // can be null for old dpm or when DPM jobs have no acl
-      aclStoreTask.saveAcl(name, acl);
-    }
-    LOG.info("Offset for remote pipeline '{}:{}' is {}", name, rev, offset);
-    if (offset != null) {
-      OffsetFileUtil.saveSourceOffset(runtimeInfo, name, rev, offset);
-    }
+    return uuid.toString();
   }
-
 
 
   @Override
@@ -247,10 +309,52 @@ public class RemoteDataCollector implements DataCollector {
   }
 
   @Override
-  public void validateConfigs(String user, String name, String rev) throws PipelineException {
-    Previewer previewer = manager.createPreviewer(user, name, rev);
+  public void validateConfigs(
+      String user,
+      String name,
+      String rev,
+      List<PipelineStartEvent.InterceptorConfiguration> interceptorConfs
+  ) throws PipelineException {
+    Previewer previewer = manager.createPreviewer(user, name, rev, interceptorConfs, p -> null, false, new HashMap<>());
     previewer.validateConfigs(1000L);
     validatorIdList.add(previewer.getId());
+  }
+
+  @Override
+  public String previewPipeline(
+      String user,
+      String name,
+      String rev,
+      int batches,
+      int batchSize,
+      boolean skipTargets,
+      boolean skipLifecycleEvents,
+      String stopStage,
+      List<StageOutput> stagesOverride,
+      long timeoutMillis,
+      boolean testOrigin,
+      List<PipelineStartEvent.InterceptorConfiguration> interceptorConfs,
+      Function<Object, Void> afterActionsFunction,
+      Map<String, ConnectionConfiguration> connections
+  ) {
+    String previewerId = null;
+    try {
+      previewerId = GroupsInScope.executeIgnoreGroups(() -> {
+        final Previewer previewer = manager.createPreviewer(user, name, rev, interceptorConfs, afterActionsFunction, false, connections);
+        previewer.validateConfigs(timeoutMillis);
+        return previewer.getId();
+      });
+    } catch (Exception ex) {
+      LOG.warn(Utils.format("Error while previewing pipeline: {} is {}", name, ex), ex);
+      if (ex.getCause() != null) {
+        ExceptionUtils.throwUndeclared(ex.getCause());
+      } else {
+        ExceptionUtils.throwUndeclared(ex);
+      }
+    } finally {
+      MDC.clear();
+    }
+    return previewerId;
   }
 
   static class StopAndDeleteCallable implements Callable<AckEvent> {
@@ -259,15 +363,24 @@ public class RemoteDataCollector implements DataCollector {
     private final String rev;
     private final String user;
     private final long forceStopMillis;
+    private final int attempts;
+    private final EventClient eventClient;
+    private String jobRunnerUrl;
+    private final Map<String, String> requestHeader;
 
     public StopAndDeleteCallable(
-        RemoteDataCollector remoteDataCollector, String user, String pipelineName, String rev, long forceStopMillis
+        RemoteDataCollector remoteDataCollector, String user, String pipelineName, String rev, long forceStopMillis,
+        EventClient eventClient, String jobRunnerUrl, Map<String, String> requestHeader, Configuration configuration
     ) {
       this.remoteDataCollector = remoteDataCollector;
       this.pipelineName = pipelineName;
       this.rev = rev;
       this.user = user;
       this.forceStopMillis = forceStopMillis;
+      this.requestHeader = requestHeader;
+      this.jobRunnerUrl = jobRunnerUrl;
+      this.eventClient = eventClient;
+      this.attempts = configuration.get(SEND_METRIC_ATTEMPTS, DEFAULT_SEND_METRIC_ATTEMPTS);
     }
 
     private boolean waitForInactiveState(
@@ -340,11 +453,21 @@ public class RemoteDataCollector implements DataCollector {
               pipelineState.getNextRetryTimeStamp()
           );
         }
+        try {
+          // We're currently sending with attempts set to 0 because we are disabling this function by default
+          sendPipelineMetrics(remoteDataCollector, eventClient, jobRunnerUrl, requestHeader, attempts);
+        } catch (IOException | PipelineException ex) {
+          // if metrics sending fail, lets log an error and continue with delete of the pipeline
+          LOG.error(Utils.format("Cannot send metrics for pipeline: {} due to: {}", pipelineState.getPipelineId(), ex),
+              ex
+          );
+        }
         remoteDataCollector.delete(pipelineName, rev);
       } catch (Exception ex) {
         ackStatus = AckEventStatus.ERROR;
         ackEventMessage = Utils.format("Remote event type {} encountered error {}", EventType.STOP_DELETE_PIPELINE,
             ex);
+        LOG.error(ex.getMessage(), ex);
       }
       long endTime = System.currentTimeMillis();
       LOG.info("Time in secs to stop and delete pipeline {} is {}", pipelineName, (endTime - startTime)/1000);
@@ -356,13 +479,17 @@ public class RemoteDataCollector implements DataCollector {
   @Override
   public Future<AckEvent> stopAndDelete(
       String user, String name, String rev, long forceTimeoutMillis
-  ) throws PipelineException, StageException {
+  ) {
     LOG.info("Pipeline will be stopped and deleted, force timeout is {}", forceTimeoutMillis);
     Future<AckEvent> ackEventFuture = eventHandlerExecutor.submit(new StopAndDeleteCallable(this,
         user,
         name,
         rev,
-        forceTimeoutMillis
+        forceTimeoutMillis,
+        eventClient,
+        jobRunnerMetricsUrl,
+        requestHeader,
+        configuration
     ));
     return ackEventFuture;
   }
@@ -376,7 +503,9 @@ public class RemoteDataCollector implements DataCollector {
       Map<String, String> offset = pipelineStateAndOffset.getRight();
       String name = pipelineState.getPipelineId();
       String rev = pipelineState.getRev();
-      boolean isClusterMode = (pipelineState.getExecutionMode() != ExecutionMode.STANDALONE) ? true : false;
+      boolean isClusterMode = pipelineState.getExecutionMode() != ExecutionMode.STANDALONE &&
+          pipelineState.getExecutionMode() != ExecutionMode.BATCH &&
+          pipelineState.getExecutionMode() != ExecutionMode.STREAMING;
       List<WorkerInfo> workerInfos = new ArrayList<>();
       String title;
       int runnerCount = 0;
@@ -391,7 +520,7 @@ public class RemoteDataCollector implements DataCollector {
         title = null;
       }
       pipelineAndValidationStatuses.add(new PipelineAndValidationStatus(
-          name,
+          getSchGeneratedPipelineName(pipelineState),
           title,
           rev,
           pipelineState.getTimeStamp(),
@@ -457,6 +586,18 @@ public class RemoteDataCollector implements DataCollector {
     return OffsetFileUtil.getSourceOffset(runtimeInfo, pipelineName, rev);
   }
 
+
+  String getSchGeneratedPipelineName(String name, String rev) throws PipelineException {
+    return getSchGeneratedPipelineName(pipelineStateStore.getState(name, rev));
+  }
+
+  private String getSchGeneratedPipelineName(PipelineState pipelineState) {
+    // return name with colon so control hub can interpret the job id from the name
+    Object schGenName = pipelineState.getAttributes().get(RemoteDataCollector.SCH_GENERATED_PIPELINE_NAME);
+    // will be null for pipelines with version earlier than 3.7
+    return (schGenName == null) ? pipelineState.getPipelineId() : (String) schGenName;
+  }
+
   @Override
   public Collection<PipelineAndValidationStatus> getPipelines() throws IOException, PipelineException {
     List<PipelineState> pipelineStates = manager.getPipelines();
@@ -474,7 +615,9 @@ public class RemoteDataCollector implements DataCollector {
       // ignore local and non active pipelines
       if (isRemote || manager.isPipelineActive(name, rev)) {
         List<WorkerInfo> workerInfos = new ArrayList<>();
-        boolean isClusterMode = (pipelineState.getExecutionMode() != ExecutionMode.STANDALONE) ? true: false;
+        boolean isClusterMode = pipelineState.getExecutionMode() != ExecutionMode.STANDALONE &&
+            pipelineState.getExecutionMode() != ExecutionMode.BATCH &&
+            pipelineState.getExecutionMode() != ExecutionMode.STREAMING;
         Runner runner = manager.getRunner(name, rev);
         if (isClusterMode) {
           for (CallbackInfo callbackInfo : runner.getSlaveCallbackList(CallbackObjectType.METRICS)) {
@@ -490,7 +633,7 @@ public class RemoteDataCollector implements DataCollector {
           acl = aclCacheHelper.getAcl(name);
         }
         pipelineStatusMap.put(getNameAndRevString(name, rev), new PipelineAndValidationStatus(
-            name,
+            getSchGeneratedPipelineName(name, rev),
             title,
             rev,
             pipelineState.getTimeStamp(),
@@ -508,6 +651,17 @@ public class RemoteDataCollector implements DataCollector {
     aclCacheHelper.removeIfAbsent(localPipelineIds);
     setValidationStatus(pipelineStatusMap);
     return pipelineStatusMap.values();
+  }
+
+  public List<PipelineState> getRemotePipelines() throws PipelineException {
+    List<PipelineState> pipelineStates = manager.getPipelines();
+    List<PipelineState> remoteStates = new ArrayList<>();
+    for (PipelineState pipelineState: pipelineStates) {
+      if (manager.isRemotePipeline(pipelineState.getPipelineId(), pipelineState.getRev())) {
+        remoteStates.add(pipelineState);
+      }
+    }
+    return remoteStates;
   }
 
   private void setValidationStatus(Map<String, PipelineAndValidationStatus> pipelineStatusMap) {
@@ -587,5 +741,8 @@ public class RemoteDataCollector implements DataCollector {
     }
   }
 
+  public Runner getRunner(String name, String rev) throws PipelineException  {
+    return manager.getRunner(name, rev);
+  }
 }
 

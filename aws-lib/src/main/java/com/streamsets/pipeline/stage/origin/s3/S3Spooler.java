@@ -17,16 +17,23 @@ package com.streamsets.pipeline.stage.origin.s3;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.model.AmazonS3Exception;
+import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.codahale.metrics.Meter;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.streamsets.pipeline.api.BatchContext;
 import com.streamsets.pipeline.api.PushSource;
 import com.streamsets.pipeline.api.impl.Utils;
 import com.streamsets.pipeline.config.PostProcessingOptions;
 import com.streamsets.pipeline.lib.util.AntPathMatcher;
+import com.streamsets.pipeline.stage.lib.aws.AWSUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -42,11 +49,15 @@ public class S3Spooler {
   private final AmazonS3 s3Client;
   private AntPathMatcher pathMatcher;
   private AtomicBoolean filling;
+  private volatile S3Offset lastElementAddedToQueue;
+  private volatile boolean newDataAfterEventSent;
 
   public S3Spooler(PushSource.Context context, S3ConfigBean s3ConfigBean) {
     this.context = context;
     this.s3ConfigBean = s3ConfigBean;
     this.s3Client = s3ConfigBean.s3Config.getS3Client();
+    lastElementAddedToQueue = null;
+    newDataAfterEventSent = true;
   }
 
   private volatile S3ObjectSummary currentObject;
@@ -71,46 +82,85 @@ public class S3Spooler {
     }
   }
 
-  S3ObjectSummary findAndQueueObjects(S3Offset s3offset, boolean checkCurrent) throws AmazonClientException {
-    List<S3ObjectSummary> s3ObjectSummaries;
-    ObjectOrdering objectOrdering = s3ConfigBean.s3FileConfig.objectOrdering;
-    switch (objectOrdering) {
-      case TIMESTAMP:
-        s3ObjectSummaries = AmazonS3Util.listObjectsChronologically(
-            s3Client,
-            s3ConfigBean,
-            pathMatcher,
-            s3offset,
-            objectQueue.remainingCapacity()
-        );
-        break;
-      case LEXICOGRAPHICAL:
-        s3ObjectSummaries = AmazonS3Util.listObjectsLexicographically(
-            s3Client,
-            s3ConfigBean,
-            pathMatcher,
-            s3offset,
-            objectQueue.remainingCapacity()
-        );
-        break;
-      default:
-        throw new IllegalArgumentException("Unknown ordering: " + objectOrdering.getLabel());
+  private void findAndQueueObjects(
+      AmazonS3Source amazonS3Source, BatchContext batchContext
+  ) throws AmazonClientException {
+    S3Offset s3offset;
+    if (lastElementAddedToQueue != null) {
+      s3offset = lastElementAddedToQueue;
+    } else {
+      s3offset = amazonS3Source.getLatestOffset();
+    }
+
+    List<S3ObjectSummary> s3ObjectSummaries = Collections.emptyList();
+    if (!AWSUtil.containsWildcard(s3ConfigBean.s3FileConfig.prefixPattern)) {
+      // No wildcard in the prefixPattern - don't need to scan the bucket
+      try {
+        s3ObjectSummaries = AmazonS3Util.getObjectNoWildcard(s3Client, s3ConfigBean, s3offset,
+                s3ConfigBean.s3Config.commonPrefix + s3ConfigBean.s3FileConfig.prefixPattern);
+      } catch (AmazonS3Exception e) {
+        LOG.warn("Object '{}' not found", s3ConfigBean.s3Config.commonPrefix + s3ConfigBean.s3FileConfig.prefixPattern);
+      }
+
+    } else {
+      ObjectOrdering objectOrdering = s3ConfigBean.s3FileConfig.objectOrdering;
+      switch (objectOrdering) {
+        case TIMESTAMP:
+          s3ObjectSummaries = AmazonS3Util.listObjectsChronologically(s3Client,
+              s3ConfigBean,
+              pathMatcher,
+              s3offset,
+              objectQueue.remainingCapacity()
+          );
+          break;
+        case LEXICOGRAPHICAL:
+          s3ObjectSummaries = AmazonS3Util.listObjectsLexicographically(s3Client,
+              s3ConfigBean,
+              pathMatcher,
+              s3offset,
+              objectQueue.remainingCapacity()
+          );
+          break;
+        default:
+          throw new IllegalArgumentException("Unknown ordering: " + objectOrdering.getLabel());
+      }
     }
     for (S3ObjectSummary objectSummary : s3ObjectSummaries) {
-      addObjectToQueue(objectSummary, checkCurrent);
+      addObjectToQueue(objectSummary);
     }
     spoolQueueMeter.mark(objectQueue.size());
     LOG.debug("Found '{}' files", objectQueue.size());
-    return (s3ObjectSummaries.isEmpty()) ? null : s3ObjectSummaries.get(s3ObjectSummaries.size() - 1);
+    if (s3ObjectSummaries.isEmpty()) {
+      // Before sending the event we will check that all the threads have finished with their objects, if yes, we
+      // send the event as normal, if not we will skip and try to send it again if the queue is still empty when the
+      // next thread tries to fill the queue. If the event is sent we will set the newDataAfterEventSent to false to
+      // indicate that we should not send new events until we get more new data
+      if (newDataAfterEventSent) {
+        newDataAfterEventSent = !amazonS3Source.sendNoMoreDataEvent(batchContext);
+      }
+    } else {
+      // If it is the last element save it to keep track of the last element added to the queue
+      S3ObjectSummary s3ObjectSummary = s3ObjectSummaries.get(s3ObjectSummaries.size() - 1);
+      lastElementAddedToQueue = new S3Offset(s3ObjectSummary.getKey(),
+          S3Constants.MINUS_ONE,
+          s3ObjectSummary.getETag(),
+          String.valueOf(s3ObjectSummary.getLastModified().getTime())
+      );
+
+      //  If we previously sent a no-more-data event and we have new objects now, let's reset the event to be able to
+      //  send it again.
+      if (!newDataAfterEventSent) {
+        amazonS3Source.restartNoMoreDataEvent();
+        newDataAfterEventSent = true;
+      }
+    }
   }
 
-  void addObjectToQueue(S3ObjectSummary objectSummary, boolean checkCurrent) {
-    Preconditions.checkNotNull(objectSummary, "file cannot be null");
-    if (checkCurrent) {
-      Preconditions.checkState(currentObject == null ||
-        currentObject.getLastModified().compareTo(objectSummary.getLastModified()) < 0);
-    }
-    if (!objectQueue.contains(objectSummary)) {
+  private void addObjectToQueue(S3ObjectSummary objectSummary) {
+  Preconditions.checkNotNull(objectSummary, "file cannot be null");
+  if (objectSummary.getKey().endsWith("/")) {
+    LOG.warn("Object '{}' is a directory, ignoring", objectSummary.getKey());
+  } else if (!objectQueue.contains(objectSummary)) {
       objectQueue.add(objectSummary);
       spoolQueueMeter.mark(objectQueue.size());
     } else {
@@ -118,13 +168,17 @@ public class S3Spooler {
     }
   }
 
-  public S3ObjectSummary poolForObject(AmazonS3Source amazonS3Source, long wait, TimeUnit timeUnit)
-      throws InterruptedException, AmazonClientException {
+  public S3ObjectSummary poolForObject(
+      AmazonS3Source amazonS3Source,
+      long wait,
+      TimeUnit timeUnit,
+      BatchContext batchContext
+  ) throws InterruptedException, AmazonClientException {
     Preconditions.checkArgument(wait >= 0, "wait must be zero or greater");
     Preconditions.checkNotNull(timeUnit, "timeUnit cannot be null");
 
     if (objectQueue.isEmpty() && filling.compareAndSet(false, true)) {
-      findAndQueueObjects(amazonS3Source.getLatestOffset(), false);
+      findAndQueueObjects(amazonS3Source, batchContext);
       filling.set(false);
     }
 
@@ -216,17 +270,20 @@ public class S3Spooler {
     //    uploads another object with the same name. We can avoid post processing it without producing records by
     //    comparing the timestamp on that object
 
-    if(s3Offset.getKey() != null &&
-      "-1".equals(s3Offset.getOffset())) {
+    if(!Strings.isNullOrEmpty(s3Offset.getKey()) && S3Constants.MINUS_ONE.equals(s3Offset.getOffset())) {
+      LOG.info("Post processing check for {}", s3Offset.getKey());
       //conditions 1, 2 are met. Check for 3 and 4.
-      S3ObjectSummary objectSummary = AmazonS3Util.getObjectSummary(s3Client, s3ConfigBean.s3Config.bucket, s3Offset.getKey());
-      if(objectSummary != null &&
-        objectSummary.getLastModified().compareTo(new Date(Long.parseLong(s3Offset.getTimestamp()))) == 0) {
-        postProcessOrErrorHandle(s3Offset.getKey(), s3ConfigBean.postProcessingConfig.postProcessing,
-          s3ConfigBean.postProcessingConfig.postProcessBucket, s3ConfigBean.postProcessingConfig.postProcessPrefix,
-          s3ConfigBean.postProcessingConfig.archivingOption);
+
+      if (s3Client.doesObjectExist(s3ConfigBean.s3Config.bucket, s3Offset.getKey())) {
+        ObjectMetadata metadata = s3Client.getObjectMetadata(s3ConfigBean.s3Config.bucket, s3Offset.getKey());
+        if (metadata != null &&
+                metadata.getLastModified().compareTo(new Date(Long.parseLong(s3Offset.getTimestamp()))) == 0) {
+          postProcessOrErrorHandle(s3Offset.getKey(), s3ConfigBean.postProcessingConfig.postProcessing,
+                  s3ConfigBean.postProcessingConfig.postProcessBucket, s3ConfigBean.postProcessingConfig.postProcessPrefix,
+                  s3ConfigBean.postProcessingConfig.archivingOption);
+        }
+        currentObject = null;
       }
     }
-    currentObject = null;
   }
 }

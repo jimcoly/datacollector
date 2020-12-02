@@ -16,12 +16,15 @@
 package com.streamsets.datacollector.restapi;
 
 import com.google.common.collect.ImmutableList;
+import com.streamsets.datacollector.activation.Activation;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.creation.RuleDefinitionsConfigBean;
+import com.streamsets.datacollector.credential.CredentialStoresTask;
 import com.streamsets.datacollector.execution.Manager;
 import com.streamsets.datacollector.execution.PipelineState;
 import com.streamsets.datacollector.execution.PipelineStatus;
 import com.streamsets.datacollector.execution.manager.PipelineStateImpl;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.UserGroupManager;
 import com.streamsets.datacollector.restapi.bean.BeanHelper;
@@ -40,6 +43,8 @@ import com.streamsets.datacollector.restapi.bean.PipelineStateJson;
 import com.streamsets.datacollector.restapi.bean.RuleDefinitionsJson;
 import com.streamsets.datacollector.restapi.bean.StageConfigurationJson;
 import com.streamsets.datacollector.restapi.bean.ThresholdTypeJson;
+import com.streamsets.datacollector.restapi.bean.UserJson;
+import com.streamsets.datacollector.restapi.configuration.JsonConfigurator;
 import com.streamsets.datacollector.runner.MockStages;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.datacollector.store.AclStoreTask;
@@ -47,6 +52,7 @@ import com.streamsets.datacollector.store.PipelineInfo;
 import com.streamsets.datacollector.store.PipelineStoreException;
 import com.streamsets.datacollector.store.PipelineStoreTask;
 import com.streamsets.datacollector.store.impl.FileAclStoreTask;
+import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.datacollector.util.ContainerError;
 import com.streamsets.datacollector.util.LockCache;
 import com.streamsets.datacollector.util.PipelineException;
@@ -60,12 +66,15 @@ import com.streamsets.lib.security.acl.dto.SubjectType;
 import com.streamsets.pipeline.api.ExecutionMode;
 import org.glassfish.hk2.api.Factory;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
+import org.glassfish.jersey.media.multipart.FormDataMultiPart;
 import org.glassfish.jersey.media.multipart.MultiPartFeature;
+import org.glassfish.jersey.media.multipart.file.StreamDataBodyPart;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.JerseyTest;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Matchers;
 import org.mockito.Mockito;
 import org.slf4j.Logger;
@@ -76,6 +85,8 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.Response;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.security.Principal;
 import java.util.ArrayList;
@@ -84,7 +95,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 public class TestPipelineStoreResource extends JerseyTest {
 
@@ -316,6 +330,26 @@ public class TestPipelineStoreResource extends JerseyTest {
   }
 
   @Test
+  public void testCreateWithLabel() {
+    Response response = target("/v1/pipeline/myPipeline").queryParam("description", "my description").queryParam("pipelineLabel", "testLabel").request()
+        .put(Entity.json("abc"));
+    PipelineConfigurationJson pipelineConfig = response.readEntity(PipelineConfigurationJson.class);
+    Assert.assertEquals(201, response.getStatusInfo().getStatusCode());
+    Assert.assertNotNull(pipelineConfig);
+    Assert.assertNotNull(pipelineConfig.getUuid());
+    Assert.assertEquals(3, pipelineConfig.getStages().size());
+    ArrayList labels = (ArrayList) pipelineConfig.getMetadata().get("labels");
+    Assert.assertEquals("testLabel", labels.get(0));
+
+    StageConfigurationJson stageConf = pipelineConfig.getStages().get(0);
+    Assert.assertEquals("s", stageConf.getInstanceName());
+    Assert.assertEquals("sourceName", stageConf.getStageName());
+    Assert.assertEquals("1", stageConf.getStageVersion());
+    Assert.assertEquals("default", stageConf.getLibrary());
+
+  }
+
+  @Test
   public void testDelete() {
     Response response = target("/v1/pipeline/myPipeline").request().delete();
     Assert.assertEquals(200, response.getStatus());
@@ -388,6 +422,37 @@ public class TestPipelineStoreResource extends JerseyTest {
     Assert.assertNotNull(returned);
     Assert.assertEquals(200, response.getStatus());
     Assert.assertEquals(toSave.getDescription(), returned.getDescription());
+  }
+
+  @Test
+  public void testSaveWithCredentials() throws Exception {
+    PipelineConfiguration toSave = MockStages.createPipelineConfigurationSourceProcessorTarget();
+    Response response = target("/v1/pipeline/myPipeline")
+        .queryParam("tag", "tag")
+        .queryParam("tagDescription", "tagDescription").request()
+        .post(Entity.json(BeanHelper.wrapPipelineConfiguration(toSave)));
+
+    PipelineConfigurationJson returned = response.readEntity(PipelineConfigurationJson.class);
+    Assert.assertNotNull(returned);
+    Assert.assertEquals(200, response.getStatus());
+    Assert.assertEquals(toSave.getDescription(), returned.getDescription());
+
+
+    response = target("/v1/pipeline/readWriteOnly")
+        .queryParam("tag", "tag")
+        .queryParam("tagDescription", "tagDescription")
+        .queryParam("encryptCredentials", true)
+        .request()
+        .post(Entity.json(BeanHelper.wrapPipelineConfiguration(toSave)));
+
+    Mockito.verify(pipelineStore).save(
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.any(PipelineConfiguration.class),
+        Mockito.eq(true)
+    );
   }
 
   @Test
@@ -466,6 +531,7 @@ public class TestPipelineStoreResource extends JerseyTest {
   protected Application configure() {
     return new ResourceConfig() {
       {
+        register(JsonConfigurator.class);
         register(new PipelineStoreResourceConfig());
         register(PipelineStoreResource.class);
         register(MultiPartFeature.class);
@@ -482,8 +548,12 @@ public class TestPipelineStoreResource extends JerseyTest {
       bindFactory(TestUtil.PrincipalTestInjector.class).to(Principal.class);
       bindFactory(TestUtil.URITestInjector.class).to(URI.class);
       bindFactory(RuntimeInfoTestInjector.class).to(RuntimeInfo.class);
+      bindFactory(BuildInfoTestInjector.class).to(BuildInfo.class);
       bindFactory(ManagerTestInjector.class).to(Manager.class);
       bindFactory(TestUtil.UserGroupManagerTestInjector.class).to(UserGroupManager.class);
+      bindFactory(TestUtil.CredentialStoreTaskTestInjector.class).to(CredentialStoresTask.class);
+      bindFactory(ConfigurationTestInjector.class).to(Configuration.class);
+      bindFactory(ActivationTestInjector.class).to(Activation.class);
     }
   }
 
@@ -656,19 +726,34 @@ public class TestPipelineStoreResource extends JerseyTest {
             .thenReturn(MockStages.createPipelineConfigurationSourceProcessorTarget());
         Mockito.when(pipelineStore.load(Matchers.matches("abc|def"), Matchers.matches("0"))).thenReturn(
             MockStages.createPipelineConfigurationWithLabels(new ArrayList<String>()));
-        Mockito.when(pipelineStore.create("user1", "myPipeline", "myPipeline", "my description", false, false)).thenReturn(
+        Mockito.when(pipelineStore.create("user1", "myPipeline", "myPipeline", "my description", false, false, new HashMap<String, Object>())).thenReturn(
           MockStages.createPipelineConfigurationSourceProcessorTarget());
         Mockito.doNothing().when(pipelineStore).delete("myPipeline");
         Mockito.doThrow(new PipelineStoreException(ContainerError.CONTAINER_0200, "xyz"))
             .when(pipelineStore).delete("xyz");
-        Mockito.when(pipelineStore.save(
-            Matchers.anyString(), Matchers.anyString(), Matchers.anyString(), Matchers.anyString(),
-            (com.streamsets.datacollector.config.PipelineConfiguration)Matchers.any())).thenReturn(
-          MockStages.createPipelineConfigurationSourceProcessorTarget());
-        Mockito.when(pipelineStore.save(
-            Matchers.anyString(), Matchers.matches("abc|def"), Matchers.matches("0"), Matchers.anyString(),
-            (com.streamsets.datacollector.config.PipelineConfiguration)Matchers.any())).thenReturn(
-            MockStages.createPipelineConfigurationWithLabels(Arrays.asList("foo", "bar")));
+        Mockito.when(
+            pipelineStore.save(
+                Matchers.anyString(),
+                Matchers.anyString(),
+                Matchers.anyString(),
+                Matchers.anyString(),
+                Matchers.any(),
+                Matchers.anyBoolean()
+            )
+        ).thenReturn(MockStages.createPipelineConfigurationSourceProcessorTarget());
+
+        Mockito.when(
+            pipelineStore.save(
+                Matchers.anyString(),
+                Matchers.matches("abc|def"),
+                Matchers.matches("0"),
+                Matchers.anyString(),
+                Matchers.any(),
+                Matchers.anyBoolean()
+            )
+        ).thenReturn(
+            MockStages.createPipelineConfigurationWithLabels(Arrays.asList("foo", "bar"))
+        );
 
         List<MetricsRuleDefinitionJson> metricsRuleDefinitionJsons = new ArrayList<>();
         metricsRuleDefinitionJsons.add(new MetricsRuleDefinitionJson("m1", "m1", "a", MetricTypeJson.COUNTER,
@@ -720,7 +805,7 @@ public class TestPipelineStoreResource extends JerseyTest {
           LOG.debug("Ignoring exception", e);
         }
 
-        Mockito.when(pipelineStore.create("user1", "newFromImport", "label",null, false, false)).thenReturn(
+        Mockito.when(pipelineStore.create("user1", "newFromImport", "label",null, false, false, new HashMap<String, Object>())).thenReturn(
             MockStages.createPipelineConfigurationSourceProcessorTarget());
 
       } catch (com.streamsets.datacollector.util.PipelineException e) {
@@ -745,12 +830,17 @@ public class TestPipelineStoreResource extends JerseyTest {
     @Singleton
     @Override
     public AclStoreTask provide() {
-      aclStore = new FileAclStoreTask (
+      aclStore = Mockito.spy(new FileAclStoreTask (
           Mockito.mock(RuntimeInfo.class),
           pipelineStore,
           new LockCache<String>(),
           Mockito.mock(UserGroupManager.class)
       )  {
+
+        @Override
+        public boolean isPermissionGranted(String pipelineName, Set<Action> actions, UserJson currentUser) throws PipelineException {
+          return super.isPermissionGranted(pipelineName, actions, currentUser);
+        }
 
         @Override
         public Acl saveAcl(String pipelineName, Acl acl) throws PipelineStoreException {
@@ -842,10 +932,9 @@ public class TestPipelineStoreResource extends JerseyTest {
             case "def":
               return user1Acl;
           }
-
           return null;
         }
-      };
+      });
 
       return aclStore;
     }
@@ -871,6 +960,19 @@ public class TestPipelineStoreResource extends JerseyTest {
     }
   }
 
+  public static class BuildInfoTestInjector implements Factory<BuildInfo> {
+    @Singleton
+    @Override
+    public BuildInfo provide() {
+      BuildInfo buildInfo = Mockito.mock(BuildInfo.class);
+      Mockito.when(buildInfo.getVersion()).thenReturn("3.17.0");
+      return buildInfo;
+    }
+
+    @Override
+    public void dispose(BuildInfo buildInfo) {
+    }
+  }
 
   static Manager manager;
 
@@ -986,9 +1088,10 @@ public class TestPipelineStoreResource extends JerseyTest {
   }
 
   @Test
-  public void testImportPipeline() {
+  public void testImportPipeline() throws Exception {
     Response response = target("/v1/pipeline/xyz/export").queryParam("rev", "1").request().get();
     PipelineEnvelopeJson pipelineEnvelope = response.readEntity(PipelineEnvelopeJson.class);
+    ArgumentCaptor<Boolean> encryptCredentialsArgumentCaptor = ArgumentCaptor.forClass(Boolean.class);
 
     response = target("/v1/pipeline/newFromImport/import")
         .queryParam("rev", "1")
@@ -1000,6 +1103,66 @@ public class TestPipelineStoreResource extends JerseyTest {
     Assert.assertNotNull(pipelineEnvelope.getPipelineConfig());
     Assert.assertNotNull(pipelineEnvelope.getPipelineRules());
     Assert.assertNull(pipelineEnvelope.getLibraryDefinitions());
+    Mockito.verify(pipelineStore).save(
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.any(),
+        encryptCredentialsArgumentCaptor.capture()
+    );
+    Assert.assertFalse(encryptCredentialsArgumentCaptor.getValue());
+  }
+
+  @Test
+  public void testImportPipelineWithPipelineCredentials() throws Exception {
+    Response response = target("/v1/pipeline/xyz/export").queryParam("rev", "1").request().get();
+    PipelineEnvelopeJson pipelineEnvelope = response.readEntity(PipelineEnvelopeJson.class);
+    ArgumentCaptor<Boolean> encryptCredentialsArgumentCaptor = ArgumentCaptor.forClass(Boolean.class);
+
+    response = target("/v1/pipeline/newFromImport/import").queryParam("rev", "1")
+        .queryParam("encryptCredentials", true)
+        .request()
+        .post(Entity.json(pipelineEnvelope));
+    pipelineEnvelope = response.readEntity(PipelineEnvelopeJson.class);
+
+    Assert.assertNotNull(pipelineEnvelope);
+    Assert.assertNotNull(pipelineEnvelope.getPipelineConfig());
+    Assert.assertNotNull(pipelineEnvelope.getPipelineRules());
+    Assert.assertNull(pipelineEnvelope.getLibraryDefinitions());
+    Mockito.verify(pipelineStore).save(
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.any(),
+        Mockito.eq(true)
+    );
+  }
+
+  @Test
+  public void testImportPipelinesIgnoreConnectionsMetadataFile() throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    ZipOutputStream zipOutputStream = Mockito.spy(new ZipOutputStream(baos));
+    zipOutputStream.putNextEntry(new ZipEntry("connections_metadata.json"));
+    zipOutputStream.write("some connections json that won't be read".getBytes());
+    zipOutputStream.closeEntry();
+    zipOutputStream.close();
+
+    StreamDataBodyPart bodyPart = new StreamDataBodyPart("file", new ByteArrayInputStream(baos.toByteArray()));
+    FormDataMultiPart formDataMultiPart = new FormDataMultiPart();
+    final FormDataMultiPart multipart = (FormDataMultiPart) formDataMultiPart.bodyPart(bodyPart);
+
+    Response response = target("/v1/pipelines/import")
+        .register(MultiPartFeature.class)
+        .request()
+        .post(Entity.entity(multipart, multipart.getMediaType()));
+
+    MultiStatusResponseJson<String> multiStatusResponse = response.readEntity(MultiStatusResponseJson.class);
+    Assert.assertEquals(207, response.getStatusInfo().getStatusCode());
+
+    List<String> errorMessages = multiStatusResponse.getErrorMessages();
+    Assert.assertEquals(0, errorMessages.size());
   }
 
   @Test

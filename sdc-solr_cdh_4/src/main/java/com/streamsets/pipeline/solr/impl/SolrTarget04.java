@@ -55,7 +55,10 @@ public class SolrTarget04 implements SdcSolrTarget {
   private final boolean waitSearcher;
   private final boolean softCommit;
   private final boolean ignoreOptionalFields;
+  private final int connectionTimeout;
+  private final int socketTimeout;
   private List<String> requiredFieldNamesMap;
+  private List<String> optionalFieldNamesMap;
 
   public SolrTarget04(
       String instanceType,
@@ -67,7 +70,9 @@ public class SolrTarget04 implements SdcSolrTarget {
       boolean waitFlush,
       boolean waitSearcher,
       boolean softCommit,
-      boolean ignoreOptionalFields
+      boolean ignoreOptionalFields,
+      int connectionTimeout,
+      int socketTimeout
   ) {
     this.instanceType = instanceType;
     this.solrURI = solrURI;
@@ -80,6 +85,9 @@ public class SolrTarget04 implements SdcSolrTarget {
     this.softCommit = softCommit;
     this.ignoreOptionalFields = ignoreOptionalFields;
     this.requiredFieldNamesMap = new ArrayList<>();
+    this.optionalFieldNamesMap = new ArrayList<>();
+    this.connectionTimeout = connectionTimeout;
+    this.socketTimeout = socketTimeout;
   }
 
   public void init() throws Exception {
@@ -87,8 +95,9 @@ public class SolrTarget04 implements SdcSolrTarget {
     if (!skipValidation) {
       solrClient.ping();
     }
-    if (ignoreOptionalFields) {
-      getRequiredFieldNames();
+    getRequiredFieldNames();
+    if (!ignoreOptionalFields) {
+      getOptionalFieldNames();
     }
   }
 
@@ -111,6 +120,25 @@ public class SolrTarget04 implements SdcSolrTarget {
     }
   }
 
+  private void getOptionalFieldNames() throws SolrServerException, IOException {
+    QueryRequest request = new QueryRequest();
+    request.setPath(SCHEMA_PATH);
+    NamedList queryResponse = solrClient.request(request);
+
+    SimpleOrderedMap simpleOrderedMap = (SimpleOrderedMap) queryResponse.get("schema");
+    ArrayList<SimpleOrderedMap> fields = (ArrayList<SimpleOrderedMap>) simpleOrderedMap.get("fields");
+
+    for (SimpleOrderedMap field : fields) {
+      if (field.get(REQUIRED) == null || field.get(REQUIRED).equals(false)) {
+        optionalFieldNamesMap.add(field.get(NAME).toString());
+      }
+    }
+  }
+
+  public List<String> getOptionalFieldNamesMap() {
+    return optionalFieldNamesMap;
+  }
+
   private SolrServer getSolrClient() throws MalformedURLException {
     if(kerberosAuth) {
       // set kerberos before create SolrClient
@@ -118,7 +146,10 @@ public class SolrTarget04 implements SdcSolrTarget {
     }
 
     if (SolrInstanceAPIType.SINGLE_NODE.toString().equals(this.instanceType)) {
-      return new HttpSolrServer(this.solrURI);
+      HttpSolrServer httpSolrServer = new HttpSolrServer(this.solrURI);
+      httpSolrServer.setConnectionTimeout(connectionTimeout);
+      httpSolrServer.setSoTimeout(socketTimeout);
+      return httpSolrServer;
     } else {
       CloudSolrServer cloudSolrClient = new CloudSolrServer(this.zookeeperConnect);
       cloudSolrClient.setDefaultCollection(this.defaultCollection);
@@ -172,14 +203,6 @@ public class SolrTarget04 implements SdcSolrTarget {
   public void commit() throws StageException {
     try {
       this.solrClient.commit(waitFlush, waitSearcher, softCommit);
-    } catch (SolrServerException | IOException ex) {
-      throw new StageException(Errors.SOLR_05, ex.toString(), ex);
-    }
-  }
-
-  public void rollback() throws StageException {
-    try {
-      this.solrClient.rollback();
     } catch (SolrServerException | IOException ex) {
       throw new StageException(Errors.SOLR_05, ex.toString(), ex);
     }

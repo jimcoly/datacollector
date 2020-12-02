@@ -23,12 +23,12 @@
   <parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-root-lib</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <relativePath>../root-lib</relativePath>
   </parent>
   <groupId>com.streamsets</groupId>
   <artifactId>streamsets-datacollector-elasticsearch-protolib</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector Elastic Search ProtoLib</description>
   <name>StreamSets Data Collector Elastic Search ProtoLib</name>
   <packaging>jar</packaging>
@@ -42,6 +42,12 @@
   <dependencies>
     <!-- Test Dependencies -->
     <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
       <scope>test</scope>
@@ -49,6 +55,12 @@
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mock-server</groupId>
+      <artifactId>mockserver-netty</artifactId>
+      <version>${mockserver.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -174,6 +186,25 @@
         <version>2.8.2</version>
         <configuration>
           <skip>true</skip>
+        </configuration>
+      </plugin>
+      <!-- create test jar -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <excludes>
+            <exclude>
+              META-INF/services/com.streamsets.pipeline.lib.elasticsearch.PathEscape
+            </exclude>
+          </excludes>
         </configuration>
       </plugin>
     </plugins>

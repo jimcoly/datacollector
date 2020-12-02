@@ -19,22 +19,23 @@ import com.streamsets.pipeline.api.ConfigDef;
 import com.streamsets.pipeline.api.Dependency;
 import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.api.credential.CredentialValue;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
-import com.streamsets.pipeline.lib.aws.AwsRegionChooserValues;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegionChooserValues;
 
 public class SecurityConfig {
 
-  public static final String CONF_PREFIX = "conf.securityConfig.";
+  public static final String NAME = "securityConfig";
 
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.MODEL,
       label = "Mode",
-      description = "Select whether to encrypt or decrypt fields",
+      description = "Security mode to use for Elasticsearch authentication",
       dependsOn = "useSecurity^",
       triggeredByValue = "true",
       defaultValue = "BASIC",
       displayPosition = 37,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "SECURITY"
   )
   @ValueChooserModel(SecurityModeChooserValues.class)
@@ -44,12 +45,13 @@ public class SecurityConfig {
       required = true,
       type = ConfigDef.Type.MODEL,
       defaultValue = "",
-      label = "AWS Region",
+      label = "Region",
       dependencies = {
           @Dependency(configName = "useSecurity^", triggeredByValues = "true"),
           @Dependency(configName = "securityMode", triggeredByValues = "AWSSIGV4")
       },
       displayPosition = 38,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "SECURITY"
   )
   @ValueChooserModel(AwsRegionChooserValues.class)
@@ -62,6 +64,7 @@ public class SecurityConfig {
       description = "",
       defaultValue = "",
       displayPosition = 39,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "awsRegion",
       triggeredByValue = "OTHER",
       group = "SECURITY"
@@ -72,12 +75,13 @@ public class SecurityConfig {
       required = false,
       type = ConfigDef.Type.CREDENTIAL,
       defaultValue = "",
-      label = "AWS Access Key",
+      label = "Access Key ID",
       dependencies = {
           @Dependency(configName = "useSecurity^", triggeredByValues = "true"),
           @Dependency(configName = "securityMode", triggeredByValues = "AWSSIGV4")
       },
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "SECURITY"
   )
   public CredentialValue awsAccessKeyId = () -> "";
@@ -86,12 +90,13 @@ public class SecurityConfig {
       required = false,
       type = ConfigDef.Type.CREDENTIAL,
       defaultValue = "",
-      label = "AWS Secret Access Key",
+      label = "Secret Access Key",
       dependencies = {
           @Dependency(configName = "useSecurity^", triggeredByValues = "true"),
           @Dependency(configName = "securityMode", triggeredByValues = "AWSSIGV4")
       },
       displayPosition = 41,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "SECURITY"
   )
   public CredentialValue awsSecretAccessKey = () -> "";
@@ -102,16 +107,32 @@ public class SecurityConfig {
   @ConfigDef(
       required = false,
       type = ConfigDef.Type.CREDENTIAL,
-      defaultValue = "username:password",
-      label = "Security Username/Password",
+      label = "User Name",
+      description = "Elasticsearch user name",
       dependencies = {
           @Dependency(configName = "useSecurity^", triggeredByValues = "true"),
           @Dependency(configName = "securityMode", triggeredByValues = "BASIC")
       },
       displayPosition = 42,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "SECURITY"
   )
   public CredentialValue securityUser = () -> "";
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.CREDENTIAL,
+      label = "Password",
+      description = "Elasticsearch password",
+      dependencies = {
+          @Dependency(configName = "useSecurity^", triggeredByValues = "true"),
+          @Dependency(configName = "securityMode", triggeredByValues = "BASIC")
+      },
+      displayPosition = 43,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "SECURITY"
+  )
+  public CredentialValue securityPassword = () -> "";
 
   @ConfigDef(
       required = false,
@@ -121,7 +142,8 @@ public class SecurityConfig {
       description = "",
       dependsOn = "useSecurity^",
       triggeredByValue = "true",
-      displayPosition = 43,
+      displayPosition = 44,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "SECURITY"
   )
   public String sslTrustStorePath;
@@ -132,7 +154,8 @@ public class SecurityConfig {
       label = "SSL TrustStore Password",
       dependsOn = "useSecurity^",
       triggeredByValue = "true",
-      displayPosition = 44,
+      displayPosition = 45,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "SECURITY"
   )
   public CredentialValue sslTrustStorePassword = () -> "";

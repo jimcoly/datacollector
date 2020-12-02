@@ -23,12 +23,13 @@ import com.streamsets.pipeline.api.base.configurablestage.DTarget;
 import com.streamsets.pipeline.stage.bigquery.lib.Groups;
 
 @StageDef(
-    version = 2,
+    version = 3,
     label = "Google BigQuery",
     description = "Streams data into Google Big Query",
     icon="bigquery.png",
     producesEvents = false,
     upgrader = BigQueryTargetUpgrader.class,
+    upgraderDef = "upgrader/BigQueryDTarget.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_gxn_dsk_dbb"
 )
 @ConfigGroups(Groups.class)

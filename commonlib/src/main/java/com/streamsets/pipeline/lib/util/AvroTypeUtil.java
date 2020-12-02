@@ -27,13 +27,23 @@ import com.streamsets.pipeline.stage.common.HeaderAttributeConstants;
 import org.apache.avro.AvroRuntimeException;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericFixed;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.BinaryDecoder;
+import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.util.Utf8;
 import org.codehaus.jackson.JsonNode;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -139,23 +149,46 @@ public class AvroTypeUtil {
     return jsonSchema;
   }
 
-  public static Field avroToSdcField(Record record, Schema schema, Object value) {
-    return avroToSdcField(record, "", schema, value);
+  public static Field avroToSdcField(Record record, Schema schema, Object value, boolean skipAvroUnionIndexes) {
+    return avroToSdcField(record, "", schema, value, skipAvroUnionIndexes);
   }
 
-  private static Field avroToSdcField(Record record, String fieldPath, Schema schema, Object value) {
+  private static Field avroToSdcField(Record record, String fieldPath, Schema schema, Object value, boolean skipAvroUnionIndexes) {
     if(schema.getType() == Schema.Type.UNION) {
       List<Schema> unionTypes = schema.getTypes();
+      int typeIndex;
 
       // Special case for unions of [null, actual type]
-      if(unionTypes.size() == 2 && unionTypes.get(0).getType() == Schema.Type.NULL && value == null) {
-        return Field.create(getFieldType(unionTypes.get(1)), null);
+      if(unionTypes.size() == 2 && unionTypes.get(0).getType() == Schema.Type.NULL) {
+        if(value == null) {
+          Field returnField = Field.create(getFieldType(unionTypes.get(1)), null);
+
+          // We need to set field attributes propagating some schema information
+          String logicalType = unionTypes.get(1).getProp(LOGICAL_TYPE);
+          if (logicalType != null && !logicalType.isEmpty()) {
+            switch (logicalType) {
+              case LOGICAL_TYPE_DECIMAL:
+                int scale = getJsonPropSafely(unionTypes.get(1), LOGICAL_TYPE_ATTR_SCALE).getIntValue();
+                int precision = getJsonPropSafely(unionTypes.get(1), LOGICAL_TYPE_ATTR_PRECISION).getIntValue();
+                returnField.setAttribute(HeaderAttributeConstants.ATTR_SCALE, String.valueOf(scale));
+                returnField.setAttribute(HeaderAttributeConstants.ATTR_PRECISION, String.valueOf(precision));
+            }
+          }
+
+          return returnField;
+        } else {
+          typeIndex = 1;
+          schema = unionTypes.get(1);
+        }
+      } else {
+        // By default try to resolve index of the union bby the data itself
+        typeIndex = GenericData.get().resolveUnion(schema, value);
+        schema = unionTypes.get(typeIndex);
       }
 
-      // By default try to resolve index of the union bby the data itself
-      int typeIndex = GenericData.get().resolveUnion(schema, value);
-      schema = unionTypes.get(typeIndex);
-      record.getHeader().setAttribute(AVRO_UNION_TYPE_INDEX_PREFIX + fieldPath, String.valueOf(typeIndex));
+      if (!skipAvroUnionIndexes) {
+        record.getHeader().setAttribute(AVRO_UNION_TYPE_INDEX_PREFIX + fieldPath, String.valueOf(typeIndex));
+      }
     }
     if(value == null) {
       return Field.create(getFieldType(schema), null);
@@ -171,8 +204,8 @@ public class AvroTypeUtil {
           if(schema.getType() != Schema.Type.BYTES) {
             throw new IllegalStateException("Unexpected physical type for logical decimal type: " + schema.getType());
           }
-          int scale = schema.getJsonProp(LOGICAL_TYPE_ATTR_SCALE).asInt();
-          int precision = schema.getJsonProp(LOGICAL_TYPE_ATTR_PRECISION).asInt();
+          int scale = getJsonPropSafely(schema, LOGICAL_TYPE_ATTR_SCALE).getIntValue();
+          int precision = getJsonPropSafely(schema, LOGICAL_TYPE_ATTR_PRECISION).getIntValue();
           if (value instanceof ByteBuffer) {
             byte[] decimalBytes = ((ByteBuffer)value).array();
             value = bigDecimalFromBytes(decimalBytes, scale);
@@ -233,7 +266,7 @@ public class AvroTypeUtil {
         List<?> objectList = (List<?>) value;
         List<Field> list = new ArrayList<>(objectList.size());
         for (int i = 0; i < objectList.size(); i++) {
-          list.add(avroToSdcField(record, fieldPath + "[" + i + "]", schema.getElementType(), objectList.get(i)));
+          list.add(avroToSdcField(record, fieldPath + "[" + i + "]", schema.getElementType(), objectList.get(i), skipAvroUnionIndexes));
         }
         f = Field.create(list);
         break;
@@ -275,7 +308,7 @@ public class AvroTypeUtil {
                 .getClass().getName()));
           }
           map.put(key, avroToSdcField(record, fieldPath + FORWARD_SLASH + key,
-              schema.getValueType(), entry.getValue()));
+              schema.getValueType(), entry.getValue(), skipAvroUnionIndexes));
         }
         f = Field.create(map);
         break;
@@ -287,7 +320,7 @@ public class AvroTypeUtil {
         LinkedHashMap<String, Field> recordMap = new LinkedHashMap<>();
         for(Schema.Field field : schema.getFields()) {
           Field temp = avroToSdcField(record, fieldPath + FORWARD_SLASH + field.name(), field.schema(),
-              avroRecord.get(field.name()));
+              avroRecord.get(field.name()), skipAvroUnionIndexes);
           if(temp != null) {
             recordMap.put(field.name(), temp);
           }
@@ -311,7 +344,6 @@ public class AvroTypeUtil {
     return sdcRecordToAvro(
         record,
         record.get(),
-        "",
         schema,
         defaultValueMap
     );
@@ -321,7 +353,6 @@ public class AvroTypeUtil {
   private static Object sdcRecordToAvro(
       Record record,
       Field field,
-      String avroFieldPath,
       Schema schema,
       Map<String, Object> defaultValueMap
   ) throws StageException {
@@ -331,13 +362,9 @@ public class AvroTypeUtil {
     }
     Object obj;
     if (schema.getType() == Schema.Type.UNION) {
-      String fieldPathAttribute = record.getHeader().getAttribute(AVRO_UNION_TYPE_INDEX_PREFIX + avroFieldPath);
       List<Schema> unionTypes = schema.getTypes();
 
-      if (fieldPathAttribute != null && !fieldPathAttribute.isEmpty()) {
-        int typeIndex = Integer.parseInt(fieldPathAttribute);
-        schema = unionTypes.get(typeIndex);
-      } else if(unionTypes.size() == 2 && unionTypes.get(0).getType() == Schema.Type.NULL) {
+      if(unionTypes.size() == 2 && unionTypes.get(0).getType() == Schema.Type.NULL) {
         // Special case where we have union of null and actual type (which is very common) - since we know that the
         // column is not null, expect the union's second type.
         schema = unionTypes.get(1);
@@ -362,8 +389,7 @@ public class AvroTypeUtil {
           Schema match = bestEffortResolve(schema, field, object);
           if(match == null) {
             String objectType = object == null ? "null" : object.getClass().getName();
-            throw new StageException(CommonError.CMN_0106, avroFieldPath, field.getType().name(), objectType, e.toString(),
-                e);
+            throw new StageException(CommonError.CMN_0106, field.getType().name(), objectType, schema.toString(), e.toString(), e);
           } else {
             schema = match;
           }
@@ -380,7 +406,8 @@ public class AvroTypeUtil {
             if (schema.getType() != Schema.Type.BYTES) {
               throw new IllegalStateException("Unexpected physical type for logical decimal type: " + schema.getType());
             }
-            return ByteBuffer.wrap(field.getValueAsDecimal().unscaledValue().toByteArray());
+            int scale = getJsonPropSafely(schema, LOGICAL_TYPE_ATTR_SCALE).getIntValue();
+            return ByteBuffer.wrap(field.getValueAsDecimal().setScale(scale).unscaledValue().toByteArray());
           case LOGICAL_TYPE_DATE:
             if (schema.getType() != Schema.Type.INT) {
               throw new IllegalStateException("Unexpected physical type for logical date type: " + schema.getType());
@@ -417,6 +444,16 @@ public class AvroTypeUtil {
             "logical type: " + logicalType,
             field.getType()
         );
+      } catch (ArithmeticException ex) {
+        // Thrown when BigDecimal.setScale() requires rounding
+          throw new DataGeneratorException(
+            Errors.AVRO_GENERATOR_06,
+            field.getValue() != null ? field.getValue().toString() : "null",
+            field.getType(),
+            schema.toString(),
+            ex.toString(),
+            ex
+        );
       }
     }
 
@@ -430,7 +467,6 @@ public class AvroTypeUtil {
                 sdcRecordToAvro(
                     record,
                     valueAsList.get(i),
-                    avroFieldPath + "[" + i + "]",
                     schema.getElementType(),
                     defaultValueMap
                 )
@@ -473,7 +509,6 @@ public class AvroTypeUtil {
                     sdcRecordToAvro(
                         record,
                         e.getValue(),
-                        avroFieldPath + FORWARD_SLASH + e.getKey(),
                         schema.getValueType(),
                         defaultValueMap
                     )
@@ -490,7 +525,6 @@ public class AvroTypeUtil {
           Map<String, Field> valueAsMap = field.getValueAsMap();
           GenericRecord genericRecord = new GenericData.Record(schema);
           for (Schema.Field f : schema.getFields()) {
-            String key = schema.getFullName() + SCHEMA_PATH_SEPARATOR + f.name();
             // If the record does not contain a field corresponding to the schema field, look up the default value from
             // the schema.
             // If no default value was specified for the field and record does not contain it, then throw exception.
@@ -504,12 +538,12 @@ public class AvroTypeUtil {
               Object v = sdcRecordToAvro(
                   record,
                   valueAsMap.get(f.name()),
-                  avroFieldPath + FORWARD_SLASH + f.name(),
                   fieldSchema,
                   defaultValueMap
               );
               // If value in record is null and there is no default value specified, send to error.
               if(v == null) {
+                String key = schema.getFullName() + SCHEMA_PATH_SEPARATOR + f.name();
                 if (!defaultValueMap.containsKey(key)) {
                   // DatumWriter can handle writing null value for the Union and Null types
                   if (!(fieldSchema.getType() == Schema.Type.UNION || fieldSchema.getType() == Schema.Type.NULL)) {
@@ -525,6 +559,7 @@ public class AvroTypeUtil {
               }
               genericRecord.put(f.name(), v);
             } else {
+              String key = schema.getFullName() + SCHEMA_PATH_SEPARATOR + f.name();
               if(!defaultValueMap.containsKey(key)) {
                 throw new DataGeneratorException(
                     Errors.AVRO_GENERATOR_00,
@@ -552,6 +587,15 @@ public class AvroTypeUtil {
           );
     }
     return obj;
+  }
+
+  @NotNull
+  private static JsonNode getJsonPropSafely(Schema schema, String property) {
+    JsonNode node = schema.getJsonProp(property);
+    if (node == null) {
+      throw new IllegalStateException("Missing required property '" + property + "'");
+    }
+    return node;
   }
 
   private static Field.Type getFieldType(Schema schema) {
@@ -865,5 +909,25 @@ public class AvroTypeUtil {
   public static BigDecimal bigDecimalFromBytes(byte[] decimalBytes, int scale) {
     final BigInteger bigInt = new BigInteger(decimalBytes);
     return new BigDecimal(bigInt, scale);
+  }
+
+  public static byte[] getBinaryEncodedAvroRecord(GenericRecord datum) throws IOException {
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
+    final DatumWriter<GenericRecord> outputDatumWriter = new GenericDatumWriter<>(datum.getSchema());
+    final BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(baos, null);
+
+    outputDatumWriter.write(datum, encoder);
+    encoder.flush();
+    baos.flush();
+    baos.close();
+
+    return baos.toByteArray();
+  }
+
+  public static GenericRecord getAvroRecordFromBinaryEncoding(Schema schema, byte[] data) throws IOException {
+    final BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(data, null);
+
+    DatumReader<GenericRecord> reader = new GenericDatumReader<>(schema);
+    return reader.read(null, decoder);
   }
 }

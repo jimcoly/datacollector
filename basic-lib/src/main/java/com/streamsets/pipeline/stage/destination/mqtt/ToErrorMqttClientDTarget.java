@@ -25,7 +25,7 @@ import com.streamsets.pipeline.api.Target;
 import com.streamsets.pipeline.config.DataFormat;
 
 @StageDef(
-    version = 2,
+    version = 5,
     label = "Write to MQTT",
     description = "Writes error records to MQTT broker",
     icon = "mqtt.png",
@@ -39,13 +39,17 @@ import com.streamsets.pipeline.config.DataFormat;
 
     },
     onlineHelpRefUrl ="index.html?contextID=concept_kgc_l4y_5r",
-    upgrader = MqttClientTargetUpgrader.class
+    upgrader = MqttClientTargetUpgrader.class,
+    upgraderDef = "upgrader/ToErrorMqttClientDTarget.yaml"
 )
 @HideConfigs(
     preconditions = true,
     onErrorRecord = true,
     value = {
+        "commonConf.tlsConfig.useRemoteKeyStore",
         "commonConf.tlsConfig.keyStoreFilePath",
+        "commonConf.tlsConfig.privateKey",
+        "commonConf.tlsConfig.certificateChain",
         "commonConf.tlsConfig.keyStoreType",
         "commonConf.tlsConfig.keyStorePassword",
         "commonConf.tlsConfig.keyStoreAlgorithm",

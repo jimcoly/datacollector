@@ -15,10 +15,14 @@
  */
 package com.streamsets.datacollector.main;
 
+import com.streamsets.datacollector.activation.ActivationOverrideModule;
+import com.streamsets.datacollector.aster.AsterModule;
+import com.streamsets.datacollector.aster.EntitlementSyncModule;
 import com.streamsets.datacollector.event.handler.dagger.EventHandlerModule;
 import com.streamsets.datacollector.execution.Manager;
 import com.streamsets.datacollector.execution.manager.standalone.StandaloneAndClusterPipelineManager;
 import com.streamsets.datacollector.execution.manager.standalone.dagger.StandalonePipelineManagerModule;
+import com.streamsets.datacollector.http.AsterContext;
 import com.streamsets.datacollector.http.WebServerModule;
 import com.streamsets.datacollector.store.PipelineStoreTask;
 import com.streamsets.datacollector.task.Task;
@@ -35,7 +39,15 @@ import javax.inject.Singleton;
  * Provides singleton instances of RuntimeInfo, PipelineStoreTask and PipelineTask
  */
 @Module(
-  injects = {TaskWrapper.class, RuntimeInfo.class, Configuration.class, PipelineStoreTask.class, LogConfigurator.class, BuildInfo.class},
+    injects = {
+      TaskWrapper.class,
+      RuntimeInfo.class,
+      Configuration.class,
+      PipelineStoreTask.class,
+      LogConfigurator.class,
+      BuildInfo.class,
+      AsterContext.class
+    },
   library = true,
   complete = false /* Note that all the bindings are not supplied so this must be false */
 )
@@ -43,7 +55,16 @@ public class MainStandalonePipelineManagerModule { //Need better name
 
   private final ObjectGraph objectGraph;
 
+  // We cannot use the original AsterModule for testing as it does classloader tricks.
+  public static MainStandalonePipelineManagerModule createForTest(Object asterModule) {
+    return new MainStandalonePipelineManagerModule(asterModule);
+  }
+
   public MainStandalonePipelineManagerModule() {
+    this(AsterModule.class);
+  }
+
+  private MainStandalonePipelineManagerModule(Object asterModule) {
 
     ObjectGraph objectGraph = ObjectGraph.create(StandalonePipelineManagerModule.class);
     Manager m = new StandaloneAndClusterPipelineManager(objectGraph);
@@ -65,7 +86,17 @@ public class MainStandalonePipelineManagerModule { //Need better name
     //1. PipelineTask references the above pipeline manager
     //2. Both PipelineTask and PipelineManager refer to the same instance of RuntimeInfo, PipelineStore which is
     // "  a sdc level singleton.
-      this.objectGraph = objectGraph.plus(new WebServerModule(m), EventHandlerModule.class, PipelineTaskModule.class);
+
+    // We add ActivationOverrideModule first to the list to ensure that we load the singleton Activation from the shared
+    // graph instead of creating a new copy. This technique is necessary for any shared dependencies.
+    this.objectGraph = objectGraph.plus(
+            new ActivationOverrideModule(objectGraph),
+            new WebServerModule(m),
+            EventHandlerModule.class,
+            EntitlementSyncModule.class,
+            PipelineTaskModule.class,
+            asterModule);
+
   }
 
   @Provides @Singleton

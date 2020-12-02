@@ -85,6 +85,7 @@ public class Vault {
   private CredentialStore.Context context;
   private String csId;
   private String roleId;
+  private String namespace;
   private AuthBackend authBackend;
 
   private VaultConfiguration config;
@@ -308,7 +309,6 @@ public class Vault {
   /**
    * Reads a secret from the local cache if it hasn't expired and returns the value for the specified key.
    * If the secret isn't cached or has expired, it requests it from Vault again.
-   *
    * @param path path in Vault to read
    * @param key key of the property of the secret represented by the path to return
    * @return value of the specified key for the requested secret.
@@ -321,17 +321,53 @@ public class Vault {
    * Reads a secret from the local cache if it hasn't expired and returns the value for the specified key.
    * If the secret isn't cached or has expired, it requests it from Vault again.
    *
-   * This version of the method will also add the specified delay in milliseconds before returning, but only
-   * if the value wasn't already locally cached. This is because certain backends such as AWS will return
-   * a secret (access keys for example) before they have propagated to all AWS services. For AWS a delay of up to 5
-   * or 10 seconds may be necessary. If you receive a 403 from AWS services you probably need to increase the delay.
-   *
    * @param path path in Vault to read
    * @param key key of the property of the secret represented by the path to return
    * @param delay delay in milliseconds to wait before returning the value if it wasn't already cached.
    * @return value of the specified key for the requested secret.
    */
   public String read(String path, String key, long delay) {
+    return read(path, key, delay, getConfig().getVersion());
+  }
+
+  /**
+   * Reads a secret from the local cache if it hasn't expired and returns the value for the specified key.
+   * If the secret isn't cached or has expired, it requests it from Vault again.
+   *
+   * This version of the method will also add the specified delay in milliseconds before returning, but only
+   * if the value wasn't already locally cached. This is because certain backends such as AWS will return
+   * a secret (access keys for example) before they have propagated to all AWS services. For AWS a delay of up to 5
+   * or 10 seconds may be necessary. If you receive a 403 from AWS services you probably need to increase the delay.
+   *
+   * The function handle KV Secret Engine v1 and v2. When v2, the expected endpoint for the secret will be
+   * /secret/data/<path> instead of /secret/<path>.
+   *
+   * @param path path in Vault to read
+   * @param key key of the property of the secret represented by the path to return
+   * @param delay delay in milliseconds to wait before returning the value if it wasn't already cached.
+   * @param version version of KV Secret Engine. Allowed values: 0, 1 or 2. When 0, the function takes the version
+   * from credential-stores.properties file.
+   * @return value of the specified key for the requested secret.
+   */
+  public String read(String path, String key, long delay, int version) {
+
+    if (version == 2) {
+      boolean isData = false;
+      for (String part : mapSplitter.split(path)) {
+        if (isData) {
+          path = path.concat("/").concat(part);
+        } else {
+          path = part.concat("/data");
+          isData = true;
+        }
+      }
+    } else if (version != 1) {
+      throw new VaultRuntimeException(Utils.format("Version not allowed: {}", version));
+    }
+
+    // Namespace by default is empty, if a new value is not assigned the path will remain the same.
+      path = namespace.concat(path);
+
     if (!secrets.containsKey(path)) {
       VaultClient vault = new VaultClient(getConfig());
       Secret secret;
@@ -364,6 +400,9 @@ public class Vault {
     }
 
     Map<String, Object> data = secrets.get(path).getData();
+    if (version == 2) {
+      data = (Map<String, Object>) data.get("data");
+    }
     String value = getSecretValue(data, key).orElseThrow(() -> new VaultRuntimeException("Value not found for key"));
     LOG.trace("CredentialStore '{}' Vault, retrieved value for key '{}'", csId, key);
     return value;
@@ -394,11 +433,12 @@ public class Vault {
     if (authExpirationTime != Long.MAX_VALUE && authExpirationTime - System.currentTimeMillis() <= 1000) {
       VaultClient vault = new VaultClient(config);
       Secret auth;
+
       try {
         if (authBackend == AuthBackend.APP_ID) {
           auth = vault.authenticate().appId(roleId, calculateUserId(csId));
         } else {
-          auth = vault.authenticate().appRole(roleId, getSecretId());
+          auth = vault.authenticate().appRole(roleId, getSecretId(), namespace);
         }
       } catch (VaultException e) {
         LOG.error(e.toString(), e);
@@ -427,11 +467,11 @@ public class Vault {
   private VaultConfiguration parseVaultConfigs(Configuration configuration) {
     leaseExpirationBuffer = configuration.get("lease.expiration.buffer.sec", 120);
     renewalInterval = configuration.get("lease.renewal.interval.sec", 60);
+    namespace = configuration.get("namespace","");
 
     if (configuration.hasName("role.id")) {
       authBackend = AuthBackend.APP_ROLE;
       roleId = configuration.get("role.id", "");
-
       if (configuration.get("secret.id", "").isEmpty()) {
         throw new VaultRuntimeException("secret.id must be specified when using AppRole auth.");
       }
@@ -442,6 +482,9 @@ public class Vault {
           "CredentialStore '{}' Vault, the App ID authentication mode is deprecated, please migrate to AppRole",
           csId
       );
+      if (!namespace.isEmpty()) {
+        LOG.error("Vault namespaces are not supported for App ID authentication mode");
+      }
     }
 
     if (roleId.isEmpty()) {
@@ -449,6 +492,7 @@ public class Vault {
     }
 
     config = VaultConfigurationBuilder.newVaultConfiguration()
+        .withVersion(configuration.get("version", 1))
         .withAddress(configuration.get("addr", VaultConfigurationBuilder.DEFAULT_ADDRESS))
         .withOpenTimeout(configuration.get("open.timeout", 0))
         .withProxyOptions(

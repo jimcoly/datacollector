@@ -22,6 +22,8 @@ import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.google.common.base.Preconditions;
+import com.streamsets.datacollector.antennadoctor.AntennaDoctor;
+import com.streamsets.datacollector.antennadoctor.engine.context.AntennaDoctorStageContext;
 import com.streamsets.datacollector.config.ConfigDefinition;
 import com.streamsets.datacollector.definition.ConcreteELDefinitionExtractor;
 import com.streamsets.datacollector.el.ELEvaluator;
@@ -32,6 +34,7 @@ import com.streamsets.datacollector.metrics.MetricsConfigurator;
 import com.streamsets.datacollector.record.RecordImpl;
 import com.streamsets.datacollector.record.io.JsonWriterReaderFactory;
 import com.streamsets.datacollector.record.io.RecordWriterReaderFactory;
+import com.streamsets.datacollector.usagestats.StatsCollector;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.datacollector.util.ContainerError;
 import com.streamsets.datacollector.util.ElUtil;
@@ -87,11 +90,17 @@ public abstract class ProtoContext implements ProtoConfigurableEntity.Context, C
   protected final MetricRegistry metrics;
   protected final String pipelineId;
   protected final int runnerId;
+  // Can't be final as runner count is not known at static initialization time
+  protected int runnerCount;
   protected final String rev;
   private final Sampler sampler;
   protected final String stageInstanceName;
   protected final String serviceInstanceName;
   protected final String resourcesDir;
+
+  protected final AntennaDoctor antennaDoctor;
+  protected final AntennaDoctorStageContext antennaDoctorContext;
+  protected final StatsCollector statsCollector;
 
   protected ProtoContext(
       Configuration configuration,
@@ -105,7 +114,10 @@ public abstract class ProtoContext implements ProtoConfigurableEntity.Context, C
       String stageInstanceName,
       StageType stageType,
       String serviceInstanceName,
-      String resourcesDir
+      String resourcesDir,
+      AntennaDoctor antennaDoctor,
+      AntennaDoctorStageContext antennaDoctorStageContext,
+      StatsCollector statsCollector
   ) {
     this.configuration = configuration.getSubSetConfiguration(STAGE_CONF_PREFIX, true);
     this.configToElDefMap = configToElDefMap;
@@ -115,9 +127,13 @@ public abstract class ProtoContext implements ProtoConfigurableEntity.Context, C
     this.pipelineId = pipelineId;
     this.rev = rev;
     this.runnerId = runnerId;
+    this.runnerCount = 1; // By default we're running with a single runner
     this.stageInstanceName = stageInstanceName;
     this.serviceInstanceName = serviceInstanceName;
     this.resourcesDir = resourcesDir;
+    this.antennaDoctor = antennaDoctor;
+    this.antennaDoctorContext = antennaDoctorStageContext;
+    this.statsCollector = statsCollector;
 
     // Initialize Sampler
     int sampleSize = configuration.get(SDC_RECORD_SAMPLING_SAMPLE_SIZE, 1);
@@ -172,6 +188,15 @@ public abstract class ProtoContext implements ProtoConfigurableEntity.Context, C
   }
 
   @Override
+  public int getRunnerCount() {
+    return runnerCount;
+  }
+
+  public void setRunnerCount(int count) {
+    this.runnerCount = count;
+  }
+
+  @Override
   public String getResourcesDirectory() {
     return resourcesDir;
   }
@@ -200,7 +225,17 @@ public abstract class ProtoContext implements ProtoConfigurableEntity.Context, C
   ) {
     Preconditions.checkNotNull(errorCode, "errorCode cannot be null");
     args = (args != null) ? args.clone() : NULL_ONE_ARG;
-    return new ConfigIssueImpl(stageInstanceName, serviceInstanceName, configGroup, configName, errorCode, args);
+
+    if(statsCollector != null) {
+      statsCollector.errorCode(errorCode);
+    }
+
+    ConfigIssueImpl issue = new ConfigIssueImpl(stageInstanceName, serviceInstanceName, configGroup, configName, errorCode, args);
+    if(antennaDoctor != null) {
+      issue.setAntennaDoctorMessages(antennaDoctor.onValidation(antennaDoctorContext, configGroup, configName, errorCode, args));
+    }
+
+    return issue;
   }
 
   @Override

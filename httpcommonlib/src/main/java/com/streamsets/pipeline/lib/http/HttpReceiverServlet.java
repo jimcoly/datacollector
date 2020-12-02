@@ -20,7 +20,10 @@ import com.codahale.metrics.Timer;
 import com.google.common.annotations.VisibleForTesting;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageException;
+import com.streamsets.pipeline.api.credential.CredentialValue;
 import com.streamsets.pipeline.api.impl.Utils;
+import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.iq80.snappy.SnappyFramedInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +34,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
@@ -47,6 +53,12 @@ public class HttpReceiverServlet extends HttpServlet {
   private final Timer requestTimer;
   private volatile boolean shuttingDown;
 
+  // In case of FlowFile data format, we need to put certain header as the OK response
+  // NiFi HTTP destination will check the header and fail if it doesn't see this header
+  private static final String NIFI_TRANSACTION_HEADER = "x-nifi-transaction-id";
+  // Even if the actual FlowFile is version 1 or 2, passing v3 seems valid
+  private static final String NIFI_RESPONSE = "application/flowfile-v3";
+
   public HttpReceiverServlet(Stage.Context context, HttpReceiver receiver, BlockingQueue<Exception> errorQueue) {
     this.receiver = receiver;
     this.errorQueue = errorQueue;
@@ -60,13 +72,34 @@ public class HttpReceiverServlet extends HttpServlet {
     return receiver;
   }
 
+  // From https://stackoverflow.com/a/31928740/33905
+  @VisibleForTesting
+  protected static Map<String, String[]> getQueryParameters(HttpServletRequest request) {
+    Map<String, String[]> queryParameters = new HashMap<>();
+    String queryString = request.getQueryString();
+
+    if (StringUtils.isEmpty(queryString)) {
+      return queryParameters;
+    }
+
+    String[] parameters = queryString.split("&");
+
+    for (String parameter : parameters) {
+      String[] keyValuePair = parameter.split("=");
+      String[] values = queryParameters.get(keyValuePair[0]);
+      values = ArrayUtils.add(values, keyValuePair.length == 1 ? "" : keyValuePair[1]); //length is one if no value is available.
+      queryParameters.put(keyValuePair[0], values);
+    }
+    return queryParameters;
+  }
+
   @VisibleForTesting
   protected boolean validateAppId(HttpServletRequest req, HttpServletResponse res)
       throws ServletException, IOException {
     boolean valid = false;
-    String ourAppId = null;
+    List<? extends CredentialValue> ourAppIds = null;
     try {
-      ourAppId = getReceiver().getAppId().get();
+      ourAppIds = getReceiver().getAppIds();
     } catch (StageException e) {
       throw new IOException("Cant resolve credential value", e);
     }
@@ -74,27 +107,37 @@ public class HttpReceiverServlet extends HttpServlet {
     String reqAppId = req.getHeader(HttpConstants.X_SDC_APPLICATION_ID_HEADER);
 
     if (reqAppId == null && receiver.isAppIdViaQueryParamAllowed()) {
-      reqAppId = req.getParameter(HttpConstants.SDC_APPLICATION_ID_QUERY_PARAM);
+      String[] ids = getQueryParameters(req).get(HttpConstants.SDC_APPLICATION_ID_QUERY_PARAM);
+      if(ids!=null && ids.length>0)
+        reqAppId = ids[0];
     }
 
     if (reqAppId == null) {
       LOG.warn("Request from '{}' missing appId, rejected", requestor);
       res.sendError(HttpServletResponse.SC_FORBIDDEN, "Missing 'appId'");
-    } else if (!ourAppId.equals(reqAppId)) {
-      LOG.warn("Request from '{}' invalid appId '{}', rejected", requestor, reqAppId);
-      res.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid 'appId'");
     } else {
-      valid = true;
+      int counter = 0;
+      while(counter < ourAppIds.size() && !valid){
+        valid = valid || ourAppIds.get(counter).get().equals(reqAppId);
+        counter++;
+      }
+      if(!valid) {
+        LOG.warn("Request from {} rejected due to invalid appid {}", requestor, reqAppId);
+        res.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid 'appId'");
+      }
     }
     return valid;
   }
 
   @Override
   protected void doGet(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
-    if (validateAppId(req, res)) {
+    if (!getReceiver().isApplicationIdEnabled() || validateAppId(req, res)) {
       LOG.debug("Validation from '{}', OK", req.getRemoteAddr());
       res.setHeader(HttpConstants.X_SDC_PING_HEADER, HttpConstants.X_SDC_PING_VALUE);
       res.setStatus(HttpServletResponse.SC_OK);
+      if (res.getHeaderNames().contains(NIFI_TRANSACTION_HEADER)) {
+        res.setHeader("Accept", NIFI_RESPONSE);
+      }
     }
   }
 
@@ -102,7 +145,7 @@ public class HttpReceiverServlet extends HttpServlet {
   boolean validatePostRequest(HttpServletRequest req, HttpServletResponse res)
       throws ServletException, IOException {
     boolean valid = false;
-    if (validateAppId(req, res)) {
+    if (!getReceiver().isApplicationIdEnabled() || validateAppId(req, res)) {
       String compression = req.getHeader(HttpConstants.X_SDC_COMPRESSION_HEADER);
       if (compression == null) {
         valid = true;

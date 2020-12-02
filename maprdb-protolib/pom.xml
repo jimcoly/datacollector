@@ -23,12 +23,12 @@
   <parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-root-lib</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <relativePath>../root-lib</relativePath>
   </parent>
   <groupId>com.streamsets</groupId>
   <artifactId>streamsets-datacollector-maprdb-protolib</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector MapR DB Protolib</description>
   <name>StreamSets Data Collector MapR DB Protolib</name>
   <packaging>jar</packaging>
@@ -38,6 +38,7 @@
     <hadoop.version>2.7.0-mapr-1710</hadoop.version>
     <hbase.version>1.1.8-mapr-1710</hbase.version>
     <mapr.version>6.0.0-mapr</mapr.version>
+    <snakeyaml.version>1.27</snakeyaml.version>
  </properties>
 
   <dependencies>
@@ -72,6 +73,12 @@
     </dependency>
 
     <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>${snakeyaml.version}</version>
+    </dependency>
+
+    <dependency>
       <groupId>javax.servlet</groupId>
       <artifactId>javax.servlet-api</artifactId>
     </dependency>
@@ -87,6 +94,10 @@
           <groupId>org.apache.hadoop</groupId>
           <artifactId>hadoop-common</artifactId>
         </exclusion>
+         <exclusion>
+           <groupId>jdk.tools</groupId>
+           <artifactId>jdk.tools</artifactId>
+         </exclusion>
       </exclusions>
     </dependency>
 
@@ -179,13 +190,6 @@
         <version>2.8.2</version>
         <configuration>
           <skip>true</skip>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <configuration>
-            <argLine>-Xmx1g</argLine>
         </configuration>
       </plugin>
     </plugins>

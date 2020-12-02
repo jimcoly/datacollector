@@ -2,7 +2,7 @@
   <tabset class="tabs-top">
 
     <tab active="generalConfigActive" select="onTabSelect({name: 'generalConfig'})">
-      <tab-heading>
+      <tab-heading class="fs-unmask">
         <i class="fa fa-exclamation-triangle icon-danger"
            ng-show="showConfigurationWarning(detailPaneConfig, '')"></i>
         <span translate="home.detailPane.configurationTab.general">基础信息</span>
@@ -14,10 +14,11 @@
     </tab>
 
     <tab ng-repeat="groupNameToLabelMap in configGroupTabs"
-         disable="!isStageGroupVisible(detailPaneConfig, detailPaneConfigDefn, detailPaneServices, groupNameToLabelMap.name)"
+         ng-if="isStageGroupVisible(detailPaneConfigDefn, detailPaneServices, detailPaneConfig.uiInfo.displayMode, groupNameToLabelMap.name)"
+         disable="!isStageGroupEnabled(detailPaneConfig, detailPaneConfigDefn, detailPaneServices, groupNameToLabelMap.name)"
          active="groupNameToLabelMap.active"
          select="onTabSelect(groupNameToLabelMap)">
-      <tab-heading>
+      <tab-heading class="fs-unmask">
         <i class="fa fa-exclamation-triangle icon-danger"
            ng-show="showConfigurationWarning(detailPaneConfig, groupNameToLabelMap.name)"></i>
         <span>{{groupNameToLabelMap.label}}</span>
@@ -29,8 +30,8 @@
               name="{{selectedType === pipelineConstant.STAGE_INSTANCE ? 'd' + detailPaneConfig.instanceName : 'pipeline'}}">
           <div class="form-group "
                ng-class="{'has-error': getConfigurationIssues(detailPaneConfig, configDefinition).length > 0}"
-               ng-repeat="configDefinition in detailPaneConfigDefn.configDefinitions | filter: {group: groupNameToLabelMap.name} | orderBy: 'displayPosition'"
-               ng-if="(verifyDependsOnMap(detailPaneConfig, configDefinition)) && configDefinition.group === groupNameToLabelMap.name"
+               ng-repeat="configDefinition in detailPaneConfigDefn.configDefinitions | filter: {group: groupNameToLabelMap.name, displayMode: '!ADVANCED'} | orderBy: 'displayPosition'"
+               ng-if="(verifyDependsOnMap(detailPaneConfig, configDefinition)) && configDefinition.group === groupNameToLabelMap.name && isShownByConfigDisplayMode(configDefinition.displayMode, detailPaneConfig.uiInfo.displayMode)"
                ng-init="configIndex = getConfigIndex(detailPaneConfig, configDefinition)">
 
             <ng-include ng-if="selectedType !== pipelineConstant.LINK"
@@ -39,14 +40,59 @@
           <div ng-repeat="service in detailPaneServices" ng-if="detailPaneServices">
             <div class="form-group "
                  ng-class="{'has-error': getConfigurationIssues(service.config, configDefinition).length > 0}"
-                 ng-repeat="configDefinition in service.definition.configDefinitions | filter: {group: groupNameToLabelMap.name} | orderBy: 'displayPosition'"
-                 ng-if="(verifyDependsOnMap(service.config, configDefinition)) && configDefinition.group === groupNameToLabelMap.name"
+                 ng-repeat="configDefinition in service.definition.configDefinitions | filter: {group: groupNameToLabelMap.name, displayMode: '!ADVANCED'} | orderBy: 'displayPosition'"
+                 ng-if="(verifyDependsOnMap(service.config, configDefinition)) && configDefinition.group === groupNameToLabelMap.name  && isShownByConfigDisplayMode(configDefinition.displayMode, detailPaneConfig.uiInfo.displayMode)"
                  ng-init="configIndex = getConfigIndex(service.config, configDefinition); detailPaneConfig = service.config">
 
               <ng-include ng-if="selectedType !== pipelineConstant.LINK"
                       src="'app/home/detail/configuration/groupConfiguration.tpl.html'"></ng-include>
             </div>
           </div>
+          <div class="show-advanced-button fs-unmask form-group">
+            <div class="tooltip-wrapper col-lg-3 col-md-4"
+                ng-class="{'disabled': configHasAdvancedIssues}"
+                tooltip="{{configHasAdvancedIssues ? ('home.detailPane.advancedIssuesNeedFix' | translate) : ''}}"
+                tooltip-append-to-body="true"
+                tooltip-placement="right">
+              <button class="btn btn-link dropdown-toggle" type="button"
+              ng-click="toggleConfigDisplayMode()"
+              ng-if="groupHasEnabledAdvancedConfig(detailPaneConfig, detailPaneConfigDefn.configDefinitions, detailPaneServices, groupNameToLabelMap.name)"
+              ng-disabled="configHasAdvancedIssues"
+              >
+                <div ng-switch="detailPaneConfig.uiInfo.displayMode">
+                  <div ng-switch-when="ADVANCED">
+                    Hide Advanced Options
+                    <i class="glyphicon glyphicon-menu-up"></i>
+                  </div>
+                  <div ng-switch-default>
+                    Show Advanced Options
+                    <i class="glyphicon glyphicon-menu-down"></i>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group "
+          ng-class="{'has-error': getConfigurationIssues(detailPaneConfig, configDefinition).length > 0}"
+          ng-repeat="configDefinition in detailPaneConfigDefn.configDefinitions | filter: {group: groupNameToLabelMap.name, displayMode: 'ADVANCED'} | orderBy: 'displayPosition'"
+          ng-if="(verifyDependsOnMap(detailPaneConfig, configDefinition)) && configDefinition.group === groupNameToLabelMap.name && isShownByConfigDisplayMode(configDefinition.displayMode, detailPaneConfig.uiInfo.displayMode)"
+          ng-init="configIndex = getConfigIndex(detailPaneConfig, configDefinition)">
+
+       <ng-include ng-if="selectedType !== pipelineConstant.LINK"
+               src="'app/home/detail/configuration/groupConfiguration.tpl.html'"></ng-include>
+     </div>
+     <div ng-repeat="service in detailPaneServices" ng-if="detailPaneServices">
+       <div class="form-group "
+            ng-class="{'has-error': getConfigurationIssues(service.config, configDefinition).length > 0}"
+            ng-repeat="configDefinition in service.definition.configDefinitions | filter: {group: groupNameToLabelMap.name, displayMode: 'ADVANCED'} | orderBy: 'displayPosition'"
+            ng-if="(verifyDependsOnMap(service.config, configDefinition)) && configDefinition.group === groupNameToLabelMap.name  && isShownByConfigDisplayMode(configDefinition.displayMode, detailPaneConfig.uiInfo.displayMode)"
+            ng-init="configIndex = getConfigIndex(service.config, configDefinition); detailPaneConfig = service.config">
+
+         <ng-include ng-if="selectedType !== pipelineConstant.LINK"
+                 src="'app/home/detail/configuration/groupConfiguration.tpl.html'"></ng-include>
+       </div>
+     </div>
         </form>
       </div>
     </tab>
@@ -54,7 +100,7 @@
     <tab ng-if="testOriginStageConfig"
          select="onTabSelect({name: 'testOriginStageConfig'})"
          active="testOriginStageConfigActive">
-      <tab-heading ng-controller="TestOriginConfigurationController">
+      <tab-heading class="fs-unmask" ng-controller="TestOriginConfigurationController">
         <i class="fa fa-exclamation-triangle icon-danger"
            ng-show="showConfigurationWarning(detailPaneConfig, undefined, true)"></i>
         {{'home.detailPane.testOrigin' | translate}}
@@ -65,8 +111,8 @@
               name="badRecordsForm">
           <div class="form-group"
                ng-class="{'has-error': getConfigurationIssues(detailPaneConfig, configDefinition).length > 0}"
-               ng-repeat="configDefinition in testOriginStageConfigDefn.configDefinitions | orderBy: 'displayPosition'"
-               ng-if="(verifyDependsOnMap(testOriginStageConfig, configDefinition))"
+               ng-repeat="configDefinition in testOriginStageConfigDefn.configDefinitions | filter: {displayMode: '!ADVANCED'} | orderBy: 'displayPosition'"
+               ng-if="(verifyDependsOnMap(testOriginStageConfig, configDefinition)) && isShownByConfigDisplayMode(configDefinition.displayMode, pipelinePaneConfig.uiInfo.displayMode)"
                ng-init="configIndex = getConfigIndex(testOriginStageConfig, configDefinition);">
 
             <ng-include ng-if="selectedType !== pipelineConstant.LINK"
@@ -76,8 +122,53 @@
           <div ng-repeat="service in detailPaneServices" ng-if="detailPaneServices">
             <div class="form-group "
                  ng-class="{'has-error': getConfigurationIssues(service.config, configDefinition).length > 0}"
-                 ng-repeat="configDefinition in service.definition.configDefinitions | orderBy: 'displayPosition'"
-                 ng-if="(verifyDependsOnMap(service.config, configDefinition))"
+                 ng-repeat="configDefinition in service.definition.configDefinitions | filter: {displayMode: '!ADVANCED'} | orderBy: 'displayPosition'"
+                 ng-if="(verifyDependsOnMap(service.config, configDefinition)) && isShownByConfigDisplayMode(configDefinition.displayMode, pipelinePaneConfig.uiInfo.displayMode)"
+                 ng-init="configIndex = getConfigIndex(service.config, configDefinition); detailPaneConfig = service.config">
+              <ng-include ng-if="selectedType !== pipelineConstant.LINK"
+                          src="'app/home/detail/configuration/groupConfiguration.tpl.html'"></ng-include>
+            </div>
+          </div>
+
+          <div class="show-advanced-button fs-unmask form-group">
+            <div class="tooltip-wrapper col-lg-3 col-md-4"
+                ng-class="{'disabled': configHasAdvancedIssues}"
+                tooltip="{{configHasAdvancedIssues ? ('home.detailPane.advancedIssuesNeedFix' | translate) : ''}}"
+                tooltip-append-to-body="true"
+                tooltip-placement="right">
+              <button class="btn btn-link dropdown-toggle" type="button"
+                  ng-click="toggleConfigDisplayMode()"
+                  ng-if="hasAdvancedConfig(detailPaneConfigDefn.configDefinitions, detailPaneServices)"
+                  ng-disabled="configHasAdvancedIssues">
+                <div ng-switch="pipelinePaneConfig.uiInfo.displayMode">
+                  <div ng-switch-when="ADVANCED">
+                    Hide Advanced Options
+                    <i class="glyphicon glyphicon-menu-up"></i>
+                  </div>
+                  <div ng-switch-default>
+                    Show Advanced Options
+                    <i class="glyphicon glyphicon-menu-down"></i>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group"
+                ng-class="{'has-error': getConfigurationIssues(detailPaneConfig, configDefinition).length > 0}"
+                ng-repeat="configDefinition in testOriginStageConfigDefn.configDefinitions | filter: {displayMode: 'ADVANCED'} | orderBy: 'displayPosition'"
+                ng-if="(verifyDependsOnMap(testOriginStageConfig, configDefinition)) && isShownByConfigDisplayMode(configDefinition.displayMode, pipelinePaneConfig.uiInfo.displayMode)"
+                ng-init="configIndex = getConfigIndex(testOriginStageConfig, configDefinition);">
+
+            <ng-include ng-if="selectedType !== pipelineConstant.LINK"
+                        src="'app/home/detail/configuration/groupConfiguration.tpl.html'"></ng-include>
+          </div>
+
+          <div ng-repeat="service in detailPaneServices" ng-if="detailPaneServices">
+            <div class="form-group "
+                 ng-class="{'has-error': getConfigurationIssues(service.config, configDefinition).length > 0}"
+                 ng-repeat="configDefinition in service.definition.configDefinitions | filter: {displayMode: 'ADVANCED'} | orderBy: 'displayPosition'"
+                 ng-if="(verifyDependsOnMap(service.config, configDefinition)) && isShownByConfigDisplayMode(configDefinition.displayMode, pipelinePaneConfig.uiInfo.displayMode)"
                  ng-init="configIndex = getConfigIndex(service.config, configDefinition); detailPaneConfig = service.config">
               <ng-include ng-if="selectedType !== pipelineConstant.LINK"
                           src="'app/home/detail/configuration/groupConfiguration.tpl.html'"></ng-include>
@@ -117,8 +208,8 @@
               name="badRecordsForm">
           <div class="form-group"
                ng-class="{'has-error': getConfigurationIssues(detailPaneConfig, configDefinition).length > 0}"
-               ng-repeat="configDefinition in errorStageConfigDefn.configDefinitions | orderBy: 'displayPosition'"
-               ng-if="(verifyDependsOnMap(errorStageConfig, configDefinition))"
+               ng-repeat="configDefinition in errorStageConfigDefn.configDefinitions | filter: {displayMode: '!ADVANCED'} | orderBy: 'displayPosition'"
+               ng-if="(verifyDependsOnMap(errorStageConfig, configDefinition)) && isShownByConfigDisplayMode(configDefinition.displayMode, pipelinePaneConfig.uiInfo.displayMode)"
                ng-init="configIndex = getConfigIndex(errorStageConfig, configDefinition);">
 
             <ng-include ng-if="selectedType !== pipelineConstant.LINK"
@@ -128,9 +219,54 @@
           <div ng-repeat="service in detailPaneServices" ng-if="detailPaneServices">
             <div class="form-group "
                  ng-class="{'has-error': getConfigurationIssues(service.config, configDefinition).length > 0}"
-                 ng-repeat="configDefinition in service.definition.configDefinitions | orderBy: 'displayPosition'"
-                 ng-if="(verifyDependsOnMap(service.config, configDefinition))"
+                 ng-repeat="configDefinition in service.definition.configDefinitions | filter: {displayMode: '!ADVANCED'} | orderBy: 'displayPosition'"
+                 ng-if="(verifyDependsOnMap(service.config, configDefinition)) && isShownByConfigDisplayMode(configDefinition.displayMode, pipelinePaneConfig.uiInfo.displayMode)"
                  ng-init="configIndex = getConfigIndex(service.config, configDefinition); detailPaneConfig = service.config">
+              <ng-include ng-if="selectedType !== pipelineConstant.LINK"
+                          src="'app/home/detail/configuration/groupConfiguration.tpl.html'"></ng-include>
+            </div>
+          </div>
+
+          <div class="show-advanced-button fs-unmask form-group">
+            <div class="tooltip-wrapper col-lg-3 col-md-4"
+                ng-class="{'disabled': configHasAdvancedIssues}"
+                tooltip="{{configHasAdvancedIssues ? ('home.detailPane.advancedIssuesNeedFix' | translate) : ''}}"
+                tooltip-append-to-body="true"
+                tooltip-placement="right">
+              <button class="btn btn-link dropdown-toggle" type="button"
+                  ng-click="toggleConfigDisplayMode()"
+                  ng-if="hasAdvancedConfig(errorStageConfigDefn.configDefinitions, detailPaneServices)"
+            ng-disabled="configHasAdvancedIssues">
+                <div ng-switch="pipelinePaneConfig.uiInfo.displayMode">
+                  <div ng-switch-when="ADVANCED">
+                    Hide Advanced Options
+                    <i class="glyphicon glyphicon-menu-up"></i>
+                  </div>
+                  <div ng-switch-default>
+                    Show Advanced Options
+                    <i class="glyphicon glyphicon-menu-down"></i>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group"
+                ng-class="{'has-error': getConfigurationIssues(detailPaneConfig, configDefinition).length > 0}"
+                ng-repeat="configDefinition in errorStageConfigDefn.configDefinitions | filter: {displayMode: 'ADVANCED'} | orderBy: 'displayPosition'"
+                ng-if="(verifyDependsOnMap(errorStageConfig, configDefinition)) && isShownByConfigDisplayMode(configDefinition.displayMode, pipelinePaneConfig.uiInfo.displayMode)"
+                ng-init="configIndex = getConfigIndex(errorStageConfig, configDefinition);">
+
+            <ng-include ng-if="selectedType !== pipelineConstant.LINK"
+                        src="'app/home/detail/configuration/groupConfiguration.tpl.html'"></ng-include>
+          </div>
+
+          <div ng-repeat="service in detailPaneServices" ng-if="detailPaneServices">
+            <div class="form-group "
+                  ng-class="{'has-error': getConfigurationIssues(service.config, configDefinition).length > 0}"
+                  ng-repeat="configDefinition in service.definition.configDefinitions | filter: {displayMode: 'ADVANCED'} | orderBy: 'displayPosition'"
+                  ng-if="(verifyDependsOnMap(service.config, configDefinition)) && isShownByConfigDisplayMode(configDefinition.displayMode, pipelinePaneConfig.uiInfo.displayMode)"
+                  ng-init="configIndex = getConfigIndex(service.config, configDefinition); detailPaneConfig = service.config">
               <ng-include ng-if="selectedType !== pipelineConstant.LINK"
                           src="'app/home/detail/configuration/groupConfiguration.tpl.html'"></ng-include>
             </div>
@@ -157,7 +293,7 @@
     <tab ng-if="statsAggregatorStageConfig"
          select="onTabSelect({name: 'statsAggregatorStageConfig'})"
          active="statsAggregatorStageConfigActive">
-      <tab-heading ng-controller="StatsAggregatorConfigurationController">
+      <tab-heading class="fs-unmask" ng-controller="StatsAggregatorConfigurationController">
         <i class="fa fa-exclamation-triangle icon-danger"
            ng-show="showConfigurationWarning(detailPaneConfig, undefined, true)"></i>
         {{'home.detailPane.statsAggregator' | translate}} - {{statsAggregatorStageConfigDefn.label}}
@@ -208,7 +344,7 @@
     <tab ng-if="startEventStageConfig"
          select="onTabSelect({name: 'startEventStageConfig'})"
          active="startEventStageConfigActive">
-      <tab-heading ng-controller="StartEventConfigurationController">
+      <tab-heading class="fs-unmask" ng-controller="StartEventConfigurationController">
         <i class="fa fa-exclamation-triangle icon-danger"
            ng-show="showConfigurationWarning(detailPaneConfig, undefined, true)"></i>
         {{'home.detailPane.startEvent' | translate}} - {{startEventStageConfigDefn.label}}
@@ -264,7 +400,7 @@
     <tab ng-if="stopEventStageConfig"
          select="onTabSelect({name: 'stopEventStageConfig'})"
          active="stopEventStageConfigActive">
-      <tab-heading ng-controller="StopEventConfigurationController">
+      <tab-heading  class="fs-unmask" ng-controller="StopEventConfigurationController">
         <i class="fa fa-exclamation-triangle icon-danger"
            ng-show="showConfigurationWarning(detailPaneConfig, undefined, true)"></i>
         {{'home.detailPane.stopEvent' | translate}} - {{stopEventStageConfigDefn.label}}

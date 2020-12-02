@@ -22,15 +22,18 @@ import com.streamsets.pipeline.api.HideConfigs;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.Target;
 import com.streamsets.pipeline.api.base.configurablestage.DTarget;
+import com.streamsets.pipeline.lib.event.WholeFileProcessedEvent;
 import com.streamsets.pipeline.stage.destination.hdfs.HdfsTarget;
 
 @StageDef(
-    version = 3,
+    version = 4,
     label = "Local FS",
     description = "Writes to the local file system",
     icon = "localfilesystem.png",
     producesEvents = true,
+    eventDefs = {WholeFileProcessedEvent.class},
     upgrader = LocalFileSystemTargetUpgrader.class,
+    upgraderDef = "upgrader/LocalFileSystemDTarget.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_e33_3v5_1r"
 )
 @ConfigGroups(Groups.class)

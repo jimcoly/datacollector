@@ -17,10 +17,16 @@ package com.streamsets.pipeline.stage.origin.kafka;
 
 import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.StageException;
+import com.streamsets.pipeline.api.StageUpgrader;
 import com.streamsets.pipeline.config.DataFormat;
+import com.streamsets.pipeline.config.upgrade.KafkaSecurityUpgradeHelper;
+import com.streamsets.pipeline.config.upgrade.UpgraderTestUtils;
 import com.streamsets.pipeline.lib.kafka.KafkaAutoOffsetReset;
+import com.streamsets.pipeline.upgrader.SelectorStageUpgrader;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,9 +35,19 @@ import java.util.Map;
 
 public class TestKafkaSourceUpgrader {
 
+  private StageUpgrader upgrader;
+  private List<Config> configs;
+  private StageUpgrader.Context context;
+
+  @Before
+  public void setUp() {
+    upgrader = SelectorStageUpgrader.createTestInstanceForStageClass(KafkaDSource.class);
+    configs = new ArrayList<>();
+    context = Mockito.mock(StageUpgrader.Context.class);
+  }
+
   @Test
   public void testUpgradeV3toV4() throws StageException {
-    List<Config> configs = new ArrayList<>();
     configs.add(new Config("dataFormat", DataFormat.TEXT));
     configs.add(new Config("metadataBrokerList", "MY_LIST"));
     configs.add(new Config("zookeeperConnect", "MY_ZK_CONNECTION"));
@@ -94,7 +110,6 @@ public class TestKafkaSourceUpgrader {
 
   @Test
   public void testupgradeV6ToV7() throws StageException {
-    List<Config> configs = new ArrayList<>();
     configs.add(new Config("dataFormat", DataFormat.TEXT));
     configs.add(new Config("metadataBrokerList", "MY_LIST"));
     configs.add(new Config("zookeeperConnect", "MY_ZK_CONNECTION"));
@@ -112,12 +127,72 @@ public class TestKafkaSourceUpgrader {
     kafkaOptions.put("auto.offset.reset", "latest");
 
     configs.add(new Config("kafkaOptions", kafkaOptions));
-    KafkaSourceUpgrader kafkaSourceUpgrader = new KafkaSourceUpgrader();
     Assert.assertTrue(!kafkaOptions.isEmpty());
+
+    KafkaSourceUpgrader kafkaSourceUpgrader = new KafkaSourceUpgrader();
     kafkaSourceUpgrader.upgrade("a", "b", "c", 6, 7, configs);
 
     Assert.assertEquals(KafkaAutoOffsetReset.LATEST, configs.get(configs.size() - 2).getValue());
     Assert.assertTrue(kafkaOptions.isEmpty());
 
+  }
+
+  @Test
+  public void testV7ToV8() {
+    Mockito.doReturn(7).when(context).getFromVersion();
+    Mockito.doReturn(8).when(context).getToVersion();
+
+    configs = upgrader.upgrade(configs, context);
+
+    UpgraderTestUtils.assertExists(configs, "kafkaConfigBean.keyCaptureMode", "NONE");
+    UpgraderTestUtils.assertExists(configs, "kafkaConfigBean.keyCaptureAttribute", "kafkaMessageKey");
+    UpgraderTestUtils.assertExists(configs, "kafkaConfigBean.keyCaptureField", "/kafkaMessageKey");
+  }
+
+  @Test
+  public void testV9ToV10() {
+    Mockito.doReturn(9).when(context).getFromVersion();
+    Mockito.doReturn(10).when(context).getToVersion();
+
+    String dataFormatPrefix = "kafkaConfigBean.dataFormatConfig.";
+    configs.add(new Config(dataFormatPrefix + "preserveRootElement", true));
+    configs = upgrader.upgrade(configs, context);
+
+    UpgraderTestUtils.assertExists(configs, dataFormatPrefix + "preserveRootElement", false);
+  }
+
+  @Test
+  public void testV10ToV11() {
+    Mockito.doReturn(10).when(context).getFromVersion();
+    Mockito.doReturn(11).when(context).getToVersion();
+
+    configs = upgrader.upgrade(configs, context);
+
+    UpgraderTestUtils.assertExists(
+        configs,
+        "kafkaConfigBean.provideKeytab",
+        false
+    );
+    UpgraderTestUtils.assertExists(
+        configs,
+        "kafkaConfigBean.userKeytab",
+        ""
+    );
+    UpgraderTestUtils.assertExists(
+        configs,
+        "kafkaConfigBean.userPrincipal",
+        "user/host@REALM"
+    );
+  }
+
+  @Test
+  public void testV11toV12() {
+    KafkaSecurityUpgradeHelper.testUpgradeSecurityOptions(
+        upgrader,
+        11,
+        "kafkaConfigBean",
+        "kafkaConsumerConfigs",
+        "metadataBrokerList"
+    );
   }
 }

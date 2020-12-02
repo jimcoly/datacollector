@@ -48,6 +48,8 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,6 +58,7 @@ import java.util.Set;
 import static com.streamsets.pipeline.lib.util.AvroSchemaHelper.SCHEMA_ID_KEY;
 import static com.streamsets.pipeline.lib.util.AvroSchemaHelper.SCHEMA_KEY;
 import static com.streamsets.pipeline.lib.util.AvroSchemaHelper.SCHEMA_REPO_URLS_KEY;
+import static com.streamsets.pipeline.lib.util.AvroSchemaHelper.SCHEMA_SKIP_AVRO_INDEXES;
 import static com.streamsets.pipeline.lib.util.AvroSchemaHelper.SCHEMA_SOURCE_KEY;
 import static com.streamsets.pipeline.lib.util.AvroSchemaHelper.SUBJECT_KEY;
 import static org.apache.commons.lang.StringUtils.isEmpty;
@@ -176,7 +179,7 @@ public class DataFormatParser {
             dataFormatConfig.customLogFormat,
             dataFormatConfig.regex,
             dataFormatConfig.grokPatternDefinition,
-            dataFormatConfig.grokPattern,
+            Arrays.asList(dataFormatConfig.grokPattern),
             dataFormatConfig.enableLog4jCustomLogFormat,
             dataFormatConfig.log4jCustomLogFormat,
             dataFormatConfig.onParseError,
@@ -342,7 +345,13 @@ public class DataFormatParser {
           .setConfig(DelimitedDataConstants.IGNORE_EMPTY_LINES_CONFIG, dataFormatConfig.csvIgnoreEmptyLines)
           .setConfig(DelimitedDataConstants.ALLOW_EXTRA_COLUMNS, dataFormatConfig.csvAllowExtraColumns)
           .setConfig(DelimitedDataConstants.EXTRA_COLUMN_PREFIX, dataFormatConfig.csvExtraColumnPrefix)
-          ;
+          .setConfig(
+              DelimitedDataConstants.MULTI_CHARACTER_FIELD_DELIMITER_CONFIG,
+              dataFormatConfig.multiCharacterFieldDelimiter
+          ).setConfig(
+              DelimitedDataConstants.MULTI_CHARACTER_LINE_DELIMITER_CONFIG,
+              dataFormatConfig.multiCharacterLineDelimiter
+          );
         break;
       case XML:
         builder.setMaxDataLen(dataFormatConfig.xmlMaxObjectLen);
@@ -365,7 +374,8 @@ public class DataFormatParser {
             .setConfig(SUBJECT_KEY, dataFormatConfig.subject)
             .setConfig(SCHEMA_ID_KEY, dataFormatConfig.schemaId)
             .setConfig(SCHEMA_SOURCE_KEY, dataFormatConfig.avroSchemaSource)
-            .setConfig(SCHEMA_REPO_URLS_KEY, dataFormatConfig.schemaRegistryUrls);
+            .setConfig(SCHEMA_REPO_URLS_KEY, dataFormatConfig.schemaRegistryUrls)
+            .setConfig(SCHEMA_SKIP_AVRO_INDEXES, dataFormatConfig.avroSkipUnionIndex);
         break;
       case PROTOBUF:
         builder
@@ -396,7 +406,9 @@ public class DataFormatParser {
       case EXCEL:
         builder
             .setMaxDataLen(-1)
-            .setConfig(WorkbookParserConstants.HEADER, dataFormatConfig.excelHeader);
+            .setConfig(WorkbookParserConstants.SKIP_CELLS_WITH_NO_HEADER, dataFormatConfig.excelSkipCellsWithNoHeader)
+            .setConfig(WorkbookParserConstants.HEADER, dataFormatConfig.excelHeader)
+            .setConfig(WorkbookParserConstants.SHEETS, dataFormatConfig.excelReadAllSheets ? Collections.emptyList() : dataFormatConfig.excelSheetNames);
         break;
       default:
         throw new IllegalStateException(Utils.format("Unknown data format: {}", dataFormat));

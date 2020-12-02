@@ -28,6 +28,7 @@ done
 
 BASEDIR=`dirname ${PRG}`
 BASEDIR=`cd ${BASEDIR}/..;pwd`
+ORIG_PWD="$PWD"
 cd ${BASEDIR}
 
 while test $# -gt 0; do
@@ -42,6 +43,7 @@ while test $# -gt 0; do
       ;;
     cli)
       shift
+      cd ${ORIG_PWD} # needed so passing in file names is sensible
       exec ${BASEDIR}/libexec/_cli "$@"
       ;;
     jks-cs)
@@ -50,6 +52,11 @@ while test $# -gt 0; do
       echo "WARNING: Sub-command jks-cs is deprecated, use 'streamsets stagelib-cli jks-credentialstore'"
       echo ""
       exec ${BASEDIR}/libexec/_stagelib_cli jks-credentialstore "$@"
+      ;;
+    telemetry)
+      shift
+      cd ${ORIG_PWD} # needed so passing in file names is sensible
+      exec ${BASEDIR}/libexec/_telemetry "$@"
       ;;
     sch)
       shift
@@ -85,6 +92,10 @@ while test $# -gt 0; do
       fi
       exec ${BASEDIR}/libexec/_stagelib_cli "$@"
       ;;
+    metadata-generator)
+      shift
+      exec ${BASEDIR}/libexec/_metadata-generator "$@"
+      ;;
     help)
       ${PRG} --help
       exit 0
@@ -117,6 +128,8 @@ while test $# -gt 0; do
       echo "                MapR installation."
       echo ""
       echo "    stagelib-cli <STAGE LIB>: Runs the command line tool of the specified Stage Library if available."
+      echo ""
+      echo "    metadata-generator: Generates Metadata for Cloud, for the Pipeline Executor and for Stage Libraries"
       echo ""
       exit 0
       ;;

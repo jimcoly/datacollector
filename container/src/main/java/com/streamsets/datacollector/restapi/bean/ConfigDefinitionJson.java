@@ -41,6 +41,10 @@ public class ConfigDefinitionJson {
     return configDefinition.getType();
   }
 
+  public ConfigDef.Upload getUpload() {
+    return configDefinition.getUpload();
+  }
+
   public String getLabel() {
     return configDefinition.getLabel();
   }
@@ -113,6 +117,14 @@ public class ConfigDefinitionJson {
 
   public Map<String, List<Object>> getDependsOnMap() {
     return configDefinition.getDependsOnMap();
+  }
+
+  public ConfigDef.DisplayMode getDisplayMode() {
+    return configDefinition.getDisplayMode();
+  }
+
+  public String getConnectionType() {
+    return configDefinition.getConnectionType();
   }
 
 }

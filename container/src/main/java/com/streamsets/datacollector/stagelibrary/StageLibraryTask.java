@@ -16,6 +16,7 @@
 package com.streamsets.datacollector.stagelibrary;
 
 import com.streamsets.datacollector.classpath.ClasspathValidatorResult;
+import com.streamsets.datacollector.config.ConnectionDefinition;
 import com.streamsets.datacollector.config.CredentialStoreDefinition;
 import com.streamsets.datacollector.config.InterceptorDefinition;
 import com.streamsets.datacollector.config.LineagePublisherDefinition;
@@ -26,11 +27,16 @@ import com.streamsets.datacollector.config.ServiceDefinition;
 import com.streamsets.datacollector.config.StageDefinition;
 import com.streamsets.datacollector.config.StageLibraryDefinition;
 import com.streamsets.datacollector.config.StageLibraryDelegateDefinitition;
+import com.streamsets.datacollector.definition.ConnectionVerifierDefinition;
+import com.streamsets.datacollector.restapi.bean.EventDefinitionJson;
+import com.streamsets.datacollector.restapi.bean.RepositoryManifestJson;
 import com.streamsets.datacollector.task.Task;
 import com.streamsets.pipeline.api.impl.annotationsprocessor.PipelineAnnotationsProcessor;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public interface StageLibraryTask extends Task, ClassLoaderReleaser {
 
@@ -47,6 +53,10 @@ public interface StageLibraryTask extends Task, ClassLoaderReleaser {
   String INTERCEPTOR_DEFINITION_RESOURCE = PipelineAnnotationsProcessor.INTERCEPTORS_FILE;
 
   String DELEGATE_DEFINITION_RESOURCE = PipelineAnnotationsProcessor.DELEGATE_LIST_FILE;
+
+  String CONNECTIONS_DEFINITION_RESOURCE = PipelineAnnotationsProcessor.CONNECTIONS_LIST_FILE;
+
+  String CONNECTION_VERIFIERS_DEFINITION_RESOURCE = PipelineAnnotationsProcessor.CONNECTION_VERIFIERS_LIST_FILE;
 
   PipelineDefinition getPipeline();
 
@@ -81,4 +91,20 @@ public interface StageLibraryTask extends Task, ClassLoaderReleaser {
   StageLibraryDelegateDefinitition getStageLibraryDelegateDefinition(String  stageLibrary, Class exportedInterface);
 
   List<StageLibraryDefinition> getLoadedStageLibraries();
+
+  List<RepositoryManifestJson> getRepositoryManifestList();
+
+  boolean isMultipleOriginSupported();
+
+  List<String> getLegacyStageLibs();
+
+  Map<String, EventDefinitionJson> getEventDefinitions();
+
+  StageLibraryDefinition getStageLibraryDefinition(String libraryName);
+
+  Collection<ConnectionDefinition> getConnections();
+
+  ConnectionDefinition getConnection(String type);
+
+  Set<ConnectionVerifierDefinition> getConnectionVerifiers(String type);
 }

@@ -28,17 +28,22 @@ import com.streamsets.pipeline.stage.destination.lib.ToOriginResponseConfig;
 @StageDef(
     // We're reusing upgrader for both ToErrorKinesisDTarget & KinesisDTarget, make sure that you
     // upgrade both versions at the same time when changing.
-    version = 8,
+    version = 10,
     label = "Write to Kinesis",
     description = "Writes records to Kinesis as SDC Records",
     onlineHelpRefUrl ="index.html?contextID=concept_kgc_l4y_5r",
-    upgrader = KinesisTargetUpgrader.class
+    upgrader = KinesisTargetUpgrader.class,
+    upgraderDef = "upgrader/ToErrorKinesisDTarget.yaml"
 )
 @HideConfigs(
     preconditions = true,
     onErrorRecord = true,
     value = {
-        "kinesisConfig.dataFormat"
+        "kinesisConfig.dataFormat",
+        "kinesisConfig.connection.proxyConfig.connectionTimeout",
+        "kinesisConfig.connection.proxyConfig.socketTimeout",
+        "kinesisConfig.connection.proxyConfig.retryCount",
+        "kinesisConfig.connection.proxyConfig.useProxy"
     }
 )
 @ErrorStage

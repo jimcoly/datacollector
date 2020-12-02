@@ -16,9 +16,9 @@
 package com.streamsets.pipeline.stage.origin.hdfs.spooler;
 
 import com.streamsets.pipeline.lib.dirspooler.PathMatcherMode;
-import com.streamsets.pipeline.lib.io.fileref.AbstractSpoolerFileRef;
 import com.streamsets.pipeline.lib.dirspooler.WrappedFile;
 import com.streamsets.pipeline.lib.dirspooler.WrappedFileSystem;
+import com.streamsets.pipeline.lib.io.fileref.AbstractSpoolerFileRef;
 import com.streamsets.pipeline.stage.common.HeaderAttributeConstants;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.FileStatus;
@@ -40,9 +40,9 @@ import static com.streamsets.pipeline.lib.dirspooler.PathMatcherMode.REGEX;
 
 public class HdfsFileSystem implements WrappedFileSystem {
   private final static Logger LOG = LoggerFactory.getLogger(HdfsFileSystem.class);
-  private final FileSystem fs;
+  protected final FileSystem fs;
   private final String filePattern;
-  private final boolean processSubdirectories;
+  protected final boolean processSubdirectories;
   private PathFilter filter;
 
   public HdfsFileSystem(String filePattern, PathMatcherMode mode, boolean processSubdirectories, FileSystem fs) {
@@ -64,6 +64,7 @@ public class HdfsFileSystem implements WrappedFileSystem {
     }
   }
 
+  @Override
   public boolean exists(WrappedFile filePath) {
     try {
       return fs.exists(new Path(filePath.getAbsolutePath()));
@@ -73,23 +74,28 @@ public class HdfsFileSystem implements WrappedFileSystem {
     }
   }
 
+  @Override
   public void delete(WrappedFile filePath) throws IOException {
     fs.delete(new Path(filePath.getAbsolutePath()), true);
   }
 
+  @Override
   public void move(WrappedFile filePath, WrappedFile destFilePath) throws IOException {
     fs.rename(new Path(filePath.getAbsolutePath()), new Path(destFilePath.getAbsolutePath()));
   }
 
+  @Override
   public long getLastModifiedTime(WrappedFile filePath) throws IOException {
     return fs.getFileStatus(new Path(filePath.getAbsolutePath())).getModificationTime();
   }
 
+  @Override
   public long getChangedTime(WrappedFile filePath) throws IOException {
     // hadoop fs does not support changed timestamp
     return 0;
   }
 
+  @Override
   public boolean isDirectory(WrappedFile filePath) {
     try {
       return fs.isDirectory(new Path(filePath.getAbsolutePath()));
@@ -99,6 +105,7 @@ public class HdfsFileSystem implements WrappedFileSystem {
     }
   }
 
+  @Override
   public void addFiles(WrappedFile dirFile, WrappedFile startingFile, List<WrappedFile> toProcess, boolean includeStartingFile, boolean useLastModified) throws IOException {
     final long scanTime = System.currentTimeMillis();
 
@@ -143,6 +150,7 @@ public class HdfsFileSystem implements WrappedFileSystem {
     fs.globStatus(new Path(dirFile.getAbsolutePath(), "*"), pathFilter);
   }
 
+  @Override
   public void archiveFiles(WrappedFile archiveDirPath, List<WrappedFile> toProcess, long timeThreshold) throws IOException {
     PathFilter pathFilter = new PathFilter() {
       @Override
@@ -170,7 +178,8 @@ public class HdfsFileSystem implements WrappedFileSystem {
     }
   }
 
-  public void addDirectory(WrappedFile dirPath, List<WrappedFile> directories) throws Exception {
+  @Override
+  public void addDirectory(WrappedFile dirPath, List<WrappedFile> directories) throws IOException {
     PathFilter pathFilter = new PathFilter() {
       @Override
       public boolean accept(Path entry) {
@@ -179,6 +188,7 @@ public class HdfsFileSystem implements WrappedFileSystem {
           if (fileStatus.isDirectory()) {
             if (processSubdirectories) {
               directories.add(new HdfsFile(fs, entry));
+              addDirectory(getFile(entry.toString()), directories);
             }
             return false;
           }
@@ -190,9 +200,14 @@ public class HdfsFileSystem implements WrappedFileSystem {
     };
 
     fs.globStatus(new Path(dirPath.getAbsolutePath(), "*"), pathFilter);
+
+    if (!directories.contains(dirPath)) {
+      directories.add(dirPath);
+    }
   }
 
-  public WrappedFile getFile(String filePath) {
+  @Override
+  public WrappedFile getFile(String filePath) throws IOException {
     if (StringUtils.isEmpty(filePath)) {
       return new HdfsFile(fs, null);
     }
@@ -200,7 +215,11 @@ public class HdfsFileSystem implements WrappedFileSystem {
     return new HdfsFile(fs, path);
   }
 
-  public WrappedFile getFile(String dirPath, String filePath) {
+  @Override
+  public WrappedFile getFile(String dirPath, String filePath) throws IOException {
+    if (isAbsolutePath(dirPath, filePath)) {
+      return getFile(filePath);
+    }
     if (filePath.startsWith(File.separator)) {
       filePath = filePath.replaceFirst(File.separator, "");
     }
@@ -208,14 +227,33 @@ public class HdfsFileSystem implements WrappedFileSystem {
     return new HdfsFile(fs, path);
   }
 
-  public void mkdir(WrappedFile filePath) {
-    new File(filePath.getAbsolutePath()).mkdir();
+  /*
+   * Java File.isAbsolute method only checks whether the path begins with /
+   * This is not enough since sometimes the method receives relative paths starting with /
+   * We want to check whether the filePath already includes the directory path
+   */
+  private boolean isAbsolutePath(String dirPath, String filePath) {
+    return filePath != null && filePath.startsWith(dirPath);
   }
 
+  @Override
+  public void mkdirs(WrappedFile filePath) {
+    try {
+      boolean result = fs.mkdirs(new Path(filePath.getAbsolutePath()));
+      if (!result) {
+        LOG.error("Could not create directory '{}", filePath.getAbsolutePath());
+      }
+    } catch (IOException ex) {
+      LOG.error("Could not create directory '{}'", filePath.getAbsolutePath(), ex);
+    }
+  }
+
+  @Override
   public boolean patternMatches(String fileName) {
      return filter.accept(new Path(fileName));
   }
 
+  @Override
   public void handleOldFiles(WrappedFile dirpath, WrappedFile startingFile, boolean useLastModified, List<WrappedFile> toProcess) throws IOException {
     PathFilter pathFilter = new PathFilter() {
       @Override
@@ -244,6 +282,7 @@ public class HdfsFileSystem implements WrappedFileSystem {
     }
   }
 
+  @Override
   public int compare(WrappedFile path1, WrappedFile path2, boolean useLastModified) {
     // why not just check if the file exists? Well, there is a possibility file gets moved/archived/deleted right after
     // that check. In that case we will still fail. So fail, and recover.
@@ -281,6 +320,7 @@ public class HdfsFileSystem implements WrappedFileSystem {
     return path1.getAbsolutePath().compareTo(path2.getAbsolutePath());
   }
 
+  @Override
   public Comparator<WrappedFile> getComparator(boolean useLastModified) {
     return new Comparator<WrappedFile>() {
       @Override
@@ -315,11 +355,13 @@ public class HdfsFileSystem implements WrappedFileSystem {
     };
   }
 
+  @Override
   public boolean findDirectoryPathCreationWatcher(List<WrappedFile> spoolDirPath) {
     // TODO: HDFS does not support DirectoryWatcher so returns always true
     return true;
   }
 
+  @Override
   public AbstractSpoolerFileRef.Builder getFileRefBuilder() {
     return new HdfsFileRef.Builder().fileSystem(fs);
   }

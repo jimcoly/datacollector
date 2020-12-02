@@ -16,12 +16,19 @@
 package com.streamsets.datacollector.restapi.configuration;
 
 import com.streamsets.datacollector.activation.Activation;
+import com.streamsets.datacollector.blobstore.BlobStoreTask;
 import com.streamsets.datacollector.bundles.SupportBundleManager;
+import com.streamsets.datacollector.credential.CredentialStoresTask;
+import com.streamsets.datacollector.event.handler.EventHandlerTask;
 import com.streamsets.datacollector.execution.Manager;
+import com.streamsets.datacollector.http.AsterContext;
+import com.streamsets.datacollector.http.RolesAnnotationFilter;
 import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.UserGroupManager;
 import com.streamsets.datacollector.restapi.RestAPI;
+import com.streamsets.datacollector.restapi.rbean.rest.PaginationInfoInjectorBinder;
+import com.streamsets.datacollector.security.usermgnt.UsersManager;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.datacollector.store.AclStoreTask;
 import com.streamsets.datacollector.store.PipelineStoreTask;
@@ -35,7 +42,6 @@ import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.media.multipart.MultiPartFeature;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.filter.CsrfProtectionFilter;
-import org.glassfish.jersey.server.filter.RolesAllowedDynamicFeature;
 
 import java.net.URI;
 import java.security.Principal;
@@ -57,18 +63,27 @@ public class RestAPIResourceConfig extends ResourceConfig {
         bindFactory(StatsCollectorInjector.class).to(StatsCollector.class);
         bindFactory(StandAndClusterManagerInjector.class).to(Manager.class);
         bindFactory(SupportBundleInjector.class).to(SupportBundleManager.class);
+        bindFactory(EventHandlerTaskInjector.class).to(EventHandlerTask.class);
+        bindFactory(BlobStoreTaskInjector.class).to(BlobStoreTask.class);
+        bindFactory(CredentialStoreTaskInjector.class).to(CredentialStoresTask.class);
+
         bindFactory(UserGroupManagerInjector.class).to(UserGroupManager.class);
+        bindFactory(UsersManagerInjector.class).to(UsersManager.class);
         bindFactory(ActivationInjector.class).to(Activation.class);
+        bindFactory(AsterContextInjector.class).to(AsterContext.class);
       }
     });
+    register(new PaginationInfoInjectorBinder());
 
-    register(RolesAllowedDynamicFeature.class);
-    register(CsrfProtectionFilter.class);
+    register(RolesAnnotationFilter.class);
+    register(CustomCsrfProtectionFilter.class);
     register(MultiPartFeature.class);
 
     //Hooking up Swagger-Core
     register(ApiListingResource.class);
     register(SwaggerSerializers.class);
+
+    register(RestResponseFilter.class);
 
     //Configure and Initialize Swagger
     BeanConfig beanConfig = new BeanConfig();

@@ -19,6 +19,7 @@ import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.PipelineFragmentConfiguration;
 import com.streamsets.datacollector.config.RuleDefinitions;
 import com.streamsets.datacollector.execution.StateEventListener;
+import com.streamsets.datacollector.restapi.bean.PipelineEnvelopeJson;
 import com.streamsets.datacollector.task.Task;
 import com.streamsets.datacollector.util.PipelineException;
 
@@ -37,7 +38,7 @@ public interface PipelineStoreTask extends Task {
       String pipelineTitle,
       String description,
       boolean isRemote,
-      boolean draft
+      boolean draft, Map<String, Object> metadata
   ) throws PipelineException;
 
   void delete(String name) throws PipelineException;
@@ -53,7 +54,8 @@ public interface PipelineStoreTask extends Task {
       String name,
       String tag,
       String tagDescription,
-      PipelineConfiguration pipeline
+      PipelineConfiguration pipeline,
+      boolean encryptCredentials
   ) throws PipelineException;
 
   PipelineConfiguration load(String name, String tagOrRev) throws PipelineException;
@@ -91,5 +93,9 @@ public interface PipelineStoreTask extends Task {
       String description,
       boolean draft
   ) throws PipelineException;
+
+  List<PipelineInfo> getSamplePipelines() throws PipelineStoreException;
+
+  PipelineEnvelopeJson loadSamplePipeline(String samplePipelineId) throws PipelineException;
 
 }

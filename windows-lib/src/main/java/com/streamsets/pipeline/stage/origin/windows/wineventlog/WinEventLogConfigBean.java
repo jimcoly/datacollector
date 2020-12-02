@@ -26,6 +26,7 @@ public class WinEventLogConfigBean {
       label = "Subscription Mode",
       description = "Subscription Mode",
       displayPosition = 100,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "readerAPIType^",
       triggeredByValue = {"WINDOWS_EVENT_LOG"},
       group = "#0"
@@ -37,9 +38,10 @@ public class WinEventLogConfigBean {
       required = true,
       type = ConfigDef.Type.NUMBER,
       defaultValue = "60",
-      label = "Maximum Wait Time(Secs)",
+      label = "Maximum Wait Time (secs)",
       description = "Maximum wait time to generate batch",
       displayPosition = 110,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0",
       dependsOn = "readerAPIType^",
       triggeredByValue = {"WINDOWS_EVENT_LOG"},
@@ -47,4 +49,19 @@ public class WinEventLogConfigBean {
       max = Integer.MAX_VALUE
   )
   public int maxWaitTimeSecs;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      defaultValue = "ON_ERROR",
+      label = "Populate Raw Event XML",
+      description = "Strategy for populating raw event XML",
+      displayPosition = 100,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      dependsOn = "readerAPIType^",
+      triggeredByValue = {"WINDOWS_EVENT_LOG"},
+      group = "#0"
+  )
+  @ValueChooserModel(RawEventPopulationStrategyChooserValues.class)
+  public RawEventPopulationStrategy rawEventPopulationStrategy = RawEventPopulationStrategy.ON_ERROR;
 }

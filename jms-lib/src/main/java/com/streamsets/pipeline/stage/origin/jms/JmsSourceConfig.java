@@ -26,6 +26,7 @@ public class JmsSourceConfig extends BaseJmsConfig {
       label = "JMS Destination Name",
       description = "Queue or topic name",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "JMS"
   )
   public String destinationName;
@@ -35,7 +36,31 @@ public class JmsSourceConfig extends BaseJmsConfig {
     type = ConfigDef.Type.STRING,
     label = "JMS Message Selector",
     displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
     group = "JMS"
   )
   public String messageSelector;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      label = "Durable Subscription",
+      description = "Create a durable subscriber",
+      displayPosition = 80,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "JMS"
+  )
+  public Boolean durableSubscription = false;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.STRING,
+      label = "Durable Subscription Name",
+      displayPosition = 90,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "JMS",
+      dependsOn = "durableSubscription",
+      triggeredByValue = "true"
+  )
+  public String durableSubscriptionName;
 }

@@ -17,14 +17,33 @@ package com.streamsets.pipeline.stage.origin.ipctokafka;
 
 import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.StageException;
+import com.streamsets.pipeline.api.StageUpgrader;
+import com.streamsets.pipeline.config.upgrade.KafkaSecurityUpgradeHelper;
+import com.streamsets.pipeline.config.upgrade.UpgraderTestUtils;
 import com.streamsets.pipeline.stage.util.tls.TlsConfigBeanUpgraderTestUtil;
+import com.streamsets.pipeline.upgrader.SelectorStageUpgrader;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 
 public class TestSdcIpcToKafkaUpgrader {
+
+  private StageUpgrader upgrader;
+  private List<Config> configs;
+  private StageUpgrader.Context context;
+
+  @Before
+  public void setUp() {
+    URL yamlResource = ClassLoader.getSystemClassLoader().getResource("upgrader/SdcIpcToKafkaDSource.yaml");
+    upgrader = new SelectorStageUpgrader("stage", new SdcIpcToKafkaUpgrader(), yamlResource);
+    configs = new ArrayList<>();
+    context = Mockito.mock(StageUpgrader.Context.class);
+  }
 
   @Test
   public void testV2toV3() throws Exception {
@@ -42,6 +61,31 @@ public class TestSdcIpcToKafkaUpgrader {
         "configs.",
         new SdcIpcToKafkaUpgrader(),
         4
+    );
+  }
+
+  @Test
+  public void testV4ToV5() {
+    Mockito.doReturn(4).when(context).getFromVersion();
+    Mockito.doReturn(5).when(context).getToVersion();
+
+    String configPrefix = "configs.tlsConfigBean.";
+    configs = upgrader.upgrade(configs, context);
+
+    UpgraderTestUtils.assertExists(configs, configPrefix + "useRemoteKeyStore", false);
+    UpgraderTestUtils.assertExists(configs, configPrefix + "privateKey", "");
+    UpgraderTestUtils.assertExists(configs, configPrefix + "certificateChain", new ArrayList<>());
+    UpgraderTestUtils.assertExists(configs, configPrefix + "trustedCertificates", new ArrayList<>());
+  }
+
+  @Test
+  public void testV5toV6() {
+    KafkaSecurityUpgradeHelper.testUpgradeSecurityOptions(
+        SelectorStageUpgrader.createTestInstanceForStageClass(SdcIpcToKafkaDSource.class),
+        5,
+        "conf",
+        "kafkaProducerConfigs",
+        "metadataBrokerList"
     );
   }
 }

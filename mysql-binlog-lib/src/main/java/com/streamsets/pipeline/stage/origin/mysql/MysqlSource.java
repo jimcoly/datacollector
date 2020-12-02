@@ -16,7 +16,11 @@
 package com.streamsets.pipeline.stage.origin.mysql;
 
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -29,6 +33,7 @@ import com.github.shyiko.mysql.binlog.GtidSet;
 import com.github.shyiko.mysql.binlog.network.SSLMode;
 import com.github.shyiko.mysql.binlog.network.ServerException;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.streamsets.pipeline.api.BatchMaker;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.StageException;
@@ -39,12 +44,17 @@ import com.streamsets.pipeline.stage.origin.mysql.filters.IgnoreTableFilter;
 import com.streamsets.pipeline.stage.origin.mysql.filters.IncludeTableFilter;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import com.zaxxer.hikari.pool.PoolInitializationException;
+import com.zaxxer.hikari.pool.HikariPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public abstract class MysqlSource extends BaseSource {
   private static final Logger LOG = LoggerFactory.getLogger(MysqlSource.class);
+
+  /**
+   * Known MySQL Drivers, we load them explicitly.
+   */
+  List<String> MYSQL_DRIVERS  = ImmutableList.of("com.mysql.cj.jdbc.Driver", "com.mysql.jdbc.Driver");
 
   private static final String CONFIG_PREFIX = "config.";
   private BinaryLogConsumer consumer;
@@ -61,6 +71,8 @@ public abstract class MysqlSource extends BaseSource {
 
   private int port;
   private long serverId;
+
+  private boolean checkBatchSize = true;
 
   private final BlockingQueue<ServerException> serverErrors = new LinkedBlockingQueue<>();
 
@@ -135,11 +147,21 @@ public abstract class MysqlSource extends BaseSource {
       eventFilter = includeFilter.and(ignoreFilter);
     }
 
+    for(String driverName : MYSQL_DRIVERS) {
+      try {
+        LOG.info("Loading driver: {}", driverName);
+        Class.forName(driverName);
+        LOG.info("Loaded driver: {}", driverName);
+      } catch (ClassNotFoundException e) {
+        LOG.error("Can't load driver: {}", driverName, e);
+      }
+    }
+
     // connect to mysql
     HikariConfig hikariConfig = new HikariConfig();
     hikariConfig.setJdbcUrl(String.format("jdbc:mysql://%s:%d", getConfig().hostname, port));
-    hikariConfig.setUsername(getConfig().username);
-    hikariConfig.setPassword(getConfig().password);
+    hikariConfig.setUsername(getConfig().username.get());
+    hikariConfig.setPassword(getConfig().password.get());
     hikariConfig.setReadOnly(true);
     hikariConfig.addDataSourceProperty("useSSL", getConfig().useSsl);
     try {
@@ -147,7 +169,7 @@ public abstract class MysqlSource extends BaseSource {
       offsetFactory = isGtidEnabled()
           ? new GtidSourceOffsetFactory()
           : new BinLogPositionOffsetFactory();
-    } catch (PoolInitializationException e) {
+    } catch (HikariPool.PoolInitializationException e) {
       LOG.error("Error connecting to MySql: {}", e.getMessage(), e);
       issues.add(getContext().createConfigIssue(
           Groups.MYSQL.name(), null, Errors.MYSQL_003, e.getMessage(), e
@@ -160,8 +182,8 @@ public abstract class MysqlSource extends BaseSource {
     BinaryLogClient binLogClient = new BinaryLogClient(
         getConfig().hostname,
         port,
-        getConfig().username,
-        getConfig().password
+        getConfig().username.get(),
+        getConfig().password.get()
     );
     if (getConfig().useSsl) {
       binLogClient.setSSLMode(SSLMode.REQUIRED);
@@ -174,7 +196,7 @@ public abstract class MysqlSource extends BaseSource {
 
   @Override
   public void destroy() {
-    if (client != null && client.isConnected()) {
+    if (client != null) {
       try {
         client.disconnect();
       } catch (IOException e) {
@@ -214,6 +236,12 @@ public abstract class MysqlSource extends BaseSource {
 
     int recordCounter = 0;
     int batchSize = getConfig().maxBatchSize > maxBatchSize ? maxBatchSize : getConfig().maxBatchSize;
+    if (!getContext().isPreview() && checkBatchSize && getConfig().maxBatchSize > maxBatchSize) {
+      getContext().reportError(Errors.MYSQL_010, maxBatchSize);
+      checkBatchSize = false;
+    }
+
+
     long startTime = System.currentTimeMillis();
     while (recordCounter < batchSize && (startTime + getConfig().maxWaitTime) > System.currentTimeMillis()) {
       long timeLeft = getConfig().maxWaitTime - (System.currentTimeMillis() - startTime);
@@ -385,8 +413,58 @@ public abstract class MysqlSource extends BaseSource {
     }
     ServerException e = serverErrors.poll();
     if (e != null) {
+      // Dump additional database state to help troubleshoot what is going on
+      dumpServerReplicationStatus();
       // record policy does not matter - stop pipeline
       throw new StageException(Errors.MYSQL_006, e.getMessage(), e);
+    }
+  }
+
+  /**
+   * Dump various replication status from the server into log, to aim with debugging in case that there is something
+   * weird going on.
+   */
+  private void dumpServerReplicationStatus() {
+    dumpQueryToLogs("show master status");
+    dumpQueryToLogs("show slave status");
+    dumpQueryToLogs("show binary logs");
+  }
+
+  /**
+   * Execute given query and print it into logs. We expect that the result set is small and will be cut on 20 entries.
+   *
+   * @param query
+   */
+  private void dumpQueryToLogs(String query) {
+    try (
+      Connection connection = dataSource.getConnection();
+      Statement statement = connection.createStatement();
+      ResultSet rs = statement.executeQuery(query)
+    ) {
+      StringBuilder builder = new StringBuilder();
+      ResultSetMetaData metadata = rs.getMetaData();
+
+      LOG.debug("Output of query: {}", query);
+      for(int i = 1; i <= metadata.getColumnCount(); i++) {
+        builder.append(metadata.getColumnName(i));
+        builder.append(';');
+      }
+      LOG.debug(builder.toString());
+
+      int rows = 0;
+      while(rs.next()) {
+        rows++;
+
+        builder = new StringBuilder();
+        for(int i = 1; i <= metadata.getColumnCount(); i++) {
+          builder.append(rs.getObject(i).toString());
+          builder.append(';');
+        }
+        LOG.debug(builder.toString());
+      }
+      LOG.debug("{} rows", rows);
+    } catch (Throwable e) {
+      LOG.error("Got error while executing: {}", query, e);
     }
   }
 }

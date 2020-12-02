@@ -42,9 +42,9 @@ public enum ValidationError implements ErrorCode {
   VALIDATION_0013("{} 不能连接输出流 '{}'"),
   VALIDATION_0014("{} 必须连接输入流"),
   VALIDATION_0015("Stage must have '{}' output stream(s) but has '{}'"),
-  VALIDATION_0016("无效的算子名称. 名称必须为以下字符 '{}'"),
-  VALIDATION_0017("无效的输入流名称 '{}'. 名称必须为以下字符 '{}'"),
-  VALIDATION_0018("无效的输出流名称 '{}'. 名称必须为以下字符 '{}'"),
+  VALIDATION_0016("Invalid stage name '{}'. Names can include the following characters '{}'"),
+  VALIDATION_0017("Invalid input stream names '{}'. Streams can include the following characters '{}'"),
+  VALIDATION_0018("Invalid output stream names '{}'. Streams can include the following characters '{}'"),
 
   VALIDATION_0019("Stream condition at index '{}' is not a map"),
   VALIDATION_0020("Stream condition at index '{}' must have a '{}' entry"),
@@ -73,6 +73,8 @@ public enum ValidationError implements ErrorCode {
   VALIDATION_0035("Value for configuration '{}' cannot be less than '{}'"),
   VALIDATION_0036("{} cannot have event streams '{}'"),
   VALIDATION_0037("Stage can't be on the main pipeline canvas"),
+  VALIDATION_0038("Connection definition does not exist, type '{}', version '{}'"),
+  VALIDATION_0039("Stage '{}' and '{}' have more then one shared lane"),
 
   //Rule Validation Errors
   VALIDATION_0040("The data rule property '{}' must be defined"),
@@ -88,22 +90,24 @@ public enum ValidationError implements ErrorCode {
 
   VALIDATION_0060("Define the error record handling for the pipeline"),
   VALIDATION_0061("Define the directory for error record files"),
-  VALIDATION_0062("Configured memory limit '{}' is not an integer"),
-  VALIDATION_0063("Configured memory limit '{}' is above the maximum allowed: '{}'"),
-  VALIDATION_0064("Error resolving memory limit: {}"),
 
   VALIDATION_0070("Pipeline does not define its execution mode"),
-  VALIDATION_0071("Stage '{}' from '{}' library does not support '{}' execution mode"),
+  VALIDATION_0071("Stage '{}' from '{}' library does not support '{}' execution mode, supported modes: {}"),
   VALIDATION_0072("Data Collector is in standalone mode, cannot run pipeline cluster mode"),
   VALIDATION_0073("Data Collector is in cluster mode, cannot run pipeline standalone mode"),
+  VALIDATION_0074("Origin '{}' of type '{}' is not bisectable, and can't be used for Advanced Error Handling"),
+
   VALIDATION_0080("Precondition '{}' must begin with '${' and end with '}'"),
   VALIDATION_0081("Invalid precondition '{}': {}"),
   VALIDATION_0082("Cannot create runner with execution mode '{}', another runner with execution mode '{}'"
             + " is active"),
   VALIDATION_0090("Encountered exception while validating configuration : {}"),
   VALIDATION_0091("Found more than one Target stage that triggers offset commit"),
-  VALIDATION_0092("Delivery Guarantee can only be {} if pipeline contains a Target that triggers offset commit"),
+  VALIDATION_0092("Delivery Guarantee can only be {} if pipeline contains a destination that triggers offset commit"),
   VALIDATION_0093("The pipeline title is empty"),
+  VALIDATION_0094("Stage expects {} input lanes, but only {} given"),
+  VALIDATION_0095("Stage library {} is a legacy library and must be installed separately"),
+  VALIDATION_0096("This pipeline was created in version {} and is not compatible with current version {}"),
 
   // Event related validations
   VALIDATION_0100("Invalid event stream name '{}'. Streams can include the following characters: '{}'"),
@@ -116,6 +120,20 @@ public enum ValidationError implements ErrorCode {
 
   // Service related validations
   VALIDATION_0200("Invalid services declaration, expected definition for '{}', but got '{}'"),
+
+  // cluster config validations
+  VALIDATION_0300("Stage '{}' using the '{}' stage library cannot be used with the '{}' cluster manager type. Supported modes: {}"),
+  VALIDATION_0301("Cannot specify keytab if Kerberos is disabled via the {} configuration property"),
+  VALIDATION_0302("Specified path {} was relative{}. Keytab path must be absolute. "),
+  VALIDATION_0303("No file was found at {}; please double check the keytab path{}"),
+  VALIDATION_0304("{} was not a regular file; please double check the keytab path{}"),
+  VALIDATION_0305("Impersonation is required by {} configuration property, so an explicit user may not be specified."),
+  VALIDATION_0306("Invalid URL for Standalone Spark Cluster Type, The Master URL must use the following format: 'spark://HOST:PORT'"),
+  VALIDATION_0307("No keytab was specified{}"),
+  VALIDATION_0401(
+      "The {} property was set to {}, therefore you are not allowed to specify a keytab. Please contact your system " +
+          "administrator with any questions."
+  ),
   ;
 
   private final String msg;

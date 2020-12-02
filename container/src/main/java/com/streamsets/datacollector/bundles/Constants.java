@@ -39,10 +39,10 @@ public final class Constants {
   public static final String DEFAULT_UPLOAD_BUCKET = "customer-support-bundles";
 
   public static final String UPLOAD_ACCESS = "bundle.upload.access";
-  public static final String DEFAULT_UPLOAD_ACCESS = new String(Base64.decode("QUtJQUpPMllYVUJRVDZWSURFWEE="));
+  public static final String DEFAULT_UPLOAD_ACCESS = new String(Base64.decode("QUtJQUpaRzQzUExFSFNMNktMU0E="));
 
   public static final String UPLOAD_SECRET = "bundle.upload.secret";
-  public static final String DEFAULT_UPLOAD_SECRET = new String(Base64.decode("NnNmU2ZzTEIwWWtnbThXd0RZeWVWR1VvdWxobW9lay9DNDI4YWEwcg=="));
+  public static final String DEFAULT_UPLOAD_SECRET = new String(Base64.decode("MUFaNW1VSHNlbXJmYTd3TGNzWkRUdGJieitQNlI0bVVDSGVUMHVYbg=="));
 
   public static final String UPLOAD_BUFFER_SIZE = "bundle.upload.buffer_size";
   public static final int DEFAULT_UPLOAD_BUFFER_SIZE = 5 * 1024 * 1024; // 5MB, amazon lower limit
@@ -63,6 +63,12 @@ public final class Constants {
    */
   public static final String LOG_GC_MAX_SIZE = "bundle.log.gc_max_size";
   public static final long DEFAULT_LOG_GC_MAX_SIZE = (50 * 1024 * 1024);
+
+  /**
+   * For JVM FATAL error file, we want last ~10 MBs (random constant at this point).
+   */
+  public static final String LOG_HS_MAX_SIZE = "bundle.log.hs_max_size";
+  public static final long DEFAULT_LOG_HS_MAX_SIZE = (10 * 1024 * 1024);
 
   // Pipeline Generator
 

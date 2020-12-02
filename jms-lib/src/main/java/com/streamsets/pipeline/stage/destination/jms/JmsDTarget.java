@@ -25,16 +25,16 @@ import com.streamsets.pipeline.api.service.ServiceConfiguration;
 import com.streamsets.pipeline.api.service.ServiceDependency;
 import com.streamsets.pipeline.api.service.dataformats.DataFormatGeneratorService;
 import com.streamsets.pipeline.lib.jms.config.InitialContextFactory;
-import com.streamsets.pipeline.stage.common.CredentialsConfig;
 
 @StageDef(
-    version = 2,
+    version = 3,
     label = "JMS Producer",
     description = "Write data to a JMS MQ.",
     icon = "jms.png",
     upgrader = JmsTargetUpgrader.class,
+    upgraderDef = "upgrader/JmsDTarget.yaml",
     recordsByRef = true,
-    onlineHelpRefUrl ="index.html?contextID=task_udk_yw5_n1b\n",
+    onlineHelpRefUrl ="index.html?contextID=task_udk_yw5_n1b",
     services = @ServiceDependency(
       service = DataFormatGeneratorService.class,
       configuration = {
@@ -45,8 +45,6 @@ import com.streamsets.pipeline.stage.common.CredentialsConfig;
 @ConfigGroups(JmsTargetGroups.class)
 @GenerateResourceBundle
 public class JmsDTarget extends DTarget {
-  @ConfigDefBean(groups = {"JMS"})
-  public CredentialsConfig credentialsConfig;
 
   @ConfigDefBean
   public JmsTargetConfig jmsTargetConfig;
@@ -54,7 +52,6 @@ public class JmsDTarget extends DTarget {
   @Override
   protected Target createTarget() {
     return new JmsTarget(
-        credentialsConfig,
         jmsTargetConfig,
         new JmsMessageProducerFactoryImpl(),
         new InitialContextFactory()

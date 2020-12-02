@@ -31,6 +31,7 @@ import com.streamsets.pipeline.api.base.configurablestage.DSource;
     execution = ExecutionMode.STANDALONE,
     icon = "dev.png",
     upgrader = SnapshotReplaySourceUpgrader.class,
+    upgraderDef = "upgrader/SnapshotReplayDSource.yaml",
     onlineHelpRefUrl = "index.html#Pipeline_Design/DevStages.html"
 )
 @ConfigGroups(value = SnapshotReplaySourceGroups.class)
@@ -42,6 +43,7 @@ public class SnapshotReplayDSource extends DSource {
       label = "Snapshot File Path",
       evaluation = ConfigDef.Evaluation.IMPLICIT,
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "REPLAY"
   )
   public String snapshotFilePath;
@@ -53,6 +55,7 @@ public class SnapshotReplayDSource extends DSource {
       description = "The stage instance name from which to build records (ex: DevRawDataSource_01).  Leave blank to" +
           " simply use the first set of records in the snapshot file.",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "REPLAY"
   )
   public String stageInstanceName;

@@ -26,9 +26,10 @@ import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.creation.PipelineConfigBean;
 import com.streamsets.datacollector.el.JobEL;
 import com.streamsets.datacollector.el.PipelineEL;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.metrics.MetricsConfigurator;
-import com.streamsets.datacollector.restapi.bean.MetricRegistryJson;
+import com.streamsets.datacollector.event.json.MetricRegistryJson;
 import com.streamsets.datacollector.runner.BatchContextImpl;
 import com.streamsets.datacollector.runner.BatchImpl;
 import com.streamsets.datacollector.runner.BatchListener;
@@ -44,11 +45,11 @@ import com.streamsets.datacollector.runner.PipelineRunner;
 import com.streamsets.datacollector.runner.PipelineRuntimeException;
 import com.streamsets.datacollector.runner.ProcessedSink;
 import com.streamsets.datacollector.runner.PushSourceContextDelegate;
-import com.streamsets.datacollector.runner.SourceResponseSink;
 import com.streamsets.datacollector.runner.RunnerPool;
 import com.streamsets.datacollector.runner.RuntimeStats;
 import com.streamsets.datacollector.runner.SourceOffsetTracker;
 import com.streamsets.datacollector.runner.SourcePipe;
+import com.streamsets.datacollector.runner.SourceResponseSinkImpl;
 import com.streamsets.datacollector.runner.StageContext;
 import com.streamsets.datacollector.runner.StageOutput;
 import com.streamsets.datacollector.runner.StagePipe;
@@ -71,15 +72,18 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextDelegate, ReportErrorDelegate {
 
   private static final Logger LOG = LoggerFactory.getLogger(PreviewPipelineRunner.class);
 
+  private final BuildInfo buildInfo;
   private final RuntimeInfo runtimeInfo;
   private final SourceOffsetTracker offsetTracker;
   private final int batchSize;
@@ -92,6 +96,7 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
   private final String name;
   private final String rev;
   private final Timer processingTimer;
+  private final Map<String, List<ErrorMessage>> reportedErrors;
 
   // Exception thrown while executing the pipeline
   private volatile Throwable exceptionFromExecution = null;
@@ -108,6 +113,7 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
   public PreviewPipelineRunner(
       String name,
       String rev,
+      BuildInfo buildInfo,
       RuntimeInfo runtimeInfo,
       SourceOffsetTracker offsetTracker,
       int batchSize,
@@ -118,6 +124,7 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
   ) {
     this.name = name;
     this.rev = rev;
+    this.buildInfo = buildInfo;
     this.runtimeInfo = runtimeInfo;
     this.offsetTracker = offsetTracker;
     this.batchSize = batchSize;
@@ -128,6 +135,7 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
     this.metrics = new MetricRegistry();
     processingTimer = MetricsConfigurator.createTimer(metrics, "pipeline.batchProcessing", name, rev);
     batchesOutput = Collections.synchronizedList(new ArrayList<>());
+    this.reportedErrors = new HashMap<>();
   }
 
   @Override
@@ -137,6 +145,11 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
 
   @Override
   public void errorNotification(SourcePipe originPipe, List<PipeRunner> pipes, Throwable throwable) {
+  }
+
+  @Override
+  public BuildInfo getBuildInfo() {
+    return buildInfo;
   }
 
   @Override
@@ -176,7 +189,8 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
       stageRuntime.getDefinition().getType().isOneOf(StageType.EXECUTOR, StageType.TARGET),
       "Invalid lifecycle event stage type: " + stageRuntime.getDefinition().getType()
     );
-    stageRuntime.execute(null, 1000, batch, null, new ErrorSink(), new EventSink(), new ProcessedSink(), new SourceResponseSink());
+    stageRuntime.execute(null, 1000, batch, null, new ErrorSink(), new EventSink(),
+        new ProcessedSink(), new SourceResponseSinkImpl());
   }
 
   @Override
@@ -242,7 +256,7 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
   @Override
   public BatchContext startBatch() {
     FullPipeBatch pipeBatch = new FullPipeBatch(null, null, batchSize, true);
-    BatchContextImpl batchContext = new BatchContextImpl(pipeBatch);
+    BatchContextImpl batchContext = new BatchContextImpl(pipeBatch, originPipe.getStage().getDefinition().getRecordsByRef());
 
     originPipe.prepareBatchContext(batchContext);
 
@@ -259,8 +273,9 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
 
   @Override
   public boolean processBatch(BatchContext batchCtx, String entityName, String entityOffset) {
+    BatchContextImpl batchContext = (BatchContextImpl) batchCtx;
     try {
-      BatchContextImpl batchContext = (BatchContextImpl) batchCtx;
+      batchContext.ensureState();
 
       // Finish origin processing
       originPipe.finishBatchContext(batchContext);
@@ -294,6 +309,7 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
 
       return  false;
     } finally {
+      batchContext.setProcessed(true);
       PipelineEL.unsetConstantsInContext();
       JobEL.unsetConstantsInContext();
     }
@@ -367,8 +383,35 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
 
     List<StageOutput> stageOutputs = pipeBatch.getSnapshotsOfAllStagesOutput();
     if(ValidationUtil.isSnapshotOutputUsable(stageOutputs)) {
-      batchesOutput.add(pipeBatch.getSnapshotsOfAllStagesOutput());
+      batchesOutput.add(addReportedErrorsIfNeeded(pipeBatch.getSnapshotsOfAllStagesOutput()));
       batchesProcessed.incrementAndGet();
+    }
+  }
+
+  /**
+   * Preview only returns data associated with batches, however errors are reported outside of batch context for
+   * multi-threaded pipelines. Thus we 'emulate' the behavior by simply adding into the current batch all 'so-far'
+   * reported errors.
+   */
+  private List<StageOutput> addReportedErrorsIfNeeded(List<StageOutput> snapshotsOfAllStagesOutput) {
+    synchronized (this.reportedErrors) {
+      if(reportedErrors.isEmpty()) {
+        return snapshotsOfAllStagesOutput;
+      }
+
+      try {
+        return snapshotsOfAllStagesOutput.stream()
+          .map(so -> new StageOutput(
+            so.getInstanceName(),
+            so.getOutput(),
+            so.getErrorRecords(),
+            reportedErrors.get(so.getInstanceName()),
+            so.getEventRecords()
+          ))
+          .collect(Collectors.toList());
+      } finally {
+        reportedErrors.clear();
+      }
     }
   }
 
@@ -436,12 +479,14 @@ public class PreviewPipelineRunner implements PipelineRunner, PushSourceContextD
 
   @Override
   public void reportError(String stage, ErrorMessage errorMessage) {
+    synchronized(this.reportedErrors) {
+      this.reportedErrors.computeIfAbsent(stage, x -> new LinkedList<>()).add(errorMessage);
+    }
   }
 
   @Override
-  public void setFinished() {
-    LOG.info("PreviewPipelineRunner:  setFinished() was called. ");
-
+  public void setFinished(boolean resetOffset) {
+    LOG.info("PreviewPipelineRunner: setFinished({}) was called and ignored.", resetOffset);
   }
 
 }

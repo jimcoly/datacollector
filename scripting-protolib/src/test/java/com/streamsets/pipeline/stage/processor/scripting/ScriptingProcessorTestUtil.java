@@ -15,6 +15,9 @@
  */
 package com.streamsets.pipeline.stage.processor.scripting;
 
+import com.google.common.base.Charsets;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.io.Resources;
 import com.streamsets.pipeline.api.EventRecord;
 import com.streamsets.pipeline.api.Field;
 import com.streamsets.pipeline.api.OnRecordError;
@@ -31,6 +34,7 @@ import org.junit.Assert;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.net.URL;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,6 +53,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -59,6 +64,18 @@ import static org.junit.Assert.fail;
  * Subsequently this utility can be called to run and verify the results of the scripts.
  */
 public class ScriptingProcessorTestUtil {
+
+  public static String getScript(String scriptName, Class searchClass) {
+    try {
+      URL url = Resources.getResource(searchClass, scriptName);
+      return Resources.toString(url, Charsets.UTF_8);
+    } catch (IOException e) {
+      System.out.println(e);
+      return null;
+    }
+  }
+
+
   private ScriptingProcessorTestUtil() {}
   static final String JAVASCRIPT_CLASSNAME = "com.streamsets.pipeline.stage.processor.javascript.JavaScriptDProcessor";
 
@@ -751,6 +768,37 @@ public class ScriptingProcessorTestUtil {
     assertEquals("record_value", records.get(1).get("/record_value").getValueAsString());
   }
 
+  public static <C extends Processor> void verifyAccessToSdcRecord(
+      Class<C> clazz,
+      Processor processor
+  ) throws StageException {
+    ProcessorRunner runner = new ProcessorRunner.Builder(clazz, processor)
+        .addOutputLane("lane")
+        .build();
+
+    Record record = RecordCreator.create();
+    Map<String, Field> map = new HashMap<>();
+    Field value = Field.create("value");
+    value.setAttribute("attr", "is-here");
+    map.put("value", value);
+    record.set(Field.create(map));
+
+    runner.runInit();
+    StageRunner.Output output;
+    try{
+      output = runner.runProcess(Collections.singletonList(record));
+    } finally {
+      runner.runDestroy();
+    }
+    List<Record> records = output.getRecords().get("lane");
+    assertEquals(1, records.size());
+
+    Record outputRecord = records.get(0);
+
+    // Header attribute
+    assertEquals("is-here", outputRecord.getHeader().getAttribute("attr"));
+  }
+
   public static <C extends Processor> void verifyRecordHeaderAttribute(
       Class<C> clazz,
       Processor processor,
@@ -761,6 +809,9 @@ public class ScriptingProcessorTestUtil {
         .build();
 
     runner.runInit();
+
+    // This header should be always removed
+    record.getHeader().setAttribute("remove", "please remove me");
 
     StageRunner.Output output;
     try {
@@ -779,56 +830,7 @@ public class ScriptingProcessorTestUtil {
     final String value = "value1";
     assertEquals(value, outputHeader.getAttribute(key));
 
-    AbstractScriptingProcessor abstractScriptingProcessor = (AbstractScriptingProcessor) processor;
-    List<ScriptRecord> scriptRecords = abstractScriptingProcessor.getScriptRecords();
-
-    assertEquals(1, scriptRecords.size());
-    compareRecordHeaders(scriptRecords.get(0).getClass().getFields());
-  }
-
-  /**
-   * Checking all the attributes are covered by script record header and all the attributes in script record header
-   * exists in record header.
-   */
-  private static void compareRecordHeaders(java.lang.reflect.Field[] scriptRecordHeader) {
-    Map<String, Method> recordHeaders = new HashMap<>();
-    for (Method headerMethod : Record.Header.class.getMethods()) {
-      String methodName = headerMethod.getName();
-      if (methodName.startsWith("get")) {
-        String lowerCamel = Character.toLowerCase(methodName.charAt(3)) + methodName.substring(4);
-        recordHeaders.put(lowerCamel, headerMethod);
-      }
-    }
-
-    for (java.lang.reflect.Field field : scriptRecordHeader) {
-      String fieldName = field.getName();
-      switch (fieldName) {
-        // the following fields are not covered in record header
-        case "attributes":
-        case "value":
-          break;
-        default:
-          Method method = recordHeaders.remove(fieldName);
-          if (method == null) {
-            fail("The following ScriptRecord field name does not exist in Record Header: " + fieldName);
-          } else {
-            assertEquals(method.getReturnType(), field.getType());
-          }
-      }
-    }
-
-    recordHeaders.forEach((methodName, method) -> {
-      switch(methodName) {
-        // the following header attributes are not covered in script record
-        case "attribute":
-        case "attributeNames":
-        case "raw":
-        case "rawMimeType":
-          break;
-        default:
-          fail("The following Record Header attribute is missing in ScriptRecord: " + methodName);
-      }
-    });
+    assertFalse(outputHeader.getAttributeNames().contains("remove"));
   }
 
   public static <C extends Processor> void verifyInitDestroy(Class<C> clazz, Processor processor) throws Exception {
@@ -1038,4 +1040,167 @@ public class ScriptingProcessorTestUtil {
     Assert.assertEquals(1, runner.getErrorRecords().size());
   }
 
+  public static <C extends Processor> void verifySdcRecord(
+      Class<C> clazz,
+      Processor processor
+  ) throws StageException {
+    ProcessorRunner runner = new ProcessorRunner.Builder(clazz, processor)
+        .addOutputLane("lane")
+        .build();
+
+    Record record = RecordCreator.create();
+    Map<String, Field> map = new HashMap<>();
+    map.put("old", Field.create("old-value"));
+    record.set(Field.create(map));
+
+    runner.runInit();
+    StageRunner.Output output;
+    try{
+      output = runner.runProcess(Collections.singletonList(record));
+    } finally {
+      runner.runDestroy();
+    }
+    List<Record> records = output.getRecords().get("lane");
+    assertEquals(1, records.size());
+
+    Record outputRecord = records.get(0);
+
+    assertTrue(outputRecord.has("/new"));
+    assertEquals("new-value", outputRecord.get("/new").getValueAsString());
+
+    assertTrue(outputRecord.has("/old"));
+    assertEquals("old-value", outputRecord.get("/old").getValueAsString());
+  }
+
+  public static <C extends Processor> void verifyUserParams(
+      Class<C> clazz,
+      Processor processor
+  ) throws StageException {
+    ProcessorRunner runner = new ProcessorRunner.Builder(clazz, processor)
+        .addOutputLane("lane")
+        .build();
+
+    Record record = RecordCreator.create();
+    Map<String, Field> map = new HashMap<>();
+    record.set(Field.create(map));
+
+    runner.runInit();
+    StageRunner.Output output;
+    try{
+      output = runner.runProcess(Collections.singletonList(record));
+    } finally {
+      runner.runDestroy();
+    }
+    List<Record> records = output.getRecords().get("lane");
+    assertEquals(1, records.size());
+
+    Record outputRecord = records.get(0);
+
+    assertTrue(outputRecord.has("/user-param-key"));
+    assertEquals("user-param-value", outputRecord.get("/user-param-key").getValueAsString());
+  }
+
+  @Deprecated
+  public static final ImmutableMap<String, String> renames =
+      new ImmutableMap.Builder<String, String>()
+          .put("error", "sdc.error")
+          .put("state", "sdc.state")
+          .put("sdcFunctions.isPreview()", "sdc.isPreview()")
+          .put("sdcFunctions.createMap(isListMap)", "sdc.createMap(isListMap)")
+          .put("sdcFunctions.pipelineParameters()", "sdc.pipelineParameters()")
+          .put("NULL_BOOLEAN", "sdc.NULL_BOOLEAN")
+          .put("NULL_CHAR", "sdc.NULL_CHAR")
+          .put("NULL_BYTE", "sdc.NULL_BYTE")
+          .put("NULL_SHORT", "sdc.NULL_SHORT")
+          .put("NULL_INTEGER", "sdc.NULL_INTEGER")
+          .put("NULL_LONG", "sdc.NULL_LONG")
+          .put("NULL_FLOAT", "sdc.NULL_FLOAT")
+          .put("NULL_DOUBLE", "sdc.NULL_DOUBLE")
+          .put("NULL_DATE", "sdc.NULL_DATE")
+          .put("NULL_DATETIME", "sdc.NULL_DATETIME")
+          .put("NULL_TIME", "sdc.NULL_TIME")
+          .put("NULL_DECIMAL", "sdc.NULL_DECIMAL")
+          .put("NULL_BYTE_ARRAY", "sdc.NULL_BYTE_ARRAY")
+          .put("NULL_STRING", "sdc.NULL_STRING")
+          .put("NULL_LIST", "sdc.NULL_LIST")
+          .put("NULL_MAP", "sdc.NULL_MAP")
+          // These mappings can't be tested this way
+          //.put("sdcFunctions.getFieldNull(record, \"/NULL_CHAR\")", "sdc.getFieldNull(record, \"/sdc.NULL_CHAR\")")
+          //.put("sdcFunctions.createRecord(\"id\")", "sdc.createRecord(\"id\")")
+          //.put("sdcFunctions.createEvent(\"someType\", 1)", "sdc.createEvent(\"someType\", 1)")
+          .build();
+
+  @Deprecated
+  public static String writeBindingTestScript(String first, String middle, String last, List<String> vars) {
+    StringBuilder builder = new StringBuilder();
+    builder.append(first);
+    for (String var : vars) {
+      builder.append(String.format(middle, var, var));
+    }
+    builder.append(last);
+    return builder.toString();
+  }
+
+  @Deprecated
+  public static <C extends Processor> void verifyDeprecatedBindings(
+      Class<C> clazz, Processor processor ) throws StageException {
+    ProcessorRunner runner = new ProcessorRunner.Builder(clazz, processor)
+        .addOutputLane("lane")
+        .build();
+
+    Record record = RecordCreator.create();
+    Map<String, Field> map = new HashMap<>();
+    record.set(Field.create(map));
+
+    runner.runInit();
+    StageRunner.Output output;
+    try {
+      output = runner.runProcess(Collections.singletonList(record));
+    } finally {
+      runner.runDestroy();
+    }
+    List<Record> records = output.getRecords().get("lane");
+    assertEquals(1, records.size());
+    Record outputRecord = records.get(0);
+
+    String oldBinding = "/";
+    String newBinding = "/";
+    for (Map.Entry<String, String> entry : renames.entrySet()) {
+      try {
+        oldBinding = "/" + entry.getKey();
+        newBinding = "/" + entry.getValue();
+        assertTrue(record.has(oldBinding));
+        assertTrue(record.has(newBinding));
+        assertEquals(record.get(oldBinding), record.get(newBinding));
+      } catch (AssertionError e) {
+        System.out.println("Failed on " + entry.toString());
+        System.out.println(record.has(oldBinding) + " " + record.get(oldBinding));
+        System.out.println(record.has(newBinding) + " " + record.get(newBinding));
+        throw e;
+      }
+    }
+
+  }
+
+  public static void verifyNativeNullRootValue(Class clazz, Processor processor) {
+    Record inRec = RecordCreator.create();
+    inRec.set(Field.create("original value"));
+    List<Record> input = Collections.singletonList(inRec);
+
+    ProcessorRunner runner = new ProcessorRunner.Builder(clazz, processor)
+        .addOutputLane("lane")
+        .build();
+    StageRunner.Output output;
+    try {
+      runner.runInit();
+      output = runner.runProcess(input);
+    } finally {
+      runner.runDestroy();
+    }
+
+    assertEquals(1, output.getRecords().get("lane").size());
+    // a native null or None should come back as a null String field
+    Field expectedField = Field.create(Field.Type.STRING, null);
+    assertEquals(expectedField, output.getRecords().get("lane").get(0).get());
+  }
 }

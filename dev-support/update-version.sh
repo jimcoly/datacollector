@@ -23,7 +23,7 @@ then
   echo "Usage: $0 NEW-VERSION"
   exit 1
 fi
-mvn versions:set -Drelease -Parchetype,stage-lib-parent,hdp-stagelib-base -DnewVersion=$version
+mvn versions:set -Drelease -Parchetype,stage-lib-parent,all-poms -DnewVersion=$version
 
 ROOTDIR=`echo $PWD | tr -d "\r"`
 
@@ -41,7 +41,7 @@ done
 for d in rbgen-maven-plugin stage-lib-archetype e2e-tests
 do
   pushd $d
-  perl -i -pe 's@(<version>)(\d+.\d+.\d+(-SNAPSHOT)?)(<\/version>)@${1}'"$version"'${4}@g' pom.xml
+  perl -i -pe 's@(<version>)(\d+.\d+.\d.+(-SNAPSHOT)?)(<\/version>)@${1}'"$version"'${4}@g' pom.xml
   popd
 done
 

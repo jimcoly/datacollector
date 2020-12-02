@@ -19,9 +19,9 @@ import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.impl.Utils;
 import com.streamsets.pipeline.config.upgrade.DataFormatUpgradeHelper;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
 import com.streamsets.pipeline.stage.destination.lib.ResponseType;
-import com.streamsets.pipeline.stage.lib.aws.AWSUtil;
+import com.streamsets.pipeline.stage.lib.aws.AWSKinesisUtil;
 import com.streamsets.pipeline.stage.lib.kinesis.KinesisBaseUpgrader;
 
 import java.util.ArrayList;
@@ -62,6 +62,9 @@ public class KinesisTargetUpgrader extends KinesisBaseUpgrader {
         // fall through
       case 7:
         upgradeV7toV8(configs);
+        // fall through
+      case 8:
+        upgradeV8toV9(configs);
         break;
       default:
         throw new IllegalStateException(Utils.format("Unexpected fromVersion {}", fromVersion));
@@ -99,7 +102,7 @@ public class KinesisTargetUpgrader extends KinesisBaseUpgrader {
   }
 
   private static void upgradeV2toV3(List<Config> configs) {
-    AWSUtil.renameAWSCredentialsConfigs(configs);
+    AWSKinesisUtil.renameAWSCredentialsConfigs(configs);
 
     configs.add(new Config(KINESIS_CONFIG_BEAN + ".dataFormatConfig.avroCompression", "NULL"));
   }
@@ -139,6 +142,10 @@ public class KinesisTargetUpgrader extends KinesisBaseUpgrader {
         }
       }
     }
+  }
+
+  private void upgradeV8toV9(List<Config> configs) {
+    updateCredentialMode(configs);
   }
 
 }

@@ -17,21 +17,38 @@ package com.streamsets.pipeline.stage.destination.kinesis;
 
 import com.streamsets.pipeline.api.ConfigDefBean;
 import com.streamsets.pipeline.api.ConfigGroups;
+import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.GenerateResourceBundle;
+import com.streamsets.pipeline.api.HideConfigs;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.Target;
 import com.streamsets.pipeline.api.base.configurablestage.DTarget;
 
 @StageDef(
-    version = 4,
+    version = 6,
     label = "Kinesis Firehose",
     description = "Writes data to Amazon Kinesis Firehose",
     icon = "kinesisfirehose.png",
     upgrader = FirehoseTargetUpgrader.class,
-    onlineHelpRefUrl ="index.html?contextID=task_rpf_qbq_kv"
+    upgraderDef = "upgrader/FirehoseDTarget.yaml",
+    onlineHelpRefUrl ="index.html?contextID=task_rpf_qbq_kv",
+    execution = {
+        ExecutionMode.STANDALONE,
+        ExecutionMode.CLUSTER_BATCH,
+        ExecutionMode.CLUSTER_YARN_STREAMING,
+        ExecutionMode.CLUSTER_MESOS_STREAMING,
+        ExecutionMode.EDGE,
+        ExecutionMode.EMR_BATCH
+    }
 )
 @ConfigGroups(value = FirehoseGroups.class)
 @GenerateResourceBundle
+@HideConfigs(value = {
+    "kinesisConfig.connection.proxyConfig.connectionTimeout",
+    "kinesisConfig.connection.proxyConfig.socketTimeout",
+    "kinesisConfig.connection.proxyConfig.retryCount",
+    "kinesisConfig.connection.proxyConfig.useProxy",
+})
 public class FirehoseDTarget extends DTarget {
 
   @ConfigDefBean(groups = {"KINESIS", "DATA_FORMAT"})

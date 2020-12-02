@@ -30,12 +30,13 @@ import com.streamsets.pipeline.api.credential.CredentialValue;
 import java.util.Arrays;
 
 @StageDef(
-    version = 2,
+    version = 3,
     label = "Write to SDC RPC",
     description = "Writes pipeline Statistic records to another pipeline over SDC RPC",
     icon="sdcipc.png",
     onlineHelpRefUrl = "",
-    upgrader = StatsSdcIpcTargetUpgrader.class
+    upgrader = StatsSdcIpcTargetUpgrader.class,
+    upgraderDef = "upgrader/StatsSdcIpcDTarget.yaml"
 )
 @ConfigGroups(Groups.class)
 @StatsAggregatorStage

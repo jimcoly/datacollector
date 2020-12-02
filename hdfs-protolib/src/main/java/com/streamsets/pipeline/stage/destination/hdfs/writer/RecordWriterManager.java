@@ -232,11 +232,17 @@ public class RecordWriterManager {
       return Long.MAX_VALUE;
     }
     // we up the record date to the greatest one based on the template
-    recordDate = pathResolver.getCeilingDate(recordDate);
-    if (recordDate != null) {
-      return preventOverflow(recordDate.getTime() + cutOffMillis) - now.getTime();
+    Date newRecordDate = pathResolver.getCeilingDate(recordDate);
+    if (newRecordDate != null) {
+      return preventOverflow(newRecordDate.getTime() + cutOffMillis) - now.getTime();
     } else {
-      return Long.MAX_VALUE;
+      long timeToLiveMillis;
+      if (idleTimeoutSeconds != -1) {
+        timeToLiveMillis = idleTimeoutSeconds * 1000;
+      } else {
+        timeToLiveMillis = Long.MAX_VALUE;
+      }
+      return recordDate.getTime() + timeToLiveMillis - now.getTime();
     }
   }
 
@@ -296,7 +302,7 @@ public class RecordWriterManager {
       LOG.debug("Path[{}] - Create writer,  time to live '{}ms'", tempPath, writerTimeToLive);
       writer = createWriter(fs, tempPath, writerTimeToLive);
     } else {
-      LOG.warn("Path[{}] - Cannot not create writer, requested date already cut off", tempPath);
+      LOG.warn("Path[{}] - Cannot create writer, requested date already cut off", tempPath);
     }
     return writer;
   }

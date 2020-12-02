@@ -24,13 +24,16 @@ import com.streamsets.pipeline.api.base.configurablestage.DSource;
 import com.streamsets.pipeline.stage.bigquery.lib.Groups;
 
 @StageDef(
-    version = 2,
+    version = 3,
     label = "Google BigQuery",
     description = "Executes a query job and processes the result from Google BigQuery",
     icon="bigquery.png",
     execution = ExecutionMode.STANDALONE,
     producesEvents = true,
+    recordsByRef = true,
+    eventDefs = {BigQuerySuccessEvent.class},
     upgrader = BigQuerySourceUpgrader.class,
+    upgraderDef = "upgrader/BigQueryDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_n5w_ykv_q1b"
 )
 @ConfigGroups(Groups.class)

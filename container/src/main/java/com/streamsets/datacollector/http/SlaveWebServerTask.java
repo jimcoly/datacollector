@@ -53,15 +53,16 @@ public class SlaveWebServerTask extends DataCollectorWebServerTask {
       Activation activation,
       Set<ContextConfigurator> contextConfigurators,
       Set<WebAppProvider> webAppProviders,
-      UserGroupManager userGroupManager
+      UserGroupManager userGroupManager,
+      AsterContext asterContext
   ) {
-    super(buildInfo, runtimeInfo, conf, activation, contextConfigurators, webAppProviders, userGroupManager);
+    super(buildInfo, runtimeInfo, conf, activation, contextConfigurators, webAppProviders, userGroupManager, asterContext);
     this.conf = conf;
   }
 
   @Override
-  protected SslContextFactory createSslContextFactory() {
-    SslContextFactory sslContextFactory = new SslContextFactory();
+  protected SslContextFactory.Server createSslContextFactory() {
+    SslContextFactory.Server sslContextFactory = new SslContextFactory.Server();
     File keyStore = getWorkerHttpsKeystore();
     if (!keyStore.exists()) {
       throw new IllegalStateException(Utils.format("Keystore file '{}' does not exist on worker", keyStore.getPath()));

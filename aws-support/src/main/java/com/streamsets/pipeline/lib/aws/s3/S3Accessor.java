@@ -33,16 +33,23 @@ import com.amazonaws.services.s3.model.SSEAlgorithm;
 import com.amazonaws.services.s3.transfer.TransferManager;
 import com.amazonaws.services.s3.transfer.TransferManagerBuilder;
 import com.amazonaws.services.s3.transfer.Upload;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.streamsets.pipeline.api.StageException;
+import com.streamsets.pipeline.api.credential.CredentialValue;
 import com.streamsets.pipeline.api.impl.Utils;
+import com.streamsets.pipeline.lib.aws.Errors;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.InputStream;
-import java.util.concurrent.Callable;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
 
 public class S3Accessor implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(S3Accessor.class);
@@ -61,6 +68,7 @@ public class S3Accessor implements Closeable {
       return this;
     }
 
+    // if the region in the given configs is NULL or empty the S3Accessor will have global bucket access enabled
     public Builder setConnectionConfigs(ConnectionConfigs connectionConfigs) {
       this.connectionConfigs = connectionConfigs;
       return this;
@@ -110,7 +118,7 @@ public class S3Accessor implements Closeable {
   private TransferManager transferManager;
   private EncryptionMetadataBuilder encryptionMetadataBuilder;
 
-  public void init() throws StageException {
+  public void init() {
     credentialsProvider = createCredentialsProvider();
     s3Client = createS3Client();
     if (transferManagerConfigs != null) {
@@ -130,6 +138,7 @@ public class S3Accessor implements Closeable {
   boolean hasTransferManager() {
     return transferManager != null;
   }
+
   public TransferManager getTransferManager() {
     Utils.checkState(hasTransferManager(), "transferManager not available");
     return transferManager;
@@ -140,8 +149,7 @@ public class S3Accessor implements Closeable {
   }
 
   public interface Uploader {
-
-    Upload upload(String bucket, String key, InputStream is) throws StageException;
+    Upload upload(String bucket, String key, InputStream is);
   }
 
   public Uploader getUploader() {
@@ -172,14 +180,30 @@ public class S3Accessor implements Closeable {
   }
 
   //visible for testing
-  AWSCredentialsProvider createCredentialsProvider() throws StageException {
-    return new AWSStaticCredentialsProvider(new BasicAWSCredentials(credentialConfigs.getAccessKey().get(),
-        credentialConfigs.getSecretKey().get()
-    ));
+  AWSCredentialsProvider createCredentialsProvider() {
+    AWSCredentialsProvider awsCredentialsProvider = null;
+    CredentialValue accessKey = credentialConfigs.getAccessKey();
+    CredentialValue secretKey = credentialConfigs.getSecretKey();
+
+    if (accessKey != null && secretKey != null) {
+      String accessKeyString = accessKey.get();
+      String secretKeyString = secretKey.get();
+
+      if (accessKeyString != null &&
+          !accessKeyString.isEmpty() &&
+          secretKeyString != null &&
+          !secretKeyString.isEmpty()) {
+        awsCredentialsProvider = new AWSStaticCredentialsProvider(new BasicAWSCredentials(accessKeyString,
+            secretKeyString
+        ));
+      }
+    }
+
+    return awsCredentialsProvider;
   }
 
   //visible for testing
-  ClientConfiguration createClientConfiguration() throws StageException {
+  ClientConfiguration createClientConfiguration() {
     ClientConfiguration clientConfig = new ClientConfiguration();
 
     clientConfig.setConnectionTimeout(connectionConfigs.getConnectionTimeoutMillis());
@@ -203,20 +227,33 @@ public class S3Accessor implements Closeable {
   }
 
   //visible for testing
-  AmazonS3Client createS3Client() throws StageException {
-    AmazonS3ClientBuilder builder = createAmazonS3ClientBuilder().withCredentials(getCredentialsProvider())
-                                                                 .withClientConfiguration(createClientConfiguration())
+  AmazonS3Client createS3Client() {
+
+    AmazonS3ClientBuilder builder = createAmazonS3ClientBuilder().withClientConfiguration(createClientConfiguration())
                                                                  .withChunkedEncodingDisabled(connectionConfigs
                                                                      .isChunkedEncodingEnabled())
                                                                  .withPathStyleAccessEnabled(true);
+    AWSCredentialsProvider awsCredentialsProvider = getCredentialsProvider();
+    // If we don't call build.withCredentials(...) then we will not overwrite the default credentials provider
+    // already set in the builder when doing AmazonS3ClientBuilder.standard() so only calling build.withCredentials(...)
+    // if our own provider exists
+    if (awsCredentialsProvider != null) {
+      builder.withCredentials(awsCredentialsProvider);
+    }
+
+    String region = (connectionConfigs.getRegion() == null || connectionConfigs.getRegion().isEmpty())
+                    ? null
+                    : connectionConfigs.getRegion();
 
     if (connectionConfigs.isUseEndpoint()) {
-      String signingRegion = connectionConfigs.getRegion().isEmpty() ? null : connectionConfigs.getRegion();
       builder.withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(connectionConfigs.getEndpoint(),
-          signingRegion
+          region
       ));
-    } else {
+    } else if (region != null) {
       builder.withRegion(connectionConfigs.getRegion());
+    } else {
+      builder.withRegion(AwsRegion.US_WEST_1.getId());
+      builder.withForceGlobalBucketAccessEnabled(true);
     }
     return (AmazonS3Client) builder.build();
   }
@@ -232,7 +269,7 @@ public class S3Accessor implements Closeable {
   }
 
   //visible for testing
-  TransferManager createTransferManager(AmazonS3 s3Client) throws StageException {
+  TransferManager createTransferManager(AmazonS3 s3Client) {
     return createTransferManagerBuilder().withS3Client(s3Client)
                                          .withExecutorFactory(
                                              createExecutorFactory(transferManagerConfigs.getThreads())
@@ -246,21 +283,7 @@ public class S3Accessor implements Closeable {
 
   public interface EncryptionMetadataBuilder {
 
-    ObjectMetadata build() throws StageException;
-  }
-
-  private static class Caller {
-    public static <T> T call(Callable<T> callable) {
-      try {
-        return callable.call();
-      } catch (Exception ex) {
-        throw Caller.<RuntimeException>uncheck(ex);
-      }
-    }
-
-    private static <E extends Exception> E uncheck(Throwable e) throws E {
-      return (E)e;
-    }
+    ObjectMetadata build();
   }
 
   public EncryptionMetadataBuilder createEncryptionMetadataBuilder() {
@@ -279,10 +302,27 @@ public class S3Accessor implements Closeable {
             metadata = new ObjectMetadata();
             metadata.setSSEAlgorithm(SSEAlgorithm.KMS.getAlgorithm());
             metadata.setHeader(Headers.SERVER_SIDE_ENCRYPTION_AWS_KMS_KEYID, sseConfigs.getKmsKeyId().get());
-            metadata.setHeader("x-amz-server-side-encryption-context",
-                sseConfigs.getEncryptionContext().entrySet().stream().collect(
-                    Collectors.toMap(e -> e.getKey(), e -> Caller.call(() -> e.getValue().get())))
-            );
+            Map<String, CredentialValue> encryptionContext = sseConfigs.getEncryptionContext();
+            if (encryptionContext != null && !encryptionContext.isEmpty()) {
+              Map<String, String> plainEncryptionContext = new HashMap<>();
+              for (Map.Entry<String, CredentialValue> entry : encryptionContext.entrySet()) {
+                // Don't include items with empty keys
+                if (entry.getKey() != null && !entry.getKey().isEmpty()) {
+                  plainEncryptionContext.put(entry.getKey(), entry.getValue().get());
+                }
+              }
+              // Don't bother if all of the items had empty keys
+              if (!plainEncryptionContext.isEmpty()) {
+                try {
+                  // This needs to be Bas64-encoded JSON
+                  String json = new ObjectMapper().writeValueAsString(plainEncryptionContext);
+                  String bas64Json = Base64.getEncoder().encodeToString(json.getBytes(StandardCharsets.UTF_8));
+                  metadata.setHeader("x-amz-server-side-encryption-context", bas64Json);
+                } catch (JsonProcessingException e) {
+                  throw new StageException(Errors.AWS_01, e);
+                }
+              }
+            }
             break;
           case CUSTOMER:
             metadata = new ObjectMetadata();

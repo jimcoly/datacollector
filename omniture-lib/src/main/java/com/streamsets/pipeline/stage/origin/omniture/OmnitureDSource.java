@@ -34,6 +34,7 @@ import com.streamsets.pipeline.api.credential.CredentialValue;
     execution = ExecutionMode.STANDALONE,
     recordsByRef = true,
     upgrader = OmnitureSourceUpgrader.class,
+    upgraderDef = "upgrader/OmnitureDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_of4_wpw_1s"
 )
 
@@ -51,6 +52,7 @@ public class OmnitureDSource extends DSource {
       defaultValue = "https://api2.omniture.com/admin/1.4/rest/",
       description = "Specify the Omniture REST endpoint",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "OMNITURE"
   )
   public String resourceUrl;
@@ -61,6 +63,7 @@ public class OmnitureDSource extends DSource {
       label = "Omniture Report Description",
       description = "Report description to queue",
       displayPosition = 15,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       mode = ConfigDef.Mode.JSON,
       dependsOn = "httpMode",
       lines = 5,
@@ -76,6 +79,7 @@ public class OmnitureDSource extends DSource {
       defaultValue = "3000",
       description = "HTTP request timeout in milliseconds.",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "OMNITURE"
   )
   public long requestTimeoutMillis;
@@ -86,6 +90,7 @@ public class OmnitureDSource extends DSource {
       label = "Mode",
       defaultValue = "POLLING",
       displayPosition = 25,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "OMNITURE"
   )
   @ValueChooserModel(HttpClientModeChooserValues.class)
@@ -97,6 +102,7 @@ public class OmnitureDSource extends DSource {
       label = "Report Request Interval (ms)",
       defaultValue = "5000",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "OMNITURE",
       dependsOn = "httpMode",
       triggeredByValue = "POLLING"
@@ -110,6 +116,7 @@ public class OmnitureDSource extends DSource {
       defaultValue = "1",
       description = "Maximum number of response entities to queue (e.g. JSON objects).",
       displayPosition = 35,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "OMNITURE"
   )
   public int batchSize;
@@ -121,6 +128,7 @@ public class OmnitureDSource extends DSource {
       defaultValue = "5000",
       description = "Maximum amount of time to wait to fill a batch before sending it",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "OMNITURE"
   )
   public long maxBatchWaitTime;
@@ -131,6 +139,7 @@ public class OmnitureDSource extends DSource {
       label = "Username",
       description = "Omniture Username",
       displayPosition = 45,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "OMNITURE"
   )
   public CredentialValue username;
@@ -141,6 +150,7 @@ public class OmnitureDSource extends DSource {
       label = "Shared Secret",
       description = "Omniture Shared Secret",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "OMNITURE"
   )
   public CredentialValue sharedSecret;
@@ -152,6 +162,7 @@ public class OmnitureDSource extends DSource {
       description = "Whether or not HTTP proxy should be used for connection",
       defaultValue = "false",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "OMNITURE"
   )
   public boolean useProxy;

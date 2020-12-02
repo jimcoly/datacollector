@@ -30,7 +30,7 @@ export SDC_GROUP=sdc
 
 # directory where the data collector will store pipelines and their runtime information
 #
-export SDC_DATA=/var/lib/sdc
+export SDC_DATA=${SDC_DATA:-/var/lib/sdc}
 
 # directory where the data collector will read pipeline resource files from
 #
@@ -42,7 +42,7 @@ export SDC_LOG=/var/log/sdc
 
 # directory where the data collector will read its configuration
 #
-export SDC_CONF=/etc/sdc
+export SDC_CONF=${SDC_CONF:-/etc/sdc}
 
 # Includes the JARs in extra lib in the root classloader, this is required to support
 # Snappy compression in Cassandra
@@ -64,6 +64,17 @@ export SDC_JAVA_OPTS="-Xmx1024m -Xms1024m -server -XX:-OmitStackTraceInFastThrow
 # by default, use CMS garbage collector
 export SDC_JAVA8_OPTS=${SDC_JAVA8_OPTS:-"-XX:+UseConcMarkSweepGC -XX:+UseParNewGC -Djdk.nio.maxCachedBufferSize=262144"}
 
+# Java 11 (JDK 11) specific options
+# Option UseConcMarkSweepGC was deprecated in version 9.0 and will likely be removed in a future release
+export SDC_JAVA11_OPTS=${SDC_JAVA11_OPTS:-"-Djdk.nio.maxCachedBufferSize=262144"}
+
+# Java 14 (JDK 14) specific options
+# Option UseConcMarkSweepGC; support was removed in 14.0
+export SDC_JAVA14_OPTS=${SDC_JAVA14_OPTS:-"-Djdk.nio.maxCachedBufferSize=262144"}
+
+# Java 15 (JDK 15) specific options
+export SDC_JAVA15_OPTS=${SDC_JAVA15_OPTS:-"-Djdk.nio.maxCachedBufferSize=262144"}
+
 # Enables/disables the JVM security manager
 #
 export SDC_SECURITY_MANAGER_ENABLED=${SDC_SECURITY_MANAGER_ENABLED:-true}
@@ -77,7 +88,7 @@ export SDC_HEAPDUMP_ON_OOM=${SDC_HEAPDUMP_ON_OOM:-true}
 # Enable GC logging automatically
 export SDC_GC_LOGGING=${SDC_GC_LOGGING:-true}
 
-# SDC will by default only run on Oracle JDK, any other JDK has to be explicitly enabled
+# SDC supports only limited set of JDK vendors, all others must be explicitly enabled
 export SDC_ALLOW_UNSUPPORTED_JDK=${SDC_ALLOW_UNSUPPORTED_JDK:-false}
 
 # For Cluster yarn streaming mode in CDH.

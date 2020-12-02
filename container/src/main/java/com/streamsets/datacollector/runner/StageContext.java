@@ -18,19 +18,23 @@ package com.streamsets.datacollector.runner;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.streamsets.datacollector.antennadoctor.AntennaDoctor;
+import com.streamsets.datacollector.antennadoctor.engine.context.AntennaDoctorStageContext;
 import com.streamsets.datacollector.config.ConfigDefinition;
-import com.streamsets.datacollector.config.MemoryLimitConfiguration;
 import com.streamsets.datacollector.email.EmailSender;
 import com.streamsets.datacollector.lineage.LineageEventImpl;
 import com.streamsets.datacollector.lineage.LineagePublisherDelegator;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.record.EventRecordImpl;
 import com.streamsets.datacollector.record.HeaderImpl;
 import com.streamsets.datacollector.record.RecordImpl;
 import com.streamsets.datacollector.runner.production.ReportErrorDelegate;
+import com.streamsets.datacollector.usagestats.StatsCollector;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.datacollector.util.ContainerError;
 import com.streamsets.lib.security.http.RemoteSSOService;
+import com.streamsets.pipeline.api.AntennaDoctorMessage;
 import com.streamsets.pipeline.api.BatchContext;
 import com.streamsets.pipeline.api.DeliveryGuarantee;
 import com.streamsets.pipeline.api.ErrorCode;
@@ -41,10 +45,12 @@ import com.streamsets.pipeline.api.Processor;
 import com.streamsets.pipeline.api.PushSource;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.Source;
+import com.streamsets.pipeline.api.SourceResponseSink;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.StageType;
 import com.streamsets.pipeline.api.Target;
+import com.streamsets.pipeline.api.gateway.GatewayInfo;
 import com.streamsets.pipeline.api.impl.ErrorMessage;
 import com.streamsets.pipeline.api.impl.Utils;
 import com.streamsets.pipeline.api.lineage.LineageEvent;
@@ -56,13 +62,14 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class StageContext extends ProtoContext implements
     Source.Context, PushSource.Context, Target.Context, Processor.Context {
   private static final String JOB_ID = "JOB_ID";
+  private static final String JOB_NAME = "JOB_NAME";
   private final int runnerId;
   private final List<Stage.Info> pipelineInfo;
   private final Stage.UserContext userContext;
@@ -75,7 +82,6 @@ public class StageContext extends ProtoContext implements
   private ProcessedSink processedSink;
   private SourceResponseSink sourceResponseSink;
   private long lastBatchTime;
-  private final long pipelineMaxMemory;
   private final ExecutionMode executionMode;
   private final DeliveryGuarantee deliveryGuarantee;
   private final String sdcId;
@@ -87,9 +93,11 @@ public class StageContext extends ProtoContext implements
   private final long startTime;
   private final LineagePublisherDelegator lineagePublisherDelegator;
   private PipelineFinisherDelegate pipelineFinisherDelegate;
+  private BuildInfo buildInfo;
   private RuntimeInfo runtimeInfo;
   private final Map services;
   private final boolean isErrorStage;
+  private final RecordCloner recordCloner;
 
   //for SDK
   public StageContext(
@@ -122,7 +130,10 @@ public class StageContext extends ProtoContext implements
       "x",
       stageType,
       null,
-      resourcesDir
+      resourcesDir,
+      null,
+      null,
+      null
     );
     this.pipelineTitle = "My Pipeline";
     this.pipelineDescription = "Sample Pipeline";
@@ -164,7 +175,6 @@ public class StageContext extends ProtoContext implements
     this.onRecordError = onRecordError;
     errorSink = new ErrorSink();
     eventSink = new EventSink();
-    this.pipelineMaxMemory = new MemoryLimitConfiguration().getMemoryLimit();
     this.executionMode = executionMode;
     this.deliveryGuarantee = deliveryGuarantee;
     reportErrorDelegate = errorSink;
@@ -172,8 +182,9 @@ public class StageContext extends ProtoContext implements
     this.runtimeInfo = runtimeInfo;
     this.services = services;
     this.isErrorStage = false;
+    this.recordCloner = new RecordCloner(false);
 
-    this.sourceResponseSink = new SourceResponseSink();
+    this.sourceResponseSink = new SourceResponseSinkImpl();
 
     // sample all records while testing
     this.startTime = System.currentTimeMillis();
@@ -197,9 +208,9 @@ public class StageContext extends ProtoContext implements
       List<String> outputLanes,
       Map<String, Object> constants,
       Stage.Info stageInfo,
-      long pipelineMaxMemory,
       ExecutionMode executionMode,
       DeliveryGuarantee deliveryGuarantee,
+      BuildInfo buildInfo,
       RuntimeInfo runtimeInfo,
       EmailSender emailSender,
       Configuration configuration,
@@ -207,7 +218,11 @@ public class StageContext extends ProtoContext implements
       long startTime,
       LineagePublisherDelegator lineagePublisherDelegator,
       Map<Class, ServiceRuntime> services,
-      boolean isErrorStage
+      boolean isErrorStage,
+      AntennaDoctor antennaDoctor,
+      AntennaDoctorStageContext antennaDoctorContext,
+      StatsCollector statsCollector,
+      boolean recordByRef
   ) {
     super(
       configuration,
@@ -221,7 +236,10 @@ public class StageContext extends ProtoContext implements
       stageInfo.getInstanceName(),
       stageType,
       null,
-      runtimeInfo.getResourcesDir()
+      runtimeInfo.getResourcesDir(),
+      antennaDoctor,
+      antennaDoctorContext,
+      statsCollector
     );
     this.pipelineTitle = pipelineTitle;
     this.pipelineInfo = pipelineInfo;
@@ -233,9 +251,9 @@ public class StageContext extends ProtoContext implements
     this.stageInfo = stageInfo;
     this.outputLanes = ImmutableList.copyOf(outputLanes);
     this.onRecordError = onRecordError;
-    this.pipelineMaxMemory = pipelineMaxMemory;
     this.executionMode = executionMode;
     this.deliveryGuarantee = deliveryGuarantee;
+    this.buildInfo = buildInfo;
     this.runtimeInfo = runtimeInfo;
     this.sdcId = runtimeInfo.getId();
     this.sharedRunnerMap = sharedRunnerMap;
@@ -243,11 +261,17 @@ public class StageContext extends ProtoContext implements
     this.lineagePublisherDelegator = lineagePublisherDelegator;
     this.services = services;
     this.isErrorStage = isErrorStage;
+    this.recordCloner = new RecordCloner(recordByRef);
   }
 
   @Override
   public void finishPipeline() {
-    pipelineFinisherDelegate.setFinished();
+    finishPipeline(false);
+  }
+
+  @Override
+  public void finishPipeline(boolean resetOffset) {
+    pipelineFinisherDelegate.setFinished(resetOffset);
   }
 
   public void setPipelineFinisherDelegate(PipelineFinisherDelegate runner) {
@@ -276,6 +300,16 @@ public class StageContext extends ProtoContext implements
   }
 
   @Override
+  public String registerApiGateway(GatewayInfo gatewayInfo) {
+    return runtimeInfo.registerApiGateway(gatewayInfo);
+  }
+
+  @Override
+  public void unregisterApiGateway(GatewayInfo gatewayInfo) {
+    runtimeInfo.unregisterApiGateway(gatewayInfo);
+  }
+
+  @Override
   public void commitOffset(String entity, String offset) {
     pushSourceContextDelegate.commitOffset(entity, offset);
   }
@@ -291,13 +325,19 @@ public class StageContext extends ProtoContext implements
   }
 
   @Override
+  public String getEnvironmentVersion() {
+    return buildInfo.getVersion();
+  }
+
+  @Override
   public ExecutionMode getExecutionMode() {
     return executionMode;
   }
 
   @Override
+  @Deprecated
   public long getPipelineMaxMemory() {
-    return pipelineMaxMemory;
+    return -1;
   }
 
   @Override
@@ -362,22 +402,28 @@ public class StageContext extends ProtoContext implements
     Preconditions.checkNotNull(exception, "exception cannot be null");
     if (exception instanceof StageException) {
       StageException stageException = (StageException)exception;
-      reportErrorDelegate.reportError(stageInfo.getInstanceName(), new ErrorMessage(stageException.getErrorCode(), stageException.getParams()));
+      if(statsCollector != null) {
+        statsCollector.errorCode(stageException.getErrorCode());
+      }
+      reportErrorDelegate.reportError(stageInfo.getInstanceName(), produceErrorMessage(stageException.getErrorCode(), stageException.getParams()));
     } else {
-      reportErrorDelegate.reportError(stageInfo.getInstanceName(), new ErrorMessage(ContainerError.CONTAINER_0001, exception.toString()));
+      reportErrorDelegate.reportError(stageInfo.getInstanceName(), produceErrorMessage(exception));
     }
   }
 
   @Override
   public void reportError(String errorMessage) {
     Preconditions.checkNotNull(errorMessage, "errorMessage cannot be null");
-    reportErrorDelegate.reportError(stageInfo.getInstanceName(), new ErrorMessage(ContainerError.CONTAINER_0002, errorMessage));
+    reportErrorDelegate.reportError(stageInfo.getInstanceName(), produceErrorMessage(errorMessage));
   }
 
   @Override
   public void reportError(ErrorCode errorCode, Object... args) {
     Preconditions.checkNotNull(errorCode, "errorId cannot be null");
-    reportErrorDelegate.reportError(stageInfo.getInstanceName(), new ErrorMessage(errorCode, args));
+    if(statsCollector != null) {
+      statsCollector.errorCode(errorCode);
+    }
+    reportErrorDelegate.reportError(stageInfo.getInstanceName(), produceErrorMessage(errorCode, args));
   }
 
   @Override
@@ -401,20 +447,26 @@ public class StageContext extends ProtoContext implements
   public void toError(Record record, String errorMessage) {
     Preconditions.checkNotNull(record, "record cannot be null");
     Preconditions.checkNotNull(errorMessage, "errorMessage cannot be null");
-    toError(record, new ErrorMessage(ContainerError.CONTAINER_0002, errorMessage));
+    toError(record, new ErrorMessage(ContainerError.CONTAINER_0001, errorMessage));
   }
 
   @Override
   public void toError(Record record, ErrorCode errorCode, Object... args) {
     Preconditions.checkNotNull(record, "record cannot be null");
     Preconditions.checkNotNull(errorCode, "errorId cannot be null");
+
+    if(statsCollector != null) {
+      statsCollector.errorCode(errorCode);
+    }
+
     // the last args needs to be Exception in order to show stack trace
     toError(record, new ErrorMessage(errorCode, args));
   }
 
   private void toError(Record record, ErrorMessage errorMessage) {
     String jobId = (String) getPipelineConstants().get(JOB_ID);
-    RecordImpl recordImpl = ((RecordImpl) record).clone();
+    String jobName = (String) getPipelineConstants().get(JOB_NAME);
+    RecordImpl recordImpl = recordCloner.cloneRecordIfNeeded(record);
     if (recordImpl.isInitialRecord()) {
       recordImpl.getHeader().setSourceRecord(recordImpl);
       recordImpl.setInitialRecord(false);
@@ -423,7 +475,37 @@ public class StageContext extends ProtoContext implements
     if (jobId != null) {
       recordImpl.getHeader().setErrorJobId(jobId);
     }
+    if (jobName != null) {
+      recordImpl.getHeader().setErrorJobName(jobName);
+    }
     errorSink.addRecord(stageInfo.getInstanceName(), recordImpl);
+  }
+
+  public ErrorMessage produceErrorMessage(Exception exception) {
+    List<AntennaDoctorMessage> messages = Collections.emptyList();
+    if(antennaDoctor != null) {
+      messages = antennaDoctor.onStage(antennaDoctorContext, exception);
+    }
+
+    return new ErrorMessage(messages, ContainerError.CONTAINER_0001, exception.toString());
+  }
+
+  public ErrorMessage produceErrorMessage(ErrorCode errorCode, Object ...args) {
+    List<AntennaDoctorMessage> messages = Collections.emptyList();
+    if(antennaDoctor != null) {
+      messages = antennaDoctor.onStage(antennaDoctorContext, errorCode, args);
+    }
+
+    return new ErrorMessage(messages, errorCode, args);
+  }
+
+  public ErrorMessage produceErrorMessage(String errorMessage) {
+    List<AntennaDoctorMessage> messages = Collections.emptyList();
+    if(antennaDoctor != null) {
+      messages = antennaDoctor.onStage(antennaDoctorContext, errorMessage);
+    }
+
+    return new ErrorMessage(messages, ContainerError.CONTAINER_0001, errorMessage);
   }
 
   @Override
@@ -513,7 +595,7 @@ public class StageContext extends ProtoContext implements
 
   @Override
   public void toEvent(EventRecord record) {
-    EventRecordImpl recordImpl = ((EventRecordImpl) record).clone();
+    EventRecordImpl recordImpl = recordCloner.cloneEventIfNeeded(record);
     if (recordImpl.isInitialRecord()) {
       recordImpl.getHeader().setSourceRecord(recordImpl);
       recordImpl.setInitialRecord(false);

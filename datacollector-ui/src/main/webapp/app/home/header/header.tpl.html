@@ -3,7 +3,10 @@
 
   <div class="panel-heading clearfix" ng-show="pipelineConfig">
 
-    <div class="pull-right" ng-if="pipelineConfig && activeConfigStatus.status !== 'STOPPING' && activeConfigStatus.status !== 'CONNECTING' && activeConfigStatus.status !== 'DISCONNECTING' && activeConfigStatus.status !== 'STARTING_ERROR' && activeConfigStatus.status !== 'RUNNING_ERROR' && activeConfigStatus.status !== 'STOPPING_ERROR' && activeConfigStatus.status !== 'FINISHING'">
+
+
+    <div class="pull-right fs-unmask"
+         ng-if="!isSamplePipeline && pipelineConfig && activeConfigStatus.status !== 'STOPPING' && activeConfigStatus.status !== 'CONNECTING' && activeConfigStatus.status !== 'DISCONNECTING' && activeConfigStatus.status !== 'STARTING_ERROR' && activeConfigStatus.status !== 'RUNNING_ERROR' && activeConfigStatus.status !== 'STOPPING_ERROR' && activeConfigStatus.status !== 'FINISHING'">
 
       <div class="btn-group" dropdown
            ng-hide="previewMode || snapshotMode">
@@ -15,14 +18,6 @@
           <i class="fa fa-ellipsis-h fa-14x"></i>
         </span>
         <ul class="dropdown-menu pull-right" role="menu">
-          <li role="presentation"
-              ng-if="isAuthorized([userRoles.admin, userRoles.manager]) && canExecute && !(isPipelineRunning || previewMode || snapshotMode)"
-              ng-class="{'disabled': !pipelineConfig.valid}">
-            <a href="#" dropdown-toggle ng-click="(!pipelineConfig.valid) || startPipelineWithParameters()">
-              <i class="glyphicon glyphicon-play"></i> {{'home.header.startWithParametersTitle' | translate}}
-            </a>
-          </li>
-
           <li role="presentation"
               ng-if="!isPipelineRunning && isAuthorized([userRoles.admin, userRoles.manager])"
               ng-class="{'disabled': !pipelineConfig.valid || (activeConfigStatus.executionMode !== pipelineConstant.STANDALONE && !isEdgePipeline())}">
@@ -55,16 +50,23 @@
           </li>
 
           <li role="presentation">
-            <a href="#" dropdown-toggle ng-click="exportPipelineConfig(activeConfigInfo, false, $event)">
+            <a href="#" dropdown-toggle ng-click="exportPipelineConfig(activeConfigInfo, false, false, $event)">
               <i class="glyphicon glyphicon-export"></i>
               <span>{{'global.form.export' | translate}}</span>
             </a>
           </li>
 
           <li role="presentation" ng-if="activeConfigInfo.valid">
-            <a href="#" dropdown-toggle ng-click="exportPipelineConfig(activeConfigInfo, true, $event)">
+            <a href="#" dropdown-toggle ng-click="exportPipelineConfig(activeConfigInfo, true, false, $event)">
               <i class="glyphicon glyphicon-export"></i>
               <span>{{'global.form.exportWithLibraryDefinitions' | translate}}</span>
+            </a>
+          </li>
+
+          <li role="presentation" ng-if="activeConfigInfo.valid">
+            <a href="#" dropdown-toggle ng-click="exportPipelineConfig(activeConfigInfo, true, true, $event)">
+              <i class="glyphicon glyphicon-export"></i>
+              <span>{{'global.form.exportWithPlainTextCredentials' | translate}}</span>
             </a>
           </li>
 
@@ -269,6 +271,16 @@
       </a>
 
       <a class="btn btn-link icon-button"
+         tooltip-placement="bottom" tooltip="{{'global.form.share' | translate}}"
+         tooltip-trigger="{{iconOnly ? 'mouseenter' : 'notooltip'}}"
+         tooltip-popup-delay="500"
+         ng-if="(common.authenticationType !== 'none' || common.isDPMEnabled) && !common.isSlaveNode"
+         ng-click="sharePipelineConfig(activeConfigInfo, $event)"
+         ng-show="!previewMode && !snapshotMode && activeConfigStatus.status != 'STARTING'">
+        <span class="fa fa-share-alt fa-14x"></span>
+      </a>
+
+      <a class="btn btn-link icon-button"
           tooltip-placement="bottom" tooltip="{{'home.header.snapshots' | translate}}"
           tooltip-trigger="{{iconOnly ? 'mouseenter' : 'notooltip'}}"
           tooltip-popup-delay="500"
@@ -325,15 +337,42 @@
         <span class="glyphicon glyphicon-ok-circle fa-14x"></span>
       </a>
 
-      <a class="btn btn-link icon-button"
-          tooltip-placement="bottom" tooltip="{{'home.header.start' | translate}}"
-          tooltip-trigger="{{iconOnly ? 'mouseenter' : 'notooltip'}}"
-          tooltip-popup-delay="500"
-          ng-if="isAuthorized([userRoles.admin, userRoles.manager]) && canExecute && !(isPipelineRunning || previewMode || snapshotMode)"
-          ng-disabled="!pipelineConfig.valid"
-          ng-click="!pipelineConfig.valid || startPipeline(); ">
-        <span class="glyphicon glyphicon-play fa-14x"></span>
-      </a>
+      <div class="btn-group create-pipeline-btn-group"
+           ng-if="isAuthorized([userRoles.admin, userRoles.manager]) && canExecute && !(isPipelineRunning || previewMode || snapshotMode)">
+        <button type="button" class="btn btn-success btn-sm create-pipeline-btn"
+                ng-disabled="!pipelineConfig.valid"
+                ng-click="!pipelineConfig.valid || startPipeline();">
+          <span class="glyphicon glyphicon-play"></span>
+          <span>{{'home.header.start' | translate}}</span>
+        </button>
+        <button type="button" class="btn btn-success btn-sm dropdown-toggle"
+                ng-disabled="!pipelineConfig.valid"
+                data-toggle="dropdown" aria-haspopup="true"
+                aria-expanded="false">
+          <span class="caret"></span>
+          <span class="sr-only">Toggle Dropdown</span>
+        </button>
+        <ul class="dropdown-menu pull-right">
+          <li>
+            <a href="#" ng-click="startPipeline();">
+              {{'home.header.startPipeline' | translate}}
+            </a>
+          </li>
+
+          <li>
+            <a href="#" dropdown-toggle ng-click="resetOffsetAndStart()">
+              {{'home.resetOffsetAndStart.title' | translate}}
+            </a>
+          </li>
+
+          <li>
+            <a href="#" dropdown-toggle ng-click="startPipelineWithParameters()">
+              {{'home.header.startWithParametersTitle' | translate}}
+            </a>
+          </li>
+
+        </ul>
+      </div>
 
       <a class="btn btn-link icon-button-danger"
           tooltip-placement="bottom" tooltip="{{'home.header.stop' | translate}}"
@@ -346,21 +385,11 @@
       </a>
 
       <a class="btn btn-link icon-button"
-         tooltip-placement="bottom" tooltip="{{'global.form.share' | translate}}"
-         tooltip-trigger="{{iconOnly ? 'mouseenter' : 'notooltip'}}"
-         tooltip-popup-delay="500"
-         ng-if="(common.authenticationType !== 'none' || common.isDPMEnabled) && !common.isSlaveNode"
-         ng-click="sharePipelineConfig(activeConfigInfo, $event)"
-         ng-show="!previewMode && !snapshotMode && activeConfigStatus.status != 'STARTING'">
-        <span class="fa fa-share-alt fa-14x"></span>
-      </a>
-
-      <a class="btn btn-link icon-button"
          tooltip-placement="bottom" tooltip="{{'home.header.stageLibrary' | translate}}"
          tooltip-trigger="{{iconOnly ? 'mouseenter' : 'notooltip'}}"
          tooltip-popup-delay="500"
          ng-if="activeConfigStatus.executionMode != pipelineConstant.SLAVE && isAuthorized([userRoles.admin, userRoles.creator, userRoles.manager])"
-         ng-class="{'btn-selected': $storage.hideStageLibraryPanel}"
+         ng-class="{'btn-selected': !$storage.hideStageLibraryPanel}"
          ng-hide="isPipelineRunning || previewMode || snapshotMode"
          ng-click="$storage.hideStageLibraryPanel = !$storage.hideStageLibraryPanel">
         <span class="fa fa-th fa-14x"></span>
@@ -377,6 +406,22 @@
          activeConfigStatus.executionMode !== pipelineConstant.CLUSTER_YARN_STREAMING &&
          activeConfigStatus.executionMode !== pipelineConstant.CLUSTER_MESOS_STREAMING"
          ng-click="stopPipeline(true)">{{'home.header.forceStop' | translate}}</a>
+    </div>
+
+    <!-- Only for Sample Pipeline -->
+    <div class="pull-right sample-pipeline-duplicate" ng-if="pipelineConfig && isSamplePipeline">
+
+      <a ng-if="tutorialLink" class="btn"
+         ng-href="{{tutorialLink}}" target="_blank">
+        <i class="fa fa-book"></i>
+        <span>Tutorial</span>
+      </a>
+
+      <a class="btn btn-primary"
+         ng-click="duplicatePipelineConfig(activeConfigInfo, $event)">
+        <i class="fa fa-files-o"></i>
+        <span>{{'global.form.duplicate' | translate}}</span>
+      </a>
     </div>
 
     <div class="pull-left" ng-switch="activeConfigStatus.status">
@@ -483,6 +528,12 @@
 
       <div class="pipelineAgent-status pull-right" ng-show="common.saveOperationInProgress > 0"
            translate="global.messages.info.savingConfiguration">
+      </div>
+    </div>
+
+    <div class="pull-left" ng-if="pipelineConfig && isSamplePipeline">
+      <div class="panel-title pull-left">
+        <span class="pipeline-status SAMPLE_PIPELINE">Sample Pipeline</span>
       </div>
     </div>
 

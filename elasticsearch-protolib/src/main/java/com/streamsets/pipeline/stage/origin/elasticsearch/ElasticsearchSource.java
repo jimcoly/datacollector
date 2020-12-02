@@ -15,6 +15,7 @@
  */
 package com.streamsets.pipeline.stage.origin.elasticsearch;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
@@ -26,11 +27,13 @@ import com.google.gson.JsonParser;
 import com.streamsets.pipeline.api.BatchContext;
 import com.streamsets.pipeline.api.BatchMaker;
 import com.streamsets.pipeline.api.Record;
+import com.streamsets.pipeline.api.Source;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.base.BasePushSource;
 import com.streamsets.pipeline.config.JsonMode;
 import com.streamsets.pipeline.lib.el.OffsetEL;
 import com.streamsets.pipeline.lib.elasticsearch.ElasticsearchStageDelegate;
+import com.streamsets.pipeline.lib.elasticsearch.PathEscape;
 import com.streamsets.pipeline.lib.parser.DataParser;
 import com.streamsets.pipeline.lib.parser.DataParserFactory;
 import com.streamsets.pipeline.lib.parser.DataParserFactoryBuilder;
@@ -50,10 +53,14 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.net.URISyntaxException;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.ServiceLoader;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
@@ -68,12 +75,15 @@ public class ElasticsearchSource extends BasePushSource {
   private static final Joiner URL_JOINER = Joiner.on("/").skipNulls();
   private static final Gson GSON = new GsonBuilder().setFieldNamingPolicy(LOWER_CASE_WITH_UNDERSCORES).create();
   private static final JsonParser JSON_PARSER = new JsonParser();
+  private static final String OFFSET_PLACEHOLDER = "\\$\\{offset}";
 
   private final ElasticsearchSourceConfig conf;
   private final Map<String, String> params = new HashMap<>();
   private DataParserFactory parserFactory;
   private ElasticsearchStageDelegate delegate;
   private int batchSize;
+  private String index;
+  private String mapping;
 
   public ElasticsearchSource(ElasticsearchSourceConfig conf) {
     this.conf = conf;
@@ -105,7 +115,51 @@ public class ElasticsearchSource extends BasePushSource {
 
     issues = delegate.init("conf", issues);
 
+    PathEscape pathEscape = loadPathEscape();
+    index = escapePath(pathEscape, conf.index, "conf", "index", issues);
+    mapping = escapePath(pathEscape, conf.mapping, "conf", "mapping", issues);
+
+    delegate.validateQuery(
+        "conf", index, conf.query, conf.isIncrementalMode, OFFSET_PLACEHOLDER, conf.initialOffset, issues
+    );
+
     return issues;
+  }
+
+  @VisibleForTesting
+  PathEscape loadPathEscape() {
+    ServiceLoader<PathEscape> loader = ServiceLoader.load(PathEscape.class);
+    Iterator<PathEscape> it = loader.iterator();
+    if (!it.hasNext()) {
+      throw new StageException(Errors.ELASTICSEARCH_51);
+    }
+    PathEscape pathEscape = it.next();
+    if (it.hasNext()) {
+      throw new StageException(Errors.ELASTICSEARCH_52);
+    }
+    return pathEscape;
+  }
+
+  private String escapePath(
+      final PathEscape pathEscape,
+      final String path,
+      final String prefix,
+      final String conf,
+      final List<ConfigIssue> issues
+  ) {
+    String result = path;
+    try {
+      result = pathEscape.escape(path);
+    } catch (final URISyntaxException ex) {
+      issues.add(getContext().createConfigIssue(
+          Groups.ELASTIC_SEARCH.name(),
+          prefix + "." + conf,
+          Errors.ELASTICSEARCH_50,
+          path,
+          ex.getMessage()
+      ));
+    }
+    return result;
   }
 
   @Override
@@ -122,6 +176,9 @@ public class ElasticsearchSource extends BasePushSource {
   @Override
   public void produce(Map<String, String> lastOffsets, int maxBatchSize) throws StageException {
     batchSize = Math.min(conf.maxBatchSize, maxBatchSize);
+    if (!getContext().isPreview() && conf.maxBatchSize > maxBatchSize) {
+      getContext().reportError(Errors.ELASTICSEARCH_35, maxBatchSize);
+    }
 
     ExecutorService executor = Executors.newFixedThreadPool(getNumberOfThreads());
     CompletionService<Void> completionService = new ExecutorCompletionService<>(executor);
@@ -155,7 +212,11 @@ public class ElasticsearchSource extends BasePushSource {
     } catch (ExecutionException e) {
       Throwable cause = Throwables.getRootCause(e);
       Throwables.propagateIfInstanceOf(cause, StageException.class);
-      throw new StageException(Errors.ELASTICSEARCH_22, cause.toString(), cause);
+      throw new StageException(
+          Errors.ELASTICSEARCH_22,
+          Optional.ofNullable(cause.getMessage()).orElse("no details provided"),
+          cause
+      );
     } finally {
       // Terminate executor that will also clear up threads that were created
       LOG.info("Shutting down executor service");
@@ -165,9 +226,17 @@ public class ElasticsearchSource extends BasePushSource {
 
   @NotNull
   private Map<String, ElasticsearchSourceOffset> prepareOffsets(Map<String, String> lastOffsets) throws StageException {
+    // Remove poll origin offset if it's there - Control Hub could inject it at the begging
+    if(lastOffsets.containsKey(Source.POLL_SOURCE_OFFSET_KEY)) {
+      getContext().commitOffset(Source.POLL_SOURCE_OFFSET_KEY, null);
+    }
+
     Map<String, ElasticsearchSourceOffset> latestOffsets = lastOffsets.entrySet()
         .stream()
         .filter(Objects::nonNull)
+        // This origin never supported single threaded offsets, so any remaining ones are remnants from offset file
+        // upgrader and we simply ignore them.
+        .filter(entry -> !entry.getKey().equals(Source.POLL_SOURCE_OFFSET_KEY))
         .collect(Collectors.toMap(
             Map.Entry::getKey,
             e -> GSON.fromJson(e.getValue(), ElasticsearchSourceOffset.class)
@@ -185,7 +254,6 @@ public class ElasticsearchSource extends BasePushSource {
   }
 
   public class ElasticsearchTask implements Runnable {
-    private static final String OFFSET_PLACEHOLDER = "\\$\\{offset}";
     private static final String SCROLL_ID = "_scroll_id";
     private static final String HITS = "hits";
     private static final String SOURCE_FIELD = "/_source/";
@@ -214,8 +282,12 @@ public class ElasticsearchSource extends BasePushSource {
             produceBatch(batchMaker);
             break;
           } catch (IOException e) {
-            LOG.error(Errors.ELASTICSEARCH_22.getMessage(), e.toString(), e);
-            throw Throwables.propagate(new StageException(Errors.ELASTICSEARCH_22, e.toString(), e));
+            LOG.error(Errors.ELASTICSEARCH_22.getMessage(), e);
+            throw Throwables.propagate(new StageException(
+                Errors.ELASTICSEARCH_22,
+                Optional.ofNullable(e.getMessage()).orElse("no details provided"),
+                e
+            ));
           } catch (StageException e) {
             if (e.getErrorCode() == Errors.ELASTICSEARCH_23 && conf.deleteCursor) {
               // Since we've chosen to clean up cursors automatically, we will simply
@@ -244,11 +316,12 @@ public class ElasticsearchSource extends BasePushSource {
         }
 
         // Wait for next incremental mode interval
-        while (System.currentTimeMillis() < nextIncrementalExecution) {
+        while (System.currentTimeMillis() < nextIncrementalExecution && !getContext().isStopped()) {
           if (!ThreadUtil.sleep(100)) {
-            break;
-          } else {
+            // Some other thread interrupted this thread when we were in the sleep, but sleep resets the interrupt flag.
+            // So we will set the interrupt flag here ourselves.
             Thread.currentThread().interrupt();
+            break;
           }
         }
       }
@@ -335,7 +408,12 @@ public class ElasticsearchSource extends BasePushSource {
       LOG.debug("Request Body: '{}'", requestBodyJson);
       HttpEntity entity = new StringEntity(requestBodyJson, ContentType.APPLICATION_JSON);
 
-      final String endpoint = URL_JOINER.join("", conf.index, conf.mapping, "_search");
+      final String endpoint = URL_JOINER.join(
+          "",
+          index != null && index.trim().isEmpty() ? null : index,
+          mapping != null && mapping.trim().isEmpty() ? null : mapping,
+          "_search"
+      );
       LOG.debug("Built endpoint path: '{}'", endpoint);
 
       Response response = delegate.performRequest(
@@ -343,7 +421,8 @@ public class ElasticsearchSource extends BasePushSource {
           endpoint,
           params,
           entity,
-          delegate.getAuthenticationHeader(conf.securityConfig.securityUser.get())
+          delegate.getAuthenticationHeader(conf.securityConfig.securityUser.get(),
+              conf.securityConfig.securityPassword.get())
       );
 
       Reader reader = new InputStreamReader(response.getEntity().getContent());
@@ -361,7 +440,8 @@ public class ElasticsearchSource extends BasePushSource {
             "/_search/scroll",
             conf.params,
             entity,
-            delegate.getAuthenticationHeader(conf.securityConfig.securityUser.get())
+            delegate.getAuthenticationHeader(conf.securityConfig.securityUser.get(),
+                conf.securityConfig.securityPassword.get())
         );
 
         return parseEntity(response.getEntity());
@@ -386,7 +466,7 @@ public class ElasticsearchSource extends BasePushSource {
         "/_search/scroll",
         conf.params,
         entity,
-        delegate.getAuthenticationHeader(conf.securityConfig.securityUser.get())
+        delegate.getAuthenticationHeader(conf.securityConfig.securityUser.get(), conf.securityConfig.securityPassword.get())
       );
     }
 

@@ -27,12 +27,13 @@ import com.streamsets.pipeline.lib.eventhubs.EventHubConfigBean;
 import com.streamsets.pipeline.lib.eventhubs.Groups;
 
 @StageDef(
-    version = 1,
+    version = 2,
     label = "Azure IoT/Event Hub Consumer",
     description = "Reads data from Azure Event Hub",
     icon = "event-hubs-multithreaded.png",
     execution = {ExecutionMode.STANDALONE},
     recordsByRef = true,
+    upgraderDef = "upgrader/EventHubConsumerDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_t14_c5q_1bb"
 )
 @HideConfigs({

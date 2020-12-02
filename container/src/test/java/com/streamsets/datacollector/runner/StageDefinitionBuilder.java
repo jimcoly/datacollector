@@ -53,6 +53,7 @@ public class StageDefinitionBuilder {
   boolean errorStage = false;
   boolean preconditions = true;
   boolean onRecordError = true;
+  boolean connectionVerifierStage = false;
   List<ConfigDefinition> configDefinitions = Collections.emptyList();
   RawSourceDefinition rawSourceDefinition = null;
   String icon = "";
@@ -60,7 +61,13 @@ public class StageDefinitionBuilder {
   boolean variableOutputStreams = false;
   int outputStreams;
   String outputStreamLabelProviderClass = null;
-  List<ExecutionMode> executionModes = Arrays.asList(ExecutionMode.CLUSTER_YARN_STREAMING, ExecutionMode.STANDALONE, ExecutionMode.CLUSTER_BATCH);
+  List<ExecutionMode> executionModes = Arrays.asList(
+      ExecutionMode.CLUSTER_YARN_STREAMING,
+      ExecutionMode.STANDALONE,
+      ExecutionMode.CLUSTER_BATCH,
+      ExecutionMode.BATCH,
+      ExecutionMode.STREAMING
+  );
   boolean recordsByRef = false;
   StageUpgrader upgrader = new StageUpgrader.Default();
   List<String> libJarsRegex = Collections.emptyList();
@@ -192,6 +199,7 @@ public class StageDefinitionBuilder {
       errorStage,
       preconditions,
       onRecordError,
+      connectionVerifierStage,
       configDefinitions,
       rawSourceDefinition,
       icon,
@@ -212,7 +220,13 @@ public class StageDefinitionBuilder {
       services,
       hideStage,
       false,
-        false
+      false,
+      -1,
+      null,
+       false,
+       Collections.emptyList(),
+      stageDef.upgraderDef(),
+      Collections.emptyList()
     );
   }
 

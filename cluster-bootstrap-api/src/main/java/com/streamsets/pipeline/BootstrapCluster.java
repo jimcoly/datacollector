@@ -28,7 +28,6 @@ import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -105,6 +104,9 @@ public class BootstrapCluster {
     }
     System.setProperty("sdc.transient-env", "true");
     System.setProperty("sdc.static-web.dir", (new File(libraryRoot, "sdc-static-web")).getAbsolutePath());
+    //Set asterClientLib.dir
+    System.setProperty("sdc.asterClientLib.dir", (new File(libraryRoot, "aster-client-lib")).getAbsolutePath());
+
     System.setProperty("sdc.conf.dir", etcRoot);
     System.setProperty("sdc.resources.dir", resourcesRoot);
     File sdcProperties = new File(etcRoot, "sdc.properties");
@@ -152,8 +154,8 @@ public class BootstrapCluster {
         systemStageLibs = BootstrapMain.getWhiteList(etcRoot, BootstrapMain.SYSTEM_LIBS_WHITE_LIST_KEY);
         userStageLibs = BootstrapMain.getWhiteList(etcRoot, BootstrapMain.USER_LIBS_WHITE_LIST_KEY);
       } else {
-        systemStageLibs = BootstrapMain.getSystemStageLibs(etcRoot);
-        userStageLibs = BootstrapMain.getUserStageLibs(etcRoot);
+        systemStageLibs = BootstrapMain.getSystemStageLibs(etcRoot, BootstrapMain.DEFAULT_PRODUCT_NAME);
+        userStageLibs = BootstrapMain.getUserStageLibs(etcRoot, BootstrapMain.DEFAULT_PRODUCT_NAME);
       }
 
       String libsCommonLibDir = libraryRoot + "/libs-common-lib";
@@ -195,8 +197,7 @@ public class BootstrapCluster {
     if (sparkLib == null) {
       throw new IllegalStateException("Couldn't find the source library in pipeline file");
     }
-    String lookupLib = STREAMSETS_LIBS_PREFIX + sparkLib;
-    System.err.println("\n Cluster lib is " + lookupLib);
+    System.err.println("\n Cluster lib is " + sparkLib);
     for (Map.Entry<String,List<URL>> entry : libsUrls.entrySet()) {
       String[] parts = entry.getKey().split(System.getProperty("file.separator"));
       if (parts.length != 2) {
@@ -207,9 +208,9 @@ public class BootstrapCluster {
       String name = parts[1];
       SDCClassLoader sdcClassLoader = SDCClassLoader.getStageClassLoader(type, name, entry.getValue(), apiCL); //NOSONAR
       // TODO add spark, scala, etc to blacklist
-      if (lookupLib.equals(entry.getKey())) {
+      if (entry.getKey().endsWith(sparkLib)) {
         if (sparkCL != null) {
-          throw new IllegalStateException("Found two classloaders for " + lookupLib);
+          throw new IllegalStateException("Found two classloaders for " + sparkLib);
         }
         sparkCL = sdcClassLoader;
       }
@@ -223,18 +224,7 @@ public class BootstrapCluster {
       stageLibrariesCLs.add(sdcClassLoader);
     }
     if (sparkCL == null) {
-      throw new IllegalStateException("Could not find classloader for " + lookupLib);
-    }
-    try {
-      Instrumentation instrumentation = BootstrapMain.getInstrumentation();
-      if (instrumentation != null) {
-        Method memoryUsageCollectorInitialize = Class.forName("com.streamsets.datacollector.memory.MemoryUsageCollector",
-          true, containerCL).getMethod("initialize", Instrumentation.class);
-        memoryUsageCollectorInitialize.invoke(null, instrumentation);
-      }
-    } catch (Exception ex) {
-      String msg = "Error trying to initialize MemoryUsageCollector: " + ex;
-      throw new IllegalStateException(msg, ex);
+      throw new IllegalStateException("Could not find classloader for " + sparkLib);
     }
     try {
       Class<?> runtimeModuleClz = Class.forName("com.streamsets.datacollector.main.SlaveRuntimeModule", true,

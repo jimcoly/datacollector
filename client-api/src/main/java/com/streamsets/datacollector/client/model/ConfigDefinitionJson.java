@@ -57,7 +57,30 @@ public class ConfigDefinitionJson   {
     }
   }
 
+  public enum UploadEnum {
+    NO("NO"),
+    TEXT("TEXT"),
+    BASE64("BASE64"),
+    ;
+
+    private String value;
+
+    UploadEnum(String value) {
+      this.value = value;
+    }
+
+    @Override
+    public String toString() {
+      return value;
+    }
+  }
+
+  public enum DisplayModeEnum {
+    BASIC,
+    ADVANCED
+  }
   private TypeEnum type = null;
+  private UploadEnum upload = null;
   private Object defaultValue = null;
   private String label = null;
   private String mode = null;
@@ -74,6 +97,8 @@ public class ConfigDefinitionJson   {
   private List<Object> triggeredByValues = new ArrayList<Object>();
   private BigInteger min;
   private String group = null;
+  private DisplayModeEnum displayMode = DisplayModeEnum.BASIC;
+  private String connectionType = null;
 
 public enum EvaluationEnum {
   IMPLICIT("IMPLICIT"),
@@ -119,6 +144,16 @@ public enum EvaluationEnum {
     this.type = type;
   }
 
+  /**
+   **/
+  @ApiModelProperty(value = "")
+  @JsonProperty("upload")
+  public UploadEnum getUpload() {
+    return upload;
+  }
+  public void setUpload(UploadEnum upload) {
+    this.upload = upload;
+  }
 
   /**
    **/
@@ -347,7 +382,30 @@ public enum EvaluationEnum {
     this.fieldName = fieldName;
   }
 
+  /**
+   **/
+  @ApiModelProperty(value = "")
+  @JsonProperty("displayMode")
+  public DisplayModeEnum getDisplayMode() {
+    return displayMode;
+  }
 
+  public ConfigDefinitionJson setDisplayMode(DisplayModeEnum displayMode) {
+    this.displayMode = displayMode;
+    return this;
+  }
+
+  /**
+   **/
+  @ApiModelProperty(value = "")
+  @JsonProperty("connectionType")
+  public String getConnectionType() {
+    return connectionType;
+  }
+
+  public void setConnectionType(String connectionType) {
+    this.connectionType = connectionType;
+  }
 
   @Override
   public String toString()  {

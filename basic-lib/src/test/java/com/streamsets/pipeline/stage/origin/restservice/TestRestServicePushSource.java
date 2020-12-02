@@ -15,10 +15,13 @@
  */
 package com.streamsets.pipeline.stage.origin.restservice;
 
+import com.google.common.collect.ImmutableList;
+import com.streamsets.pipeline.api.Field;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.config.DataFormat;
-import com.streamsets.pipeline.lib.httpsource.RawHttpConfigs;
+import com.streamsets.pipeline.lib.httpsource.HttpSourceConfigs;
 import com.streamsets.pipeline.lib.microservice.ResponseConfigBean;
+import com.streamsets.pipeline.lib.tls.CredentialValueBean;
 import com.streamsets.pipeline.lib.tls.TlsConfigBean;
 import com.streamsets.pipeline.sdk.PushSourceRunner;
 import com.streamsets.pipeline.stage.destination.lib.DataGeneratorFormatConfig;
@@ -32,6 +35,7 @@ import org.awaitility.Duration;
 import org.glassfish.jersey.client.ClientProperties;
 import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.mockito.internal.util.reflection.Whitebox;
@@ -51,7 +55,9 @@ import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.awaitility.Awaitility.await;
@@ -59,9 +65,9 @@ import static org.awaitility.Awaitility.await;
 public class TestRestServicePushSource {
 
   @Test
-  public void testRestServiceOrigin() throws Exception {
-    RawHttpConfigs httpConfigs = new RawHttpConfigs();
-    httpConfigs.appId = () -> "id";
+  public void testRestServiceOrigin() {
+    HttpSourceConfigs httpConfigs = new HttpSourceConfigs();
+    httpConfigs.appIds = ImmutableList.of(new CredentialValueBean("id"));
     httpConfigs.port = NetworkUtils.getRandomPort();
     httpConfigs.maxConcurrentRequests = 1;
     httpConfigs.tlsConfigBean.tlsEnabled = false;
@@ -105,6 +111,10 @@ public class TestRestServicePushSource {
           } else {
             header.setAttribute(RestServiceReceiver.STATUS_CODE_RECORD_HEADER_ATTR_NAME, "200");
           }
+
+          // Set custom response headers
+          header.setAttribute(RestServiceReceiver.RESPONSE_HEADER_ATTR_NAME_PREFIX + "test", "value");
+
           runner.getSourceResponseSink().addResponse(record);
         });
       });
@@ -157,6 +167,11 @@ public class TestRestServicePushSource {
         emptyPayloadRecordHeader.getAttribute(RestServiceReceiver.EMPTY_PAYLOAD_RECORD_HEADER_ATTR_NAME)
     );
     Assert.assertEquals(method, emptyPayloadRecordHeader.getAttribute(RestServiceReceiver.METHOD_HEADER));
+
+
+    // check custom HTTP Response header
+    Assert.assertNotNull(response.getHeaders().getFirst("test"));
+    Assert.assertEquals("value", response.getHeaders().getFirst("test"));
   }
 
   private void testPayloadRequest(
@@ -264,6 +279,9 @@ public class TestRestServicePushSource {
     Assert.assertNotNull(responseBody.getErrorMessage());
   }
 
+
+  //TODO - SDC-12324 causes this test to fail inexplicably. Passes locally, no issues with STF.
+  @Ignore
   @Test
   public void testMLTS() throws Exception {
     // Server TLS
@@ -287,8 +305,8 @@ public class TestRestServicePushSource {
     TLSTestUtils.createKeyStore(clientKeyStore.toString(), keyStorePassword, "web", clientKeyPair.getPrivate(), clientCert);
     TLSTestUtils.createTrustStore(clientTrustStore.toString(), trustStorePassword, "web", clientCert);
 
-    RawHttpConfigs httpConfigs = new RawHttpConfigs();
-    httpConfigs.appId = () -> "id";
+    HttpSourceConfigs httpConfigs = new HttpSourceConfigs();
+    httpConfigs.appIds = ImmutableList.of(new CredentialValueBean("id"));
     httpConfigs.port = NetworkUtils.getRandomPort();
     httpConfigs.maxConcurrentRequests = 1;
 
@@ -398,6 +416,92 @@ public class TestRestServicePushSource {
           .get();
       Assert.assertEquals(HttpURLConnection.HTTP_OK, response.getStatus());
 
+      runner.setStop();
+    } catch (Exception e) {
+      Assert.fail(e.getMessage());
+    } finally {
+      runner.runDestroy();
+    }
+  }
+
+  @Test
+  public void testSendingRawResponse() throws Exception {
+    HttpSourceConfigs httpConfigs = new HttpSourceConfigs();
+    httpConfigs.appIds = ImmutableList.of(new CredentialValueBean("id"));
+    httpConfigs.port = NetworkUtils.getRandomPort();
+    httpConfigs.maxConcurrentRequests = 1;
+    httpConfigs.tlsConfigBean.tlsEnabled = false;
+
+    ResponseConfigBean responseConfigBean = new ResponseConfigBean();
+    responseConfigBean.sendRawResponse = true;
+    responseConfigBean.dataFormat = DataFormat.JSON;
+    responseConfigBean.dataGeneratorFormatConfig = new DataGeneratorFormatConfig();
+
+    RestServicePushSource source = new RestServicePushSource(
+        httpConfigs,
+        1,
+        DataFormat.JSON,
+        new DataParserFormatConfig(),
+        responseConfigBean
+    );
+
+    final PushSourceRunner runner = new PushSourceRunner
+        .Builder(HttpServerDPushSource.class, source)
+        .addOutputLane("a")
+        .build();
+    runner.runInit();
+
+    String httpServerUrl = "http://localhost:" + httpConfigs.getPort();
+
+    try {
+      final List<Record> records = new ArrayList<>();
+      runner.runProduce(Collections.emptyMap(), 1, output -> {
+        List<Record> outputRecords = output.getRecords().get("a");
+
+        records.clear();
+        records.addAll(outputRecords);
+
+        runner.getSourceResponseSink().getResponseRecords().clear();
+        records.forEach(record -> {
+          Map<String, Field> rootField = new LinkedHashMap<>();
+          rootField.put("text", Field.create("It's 80 degrees right now."));
+
+          List<Field> attachmentsField = new ArrayList<>();
+          Map<String, Field> attachmentField = new LinkedHashMap<>();
+          attachmentField.put("text", Field.create("Partly cloudy today and tomorrow"));
+          attachmentsField.add(Field.create(attachmentField));
+          rootField.put("attachments", Field.create(attachmentsField));
+
+          record.set(Field.create(rootField));
+          Record.Header header = record.getHeader();
+          header.setAttribute(RestServiceReceiver.STATUS_CODE_RECORD_HEADER_ATTR_NAME, "200");
+          runner.getSourceResponseSink().addResponse(record);
+        });
+      });
+
+      // wait for the HTTP server up and running
+      RestServiceReceiverServer httpServer = (RestServiceReceiverServer) Whitebox.getInternalState(
+          source,
+          "server"
+      );
+      await().atMost(Duration.TEN_SECONDS).until(TestHttpServerPushSource.isServerRunning(httpServer));
+
+
+      Response response = ClientBuilder.newClient()
+          .property(ClientProperties.SUPPRESS_HTTP_COMPLIANCE_VALIDATION, true)
+          .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+          .target(httpServerUrl)
+          .request()
+          .header(Constants.X_SDC_APPLICATION_ID_HEADER, "id")
+          .get();
+
+      // Test Raw Response without envelope from REST Service
+      Assert.assertEquals(HttpURLConnection.HTTP_OK, response.getStatus());
+      Map<String, Object> responseBody = response.readEntity(Map.class);
+      Assert.assertNotNull(responseBody);
+      Assert.assertTrue(responseBody.containsKey("text"));
+      Assert.assertEquals(responseBody.get("text"), "It's 80 degrees right now.");
+      Assert.assertTrue(responseBody.containsKey("attachments"));
       runner.setStop();
     } catch (Exception e) {
       Assert.fail(e.getMessage());

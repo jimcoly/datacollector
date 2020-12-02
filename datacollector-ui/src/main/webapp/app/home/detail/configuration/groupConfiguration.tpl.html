@@ -81,7 +81,7 @@
   <div ng-switch-when="MODEL"
        ng-switch="configDefinition.model.modelType">
 
-    <div ng-switch-when="VALUE_CHOOSER">
+    <div ng-switch-when="VALUE_CHOOSER" ng-if="!configDefinition.connectionType">
       <ng-include src="'labelConfigurationTemplate'"></ng-include>
       <ng-include src="'valueChooserConfigurationTemplate'"></ng-include>
     </div>
@@ -118,18 +118,22 @@
 
       <div class="controls" ng-class="configDefinition.label ? 'col-md-7' : 'col-md-12'">
 
+        <span class="empty-value"
+              ng-if="isPipelineReadOnly && (!detailPaneConfig.configuration[configIndex].value || detailPaneConfig.configuration[configIndex].value.length === 0)">--</span>
+
         <table class="table" ng-if="_.size(configDefinition.model.configDefinitions) <= 4 && !bulkEdit">
           <thead>
           <tr>
             <th class="custom-field-property"
-                ng-repeat="customeFieldConfigDefintion in configDefinition.model.configDefinitions | orderBy: 'displayPosition'"
-                ng-class="{'output-lane': $index === 0 && configDefinition.name === detailPaneConfigDefn.outputStreamsDrivenByConfig}">
-              <span>{{customeFieldConfigDefintion.label}}</span>
+                ng-repeat="customFieldConfigDefinition in configDefinition.model.configDefinitions | orderBy: 'displayPosition'"
+                ng-class="{'output-lane': $index === 0 && configDefinition.name === detailPaneConfigDefn.outputStreamsDrivenByConfig}"
+                ng-if="isShownByConfigDisplayMode(customFieldConfigDefinition.displayMode, detailPaneConfig.uiInfo.displayMode)">
+              <span>{{customFieldConfigDefinition.label}}</span>
               <i class="fa fa-info-circle help-icon"
-                 ng-if="customeFieldConfigDefintion.description"
+                 ng-if="customFieldConfigDefinition.description"
                  tooltip-placement="right"
                  tooltip-append-to-body="false"
-                 tooltip="{{customeFieldConfigDefintion.description}}"
+                 tooltip="{{customFieldConfigDefinition.description}}"
                  tooltip-trigger="mouseenter"></i>
             </th>
             <th class="custom-field-buttons"></th>
@@ -145,7 +149,7 @@
                 <label class="output-lane-value">{{configIndex + 1}}</label>
               </div>
 
-              <div ng-if="(verifyCustomFieldDependsOn(detailPaneConfig, customFieldValue, customFieldConfigDefinition)) && !($index === 0 && configDefinition.name === detailPaneConfigDefn.outputStreamsDrivenByConfig)">
+              <div ng-if="(verifyCustomFieldDependsOn(detailPaneConfig, customFieldValue, customFieldConfigDefinition)) && !($index === 0 && configDefinition.name === detailPaneConfigDefn.outputStreamsDrivenByConfig) && isShownByConfigDisplayMode(customFieldConfigDefinition.displayMode, detailPaneConfig.uiInfo.displayMode)">
                 <ng-include src="'app/home/detail/configuration/listBeanConfiguration.tpl.html'"></ng-include>
               </div>
             </td>
@@ -178,7 +182,7 @@
               <div class="form-group "
                    ng-repeat="customFieldConfigDefinition in configDefinition.model.configDefinitions | orderBy: 'displayPosition'"
                    ng-class="{'has-error': getConfigurationIssues(detailPaneConfig, customFieldConfigDefinition).length > 0}"
-                   ng-if="(verifyCustomFieldDependsOn(detailPaneConfig, customFieldValue, customFieldConfigDefinition))">
+                   ng-if="(verifyCustomFieldDependsOn(detailPaneConfig, customFieldValue, customFieldConfigDefinition)) && isShownByConfigDisplayMode(customFieldConfigDefinition.displayMode, detailPaneConfig.uiInfo.displayMode)">
 
                 <label class="col-lg-3 control-label">{{customFieldConfigDefinition.label}}
                   <i class="fa fa-info-circle help-icon"

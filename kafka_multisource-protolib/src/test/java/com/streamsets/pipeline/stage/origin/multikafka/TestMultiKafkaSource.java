@@ -18,6 +18,7 @@ package com.streamsets.pipeline.stage.origin.multikafka;
 import com.google.common.base.Throwables;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.StageException;
+import com.streamsets.pipeline.api.credential.CredentialValue;
 import com.streamsets.pipeline.api.lineage.LineageEvent;
 import com.streamsets.pipeline.api.lineage.LineageEventType;
 import com.streamsets.pipeline.api.lineage.LineageSpecificAttribute;
@@ -26,15 +27,17 @@ import com.streamsets.pipeline.lib.kafka.KafkaAutoOffsetReset;
 import com.streamsets.pipeline.lib.kafka.KafkaErrors;
 import com.streamsets.pipeline.sdk.PushSourceRunner;
 import com.streamsets.pipeline.sdk.StageRunner;
+import com.streamsets.pipeline.lib.kafka.connection.KafkaSecurityOptions;
 import com.streamsets.pipeline.stage.origin.multikafka.loader.KafkaConsumerLoader;
 import com.streamsets.pipeline.stage.origin.multikafka.loader.MockKafkaConsumerLoader;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
@@ -68,13 +71,14 @@ public class TestMultiKafkaSource {
     conf.batchWaitTime = 5000;
     conf.produceSingleRecordPerMessage = false;
     conf.kafkaOptions = new HashMap<>();
-    conf.brokerURI = "127.0.0.1:1234";
+    conf.connectionConfig.connection.metadataBrokerList = "127.0.0.1:1234";
     conf.dataFormat = DataFormat.TEXT;
     conf.dataFormatConfig.charset = "UTF-8";
     conf.dataFormatConfig.removeCtrlChars = false;
     conf.dataFormatConfig.textMaxLineLen = 4096;
     conf.kafkaAutoOffsetReset = KafkaAutoOffsetReset.EARLIEST;
     conf.timestampToSearchOffsets = 0;
+    conf.connectionConfig.connection.securityConfig.securityOption = KafkaSecurityOptions.PLAINTEXT;
 
     return conf;
   }
@@ -88,14 +92,16 @@ public class TestMultiKafkaSource {
     ConsumerRecords<String, byte[]> consumerRecords = generateConsumerRecords(5, "topic", 0);
     ConsumerRecords<String, byte[]> emptyRecords = generateConsumerRecords(0, "topic", 0);
 
-    KafkaConsumer mockConsumer = Mockito.mock(KafkaConsumer.class);
-    List<KafkaConsumer> consumerList = Collections.singletonList(mockConsumer);
-    Mockito.when(mockConsumer.poll(conf.batchWaitTime)).thenReturn(consumerRecords).thenReturn(emptyRecords);
+    Consumer mockConsumer = Mockito.mock(Consumer.class);
+    List<Consumer> consumerList = Collections.singletonList(mockConsumer);
+    Mockito.when(mockConsumer.poll(Mockito.anyInt())).thenReturn(consumerRecords).thenReturn(emptyRecords);
+
+    conf.connectionConfig.connection.securityConfig.userKeytab = Mockito.mock(CredentialValue.class);
+    Mockito.when(conf.connectionConfig.connection.securityConfig.userKeytab.get()).thenReturn("");
 
     MockKafkaConsumerLoader.consumers = consumerList.iterator();
     MultiKafkaSource source = new MultiKafkaSource(conf);
-    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source)
-        .addOutputLane("lane")
+    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source).addOutputLane("lane")
         .build();
     sourceRunner.runInit();
 
@@ -125,18 +131,20 @@ public class TestMultiKafkaSource {
     ConsumerRecords<String, byte[]> consumerRecords2 = generateConsumerRecords(5, "topic", 1);
     ConsumerRecords<String, byte[]> emptyRecords = generateConsumerRecords(0, "topic", 0);
 
-    KafkaConsumer mockConsumer = Mockito.mock(KafkaConsumer.class);
-    List<KafkaConsumer> consumerList = Collections.singletonList(mockConsumer);
+    Consumer mockConsumer = Mockito.mock(Consumer.class);
+    List<Consumer> consumerList = Collections.singletonList(mockConsumer);
     Mockito
-        .when(mockConsumer.poll(conf.batchWaitTime))
+        .when(mockConsumer.poll(Mockito.anyInt()))
         .thenReturn(consumerRecords1)
         .thenReturn(consumerRecords2)
         .thenReturn(emptyRecords);
 
+    conf.connectionConfig.connection.securityConfig.userKeytab = Mockito.mock(CredentialValue.class);
+    Mockito.when(conf.connectionConfig.connection.securityConfig.userKeytab.get()).thenReturn("");
+
     MockKafkaConsumerLoader.consumers = consumerList.iterator();
     MultiKafkaSource source = new MultiKafkaSource(conf);
-    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source)
-        .addOutputLane("lane")
+    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source).addOutputLane("lane")
         .build();
     sourceRunner.runInit();
 
@@ -156,87 +164,31 @@ public class TestMultiKafkaSource {
     }
   }
 
-  @Test
-  public void testMultipleTopics() throws StageException, InterruptedException, ExecutionException {
-    MultiKafkaBeanConfig conf = getConfig();
-    conf.numberOfThreads = 100;
-
-    // SDC-10162. The batch size must be
-    // greater than the number of records in the topic.
-    // This is only required for testing, because of the way we mock -
-    // first call returns the records, second call returns empty.
-    // previously, the requested batch size was ignored, and all records
-    // returned by poll were passed into the pipeline as a batch.
-    conf.maxBatchSize = 1000;
-
-    int numTopics = 20;
-    long totalMessages = 0;
-    Random rand = new Random();
-
-    List<String> topicNames = new ArrayList<>(numTopics);
-    List<KafkaConsumer> consumerList = new ArrayList<>(numTopics);
-
-    for(int i=0; i<numTopics; i++) {
-      String topic = "topic-" + i;
-      topicNames.add(topic);
-    }
-
-    for(int i=0; i<conf.numberOfThreads; i++) {
-
-      int numMessages = rand.nextInt(40)+1;
-      totalMessages += numMessages;
-      ConsumerRecords<String, byte[]> consumerRecords = generateConsumerRecords(numMessages, topicNames.get(rand.nextInt(numTopics)), 0);
-      ConsumerRecords<String, byte[]> emptyRecords = generateConsumerRecords(0, topicNames.get(rand.nextInt(numTopics)), 0);
-
-      KafkaConsumer mockConsumer = Mockito.mock(KafkaConsumer.class);
-      consumerList.add(mockConsumer);
-
-      Mockito.when(mockConsumer.poll(conf.batchWaitTime)).thenReturn(consumerRecords).thenReturn(emptyRecords);
-    }
-
-    conf.topicList = topicNames;
-
-    MockKafkaConsumerLoader.consumers = consumerList.iterator();
-    MultiKafkaSource source = new MultiKafkaSource(conf);
-    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source)
-        .addOutputLane("lane")
-        .build();
-    sourceRunner.runInit();
-
-    MultiKafkaPushSourceTestCallback callback = new MultiKafkaPushSourceTestCallback(sourceRunner, conf.numberOfThreads);
-
-    try {
-      sourceRunner.runProduce(new HashMap<>(), 5, callback);
-      int records = callback.waitForAllBatches();
-
-      source.await();
-      Assert.assertEquals(totalMessages, records);
-      Assert.assertFalse(source.isRunning());
-    } finally {
-      sourceRunner.runDestroy();
-    }
-  }
-
   @Test(expected = ExecutionException.class)
   public void testPollFail() throws StageException, InterruptedException, ExecutionException {
     MultiKafkaBeanConfig conf = getConfig();
     conf.topicList = Collections.singletonList("topic");
     conf.numberOfThreads = 1;
 
-    KafkaConsumer mockConsumer = Mockito.mock(KafkaConsumer.class);
-    List<KafkaConsumer> consumerList = Collections.singletonList(mockConsumer);
+    Consumer mockConsumer = Mockito.mock(Consumer.class);
+    List<Consumer> consumerList = Collections.singletonList(mockConsumer);
     Mockito
-        .when(mockConsumer.poll(conf.batchWaitTime))
+        .when(mockConsumer.poll(Mockito.anyInt()))
         .thenThrow(new IllegalStateException());
+
+    conf.connectionConfig.connection.securityConfig.userKeytab = Mockito.mock(CredentialValue.class);
+    Mockito.when(conf.connectionConfig.connection.securityConfig.userKeytab.get()).thenReturn("");
 
     MockKafkaConsumerLoader.consumers = consumerList.iterator();
     MultiKafkaSource source = new MultiKafkaSource(conf);
-    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source)
-        .addOutputLane("lane")
+    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source).addOutputLane("lane")
         .build();
     sourceRunner.runInit();
 
-    MultiKafkaPushSourceTestCallback callback = new MultiKafkaPushSourceTestCallback(sourceRunner, conf.numberOfThreads);
+    MultiKafkaPushSourceTestCallback callback = new MultiKafkaPushSourceTestCallback(
+        sourceRunner,
+        conf.numberOfThreads
+    );
     sourceRunner.runProduce(new HashMap<>(), 5, callback);
 
     //IllegalStateException in source's threads cause a StageException
@@ -259,37 +211,43 @@ public class TestMultiKafkaSource {
 
   // If the main thread gets interrupted, then the origin (rightfully so) won't wait on all the
   // other threads that might be running. Which will subsequently intefere with other tests.
-//  @Test(expected = InterruptedException.class)
+  @Test(expected = InterruptedException.class)
+  @Ignore
   public void testInterrupt() throws StageException, InterruptedException, ExecutionException {
     MultiKafkaBeanConfig conf = getConfig();
     conf.numberOfThreads = 10;
 
     int numTopics = conf.numberOfThreads;
     List<String> topicNames = new ArrayList<>(numTopics);
-    List<KafkaConsumer> consumerList = new ArrayList<>(numTopics);
+    List<Consumer> consumerList = new ArrayList<>(numTopics);
 
-    for(int i=0; i<numTopics; i++) {
-      String topic =  "topic-" + i;
+    for (int i = 0; i < numTopics; i++) {
+      String topic = "topic-" + i;
       topicNames.add(topic);
       ConsumerRecords<String, byte[]> consumerRecords = generateConsumerRecords(5, topic, 0);
       ConsumerRecords<String, byte[]> emptyRecords = generateConsumerRecords(0, topic, 0);
 
-      KafkaConsumer mockConsumer = Mockito.mock(KafkaConsumer.class);
+      Consumer mockConsumer = Mockito.mock(Consumer.class);
       consumerList.add(mockConsumer);
 
-      Mockito.when(mockConsumer.poll(conf.batchWaitTime)).thenReturn(consumerRecords).thenReturn(emptyRecords);
+      Mockito.when(mockConsumer.poll(Mockito.anyInt())).thenReturn(consumerRecords).thenReturn(emptyRecords);
     }
+
+    conf.connectionConfig.connection.securityConfig.userKeytab = Mockito.mock(CredentialValue.class);
+    Mockito.when(conf.connectionConfig.connection.securityConfig.userKeytab.get()).thenReturn("");
 
     conf.topicList = topicNames;
 
     MockKafkaConsumerLoader.consumers = consumerList.iterator();
     MultiKafkaSource source = new MultiKafkaSource(conf);
-    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source)
-        .addOutputLane("lane")
+    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source).addOutputLane("lane")
         .build();
     sourceRunner.runInit();
 
-    MultiKafkaPushSourceTestCallback callback = new MultiKafkaPushSourceTestCallback(sourceRunner, conf.numberOfThreads);
+    MultiKafkaPushSourceTestCallback callback = new MultiKafkaPushSourceTestCallback(
+        sourceRunner,
+        conf.numberOfThreads
+    );
 
     try {
       sourceRunner.runProduce(new HashMap<>(), 5, callback);
@@ -306,12 +264,12 @@ public class TestMultiKafkaSource {
 
   private ConsumerRecords<String, byte[]> generateConsumerRecords(int count, String topic, int partition) {
     List<ConsumerRecord<String, byte[]>> consumerRecordsList = new ArrayList<>();
-    for(int i=0; i<count; i++) {
+    for (int i = 0; i < count; i++) {
       consumerRecordsList.add(new ConsumerRecord<>(topic, partition, 0, "key" + i, ("value" + i).getBytes()));
     }
 
     Map<TopicPartition, List<ConsumerRecord<String, byte[]>>> recordsMap = new HashMap<>();
-    if(count == 0) {
+    if (count == 0) {
       // SDC-10162 - this will make a ConsumerRecords() object which will return true when tested for isEmpty().
       return new ConsumerRecords<>(recordsMap);
     } else {
@@ -363,37 +321,50 @@ public class TestMultiKafkaSource {
     Random rand = new Random();
 
     List<String> topicNames = new ArrayList<>(numTopics);
-    List<KafkaConsumer> consumerList = new ArrayList<>(numTopics);
+    List<Consumer> consumerList = new ArrayList<>(numTopics);
 
-    for(int i=0; i<numTopics; i++) {
+    for (int i = 0; i < numTopics; i++) {
       String topic = "topic-" + i;
       topicNames.add(topic);
     }
-    for(int i=0, topicIndex= 0; i<conf.numberOfThreads; i++, topicIndex++) {
+    for (int i = 0, topicIndex = 0; i < conf.numberOfThreads; i++, topicIndex++) {
       if (topicIndex == numTopics) {
         topicIndex = 0;
       }
-      int numMessages = rand.nextInt(5)+1;
+      int numMessages = rand.nextInt(5) + 1;
       totalMessages += numMessages;
-      ConsumerRecords<String, byte[]> consumerRecords = generateConsumerRecords(numMessages, topicNames.get(topicIndex), 0);
-      ConsumerRecords<String, byte[]> emptyRecords = generateConsumerRecords(0, topicNames.get(rand.nextInt(numTopics)), 0);
+      ConsumerRecords<String, byte[]> consumerRecords = generateConsumerRecords(
+          numMessages,
+          topicNames.get(topicIndex),
+          0
+      );
+      ConsumerRecords<String, byte[]> emptyRecords = generateConsumerRecords(
+          0,
+          topicNames.get(rand.nextInt(numTopics)),
+          0
+      );
 
-      KafkaConsumer mockConsumer = Mockito.mock(KafkaConsumer.class);
+      Consumer mockConsumer = Mockito.mock(Consumer.class);
       consumerList.add(mockConsumer);
 
-      Mockito.when(mockConsumer.poll(conf.batchWaitTime)).thenReturn(consumerRecords).thenReturn(emptyRecords);
+      Mockito.when(mockConsumer.poll(Mockito.anyInt())).thenReturn(consumerRecords).thenReturn(emptyRecords);
     }
+
+    conf.connectionConfig.connection.securityConfig.userKeytab = Mockito.mock(CredentialValue.class);
+    Mockito.when(conf.connectionConfig.connection.securityConfig.userKeytab.get()).thenReturn("");
 
     conf.topicList = topicNames;
 
     MockKafkaConsumerLoader.consumers = consumerList.iterator();
     MultiKafkaSource source = new MultiKafkaSource(conf);
-    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source)
-        .addOutputLane("lane")
+    PushSourceRunner sourceRunner = new PushSourceRunner.Builder(MultiKafkaDSource.class, source).addOutputLane("lane")
         .build();
     sourceRunner.runInit();
 
-    MultiKafkaPushSourceTestCallback callback = new MultiKafkaPushSourceTestCallback(sourceRunner, conf.numberOfThreads);
+    MultiKafkaPushSourceTestCallback callback = new MultiKafkaPushSourceTestCallback(
+        sourceRunner,
+        conf.numberOfThreads
+    );
 
     try {
       sourceRunner.runProduce(new HashMap<>(), 5, callback);
@@ -401,12 +372,12 @@ public class TestMultiKafkaSource {
 
       source.await();
       Assert.assertEquals(totalMessages, records);
-    } catch (StageException e){
+    } catch (StageException e) {
       Assert.fail();
     }
     List<LineageEvent> events = sourceRunner.getLineageEvents();
     Assert.assertEquals(numTopics, events.size());
-    for(int i = 0; i < numTopics; i++) {
+    for (int i = 0; i < numTopics; i++) {
       Assert.assertEquals(LineageEventType.ENTITY_READ, events.get(i).getEventType());
       Assert.assertTrue(topicNames.contains(events.get(i).getSpecificAttribute(LineageSpecificAttribute.ENTITY_NAME)));
     }

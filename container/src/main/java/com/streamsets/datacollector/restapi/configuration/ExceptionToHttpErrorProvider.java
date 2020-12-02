@@ -15,8 +15,14 @@
  */
 package com.streamsets.datacollector.restapi.configuration;
 
+import com.streamsets.datacollector.antennadoctor.AntennaDoctor;
+import com.streamsets.datacollector.restapi.rbean.lang.ErrorMsg;
+import com.streamsets.datacollector.restapi.rbean.rest.ErrorRestResponse;
+import com.streamsets.datacollector.restapi.rbean.rest.RestResource;
 import com.streamsets.datacollector.util.ContainerError;
-import com.streamsets.datacollector.util.PipelineException;
+import com.streamsets.datacollector.util.ErrorCodeException;
+import com.streamsets.pipeline.api.AntennaDoctorMessage;
+import com.streamsets.pipeline.api.ErrorCode;
 import com.streamsets.pipeline.api.StageException;
 
 import org.slf4j.Logger;
@@ -31,11 +37,14 @@ import javax.ws.rs.ext.Provider;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
- * Jersey provider that converts KMS exceptions into detailed HTTP errors.
+ * Jersey provider that converts exceptions into detailed HTTP errors.
  */
 @Provider
 public class ExceptionToHttpErrorProvider implements ExceptionMapper<Exception> {
@@ -48,6 +57,7 @@ public class ExceptionToHttpErrorProvider implements ExceptionMapper<Exception> 
   private static final String ERROR_MESSAGE_JSON = "message";
   private static final String ERROR_LOCALIZED_MESSAGE_JSON = "localizedMessage";
   private static final String ERROR_STACK_TRACE = "stackTrace";
+  private static final String ERROR_ANTENNA_DOCTOR_JSON = "antennaDoctorMessages";
   private static final String ENTER = System.getProperty("line.separator");
 
   protected Response createResponse(Response.Status status, Throwable ex) {
@@ -55,14 +65,15 @@ public class ExceptionToHttpErrorProvider implements ExceptionMapper<Exception> 
     json.put(ERROR_MESSAGE_JSON, getOneLineMessage(ex, false));
     if (ex instanceof StageException) {
       json.put(ERROR_CODE_JSON, ((StageException)ex).getErrorCode().getCode());
-    } else if (ex instanceof PipelineException) {
-      json.put(ERROR_CODE_JSON, ((PipelineException)ex).getErrorCode().getCode());
+    } else if (ex instanceof ErrorCodeException) {
+      json.put(ERROR_CODE_JSON, ((ErrorCodeException)ex).getErrorCode().getCode());
     } else if (ex instanceof RuntimeException) {
       json.put(ERROR_CODE_JSON, ContainerError.CONTAINER_0000.getCode());
     }
     json.put(ERROR_LOCALIZED_MESSAGE_JSON, getOneLineMessage(ex, true));
     json.put(ERROR_EXCEPTION_JSON, ex.getClass().getSimpleName());
     json.put(ERROR_CLASSNAME_JSON, ex.getClass().getName());
+    json.put(ERROR_ANTENNA_DOCTOR_JSON, runAntennaDoctorIfNeeded(ex));
     StringWriter writer = new StringWriter();
     PrintWriter printWriter = new PrintWriter(writer);
     ex.printStackTrace(printWriter);
@@ -87,11 +98,84 @@ public class ExceptionToHttpErrorProvider implements ExceptionMapper<Exception> 
 
   @Override
   public Response toResponse(Exception ex) {
-    if (ex instanceof WebApplicationException) {
-      return ((WebApplicationException)ex).getResponse();
+    if (RestResource.isRestResource()) {
+      return handleRestResourceException(ex);
     } else {
-      LOG.error("REST API call error: {}", ex.toString(), ex);
-      return createResponse(Status.INTERNAL_SERVER_ERROR, ex);
+      if (ex instanceof WebApplicationException) {
+        return ((WebApplicationException) ex).getResponse();
+      } else {
+        LOG.error("REST API call error: {}", ex.toString(), ex);
+        return createResponse(Status.INTERNAL_SERVER_ERROR, ex);
+      }
+    }
+  }
+
+  enum Errors implements ErrorCode {
+    REST_000("Internal Error: {}"),
+    REST_001("Bad Request: {}"),
+    ;
+
+    private String message;
+
+    Errors(String message) {
+      this.message = message;
+    }
+
+    @Override
+    public String getCode() {
+      return name();
+    }
+
+    @Override
+    public String getMessage() {
+      return message;
+    }
+  }
+
+  private Response handleRestResourceException(Exception ex) {
+    ErrorRestResponse restResponse = new ErrorRestResponse();
+    int status = Response.Status.INTERNAL_SERVER_ERROR.getStatusCode();
+    if (ex instanceof WebApplicationException) {
+      status = ((WebApplicationException)ex).getResponse().getStatus();
+    } else if (ex instanceof NullPointerException) {
+      status = Response.Status.BAD_REQUEST.getStatusCode();
+      restResponse.addMessage(new ErrorMsg(Errors.REST_001, ex.getMessage()));
+    } else if (ex instanceof IllegalArgumentException) {
+      status = Response.Status.BAD_REQUEST.getStatusCode();
+      restResponse.addMessage(new ErrorMsg(Errors.REST_001, ex.getMessage()));
+    } else if (ex instanceof RuntimeException) {
+      status = Response.Status.INTERNAL_SERVER_ERROR.getStatusCode();
+      restResponse.addMessage(new ErrorMsg(Errors.REST_000, ex.getMessage()));
+    }
+    LOG.error("REST error, URL '{}' httpStatus '{}' : {}", "", status, ex.toString(), ex);
+    restResponse.setHttpStatusCode(status);
+    return Response.status(status).type(MediaType.APPLICATION_JSON).entity(restResponse).build();
+  }
+
+  private List<AntennaDoctorMessage> runAntennaDoctorIfNeeded(Throwable ex) {
+    // We support only exceptions today
+    if(!(ex instanceof Exception)) {
+      return Collections.emptyList();
+    }
+
+    // Antenna doctor might not be available, in such case do nothing
+    if(AntennaDoctor.getInstance() == null) {
+      return Collections.emptyList();
+    }
+
+    if(ex instanceof StageException) {
+      StageException e = (StageException) ex;
+
+      if(e.getAntennaDoctorMessages() != null) {
+        return e.getAntennaDoctorMessages();
+      }
+
+      return AntennaDoctor.getInstance().onRest(e.getErrorCode(), e.getParams());
+    } else if(ex instanceof ErrorCodeException) {
+      ErrorCodeException e = (ErrorCodeException) ex;
+      return AntennaDoctor.getInstance().onRest(e.getErrorCode(), e.getParams());
+    } else {
+      return AntennaDoctor.getInstance().onRest((Exception)ex);
     }
   }
 

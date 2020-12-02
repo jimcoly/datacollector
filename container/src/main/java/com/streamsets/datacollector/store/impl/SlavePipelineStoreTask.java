@@ -19,12 +19,14 @@ import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.PipelineFragmentConfiguration;
 import com.streamsets.datacollector.config.RuleDefinitions;
 import com.streamsets.datacollector.execution.StateEventListener;
+import com.streamsets.datacollector.restapi.bean.PipelineEnvelopeJson;
 import com.streamsets.datacollector.store.PipelineInfo;
 import com.streamsets.datacollector.store.PipelineRevInfo;
 import com.streamsets.datacollector.store.PipelineStoreException;
 import com.streamsets.datacollector.store.PipelineStoreTask;
 import com.streamsets.datacollector.util.PipelineException;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -43,7 +45,8 @@ public class SlavePipelineStoreTask  implements PipelineStoreTask {
       String pipelineTitle,
       String description,
       boolean isRemote,
-      boolean draft
+      boolean draft,
+      Map<String, Object> metadata
   ) throws PipelineStoreException {
     throw new UnsupportedOperationException();
   }
@@ -70,7 +73,7 @@ public class SlavePipelineStoreTask  implements PipelineStoreTask {
 
   @Override
   public PipelineConfiguration save(String name, String user, String tag, String tagDescription,
-    PipelineConfiguration pipeline) throws PipelineStoreException {
+    PipelineConfiguration pipeline, boolean encryptCredentials) throws PipelineStoreException {
     throw new UnsupportedOperationException();
   }
 
@@ -169,6 +172,16 @@ public class SlavePipelineStoreTask  implements PipelineStoreTask {
       boolean draft
   ) throws PipelineException {
     return pipelineStore.createPipelineFragment(user, pipelineId, pipelineTitle, description, draft);
+  }
+
+  @Override
+  public List<PipelineInfo> getSamplePipelines() {
+    return Collections.emptyList();
+  }
+
+  @Override
+  public PipelineEnvelopeJson loadSamplePipeline(String samplePipelineId) {
+    return null;
   }
 
 }

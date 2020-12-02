@@ -25,11 +25,13 @@ import com.streamsets.pipeline.api.base.configurablestage.DPushSource;
 import com.streamsets.pipeline.stage.pubsub.lib.Groups;
 
 @StageDef(
-    version = 1,
+    version = 3,
     label = "Google Pub Sub Subscriber",
     description = "Consumes messages from a Google Pub/Sub subscription",
     icon = "pubsub.png",
+    recordsByRef = true,
     execution = ExecutionMode.STANDALONE,
+    upgraderDef = "upgrader/PubSubDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_jvp_f5l_r1b"
 )
 @ConfigGroups(Groups.class)

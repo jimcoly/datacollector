@@ -27,8 +27,10 @@ import com.streamsets.pipeline.config.DecimalScaleRoundingStrategyChooserValues;
 import com.streamsets.pipeline.config.LocaleChooserValues;
 import com.streamsets.pipeline.config.DateFormatChooserValues;
 import com.streamsets.pipeline.config.PrimitiveFieldTypeChooserValues;
+import com.streamsets.pipeline.config.TimeZoneChooserValues;
 import com.streamsets.pipeline.config.ZonedDateTimeFormat;
 
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
@@ -43,6 +45,7 @@ public class BaseConverterConfig {
       defaultValue="INTEGER",
       label = "Convert to Type",
       description = "Select a compatible data type",
+      displayMode = ConfigDef.DisplayMode.BASIC,
       displayPosition = 20
   )
   @ValueChooserModel(PrimitiveFieldTypeChooserValues.class)
@@ -55,6 +58,7 @@ public class BaseConverterConfig {
       label = "Treat Input Field as Date",
       description = "Select to convert input Long to DateTime before converting to a String",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       dependsOn = "targetType",
       group = "TYPE_CONVERSION",
       triggeredByValue = "STRING"
@@ -69,6 +73,7 @@ public class BaseConverterConfig {
       description = "Affects the interpretation of locale sensitive data, such as using the comma as a decimal " +
                     "separator",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "targetType",
       group = "TYPE_CONVERSION",
       triggeredByValue = {"BYTE", "INTEGER", "LONG", "DOUBLE", "DECIMAL", "FLOAT", "SHORT", "ZONED_DATETIME"}
@@ -83,6 +88,7 @@ public class BaseConverterConfig {
       label = "Scale",
       description = "Decimal Value Scale",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "targetType",
       group = "TYPE_CONVERSION",
       triggeredByValue = {"DECIMAL"}
@@ -96,6 +102,7 @@ public class BaseConverterConfig {
       label = "Rounding Strategy",
       description = "Rounding strategy during scale conversion",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       dependsOn = "targetType",
       group = "TYPE_CONVERSION",
       triggeredByValue = {"DECIMAL"}
@@ -119,6 +126,7 @@ public class BaseConverterConfig {
       label = "Date Format",
       description="Select or enter any valid date or datetime format",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "targetType",
       group = "TYPE_CONVERSION",
       triggeredByValue = {"DATE", "DATETIME", "TIME", "STRING"}
@@ -132,6 +140,7 @@ public class BaseConverterConfig {
       defaultValue = "",
       label = "Other Date Format",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "dateFormat",
       group = "TYPE_CONVERSION",
       triggeredByValue = "OTHER"
@@ -145,12 +154,27 @@ public class BaseConverterConfig {
       label = "Zoned DateTime Format",
       description="Select or enter any valid date or datetime format",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "targetType",
       group = "TYPE_CONVERSION",
       triggeredByValue = {"ZONED_DATETIME", "STRING"}
   )
   @ValueChooserModel(ZonedDateTimeFormatChooserValues.class)
-  public ZonedDateTimeFormat zonedDateTimeFormat;
+  public ZonedDateTimeFormat zonedDateTimeFormat = ZonedDateTimeFormat.ISO_ZONED_DATE_TIME;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      label = "Target Time Zone",
+      description = "Time Zone ",
+      displayPosition = 180,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "TYPE_CONVERSION",
+      dependsOn = "targetType",
+      triggeredByValue = {"ZONED_DATETIME"}
+  )
+  @ValueChooserModel(TimeZoneChooserValues.class)
+  public String zonedDateTimeTargetTimeZone = ZoneId.systemDefault().getId();
 
   @ConfigDef(
       required = true,
@@ -158,6 +182,7 @@ public class BaseConverterConfig {
       defaultValue = "",
       label = "Other Zoned DateTime Format",
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "zonedDateTimeFormat",
       group = "TYPE_CONVERSION",
       triggeredByValue = "OTHER"
@@ -170,6 +195,7 @@ public class BaseConverterConfig {
       defaultValue = "UTF-8",
       label = "CharSet",
       displayPosition = 80,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       dependsOn = "targetType",
       group = "TYPE_CONVERSION",
       triggeredByValue = "STRING"

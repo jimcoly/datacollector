@@ -23,10 +23,11 @@ import com.streamsets.pipeline.api.HideConfigs;
 import com.streamsets.pipeline.api.Source;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.base.configurablestage.DSource;
+import com.streamsets.pipeline.lib.event.NoMoreDataEvent;
 import com.streamsets.pipeline.lib.salesforce.ForceSourceConfigBean;
 
 @StageDef(
-    version = 2,
+    version = 5,
     label = "Salesforce",
     description = "Reads data from Salesforce",
     icon = "salesforce.png",
@@ -34,7 +35,9 @@ import com.streamsets.pipeline.lib.salesforce.ForceSourceConfigBean;
     recordsByRef = true,
     resetOffset = true,
     producesEvents = true,
+    eventDefs = {NoMoreDataEvent.class},
     upgrader = ForceSourceUpgrader.class,
+    upgraderDef = "upgrader/ForceDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_h1n_bs3_rx"
 )
 @ConfigGroups(value = Groups.class)

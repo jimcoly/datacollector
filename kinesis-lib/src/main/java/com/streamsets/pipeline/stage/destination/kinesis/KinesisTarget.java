@@ -16,6 +16,7 @@
 package com.streamsets.pipeline.stage.destination.kinesis;
 
 import com.amazonaws.ClientConfiguration;
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.kinesis.producer.Attempt;
 import com.amazonaws.services.kinesis.producer.KinesisProducer;
 import com.amazonaws.services.kinesis.producer.KinesisProducerConfiguration;
@@ -31,7 +32,6 @@ import com.streamsets.pipeline.api.el.ELEval;
 import com.streamsets.pipeline.api.el.ELEvalException;
 import com.streamsets.pipeline.api.el.ELVars;
 import com.streamsets.pipeline.api.impl.Utils;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
 import com.streamsets.pipeline.lib.el.ELUtils;
 import com.streamsets.pipeline.lib.el.RecordEL;
 import com.streamsets.pipeline.lib.generator.DataGenerator;
@@ -40,7 +40,8 @@ import com.streamsets.pipeline.stage.common.DefaultErrorRecordHandler;
 import com.streamsets.pipeline.stage.common.ErrorRecordHandler;
 import com.streamsets.pipeline.stage.destination.lib.ResponseType;
 import com.streamsets.pipeline.stage.destination.lib.ToOriginResponseConfig;
-import com.streamsets.pipeline.stage.lib.aws.AWSUtil;
+import com.streamsets.pipeline.stage.lib.aws.AWSKinesisUtil;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
 import com.streamsets.pipeline.stage.lib.kinesis.Errors;
 import com.streamsets.pipeline.stage.lib.kinesis.ExpressionPartitioner;
 import com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil;
@@ -60,8 +61,10 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.regex.Matcher;
 
 import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.KINESIS_CONFIG_BEAN;
+import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.KINESIS_CONFIG_BEAN_CONNECTION;
 import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.ONE_MB;
 
 public class KinesisTarget extends BaseTarget {
@@ -105,10 +108,10 @@ public class KinesisTarget extends BaseTarget {
       );
     }
 
-    if (conf.region == AwsRegion.OTHER && (conf.endpoint == null || conf.endpoint.isEmpty())) {
+    if (conf.connection.region == AwsRegion.OTHER && (conf.connection.endpoint == null || conf.connection.endpoint.isEmpty())) {
       issues.add(getContext().createConfigIssue(
           Groups.KINESIS.name(),
-          KINESIS_CONFIG_BEAN + ".endpoint",
+          KINESIS_CONFIG_BEAN_CONNECTION + ".endpoint",
           Errors.KINESIS_09
       ));
       return issues;
@@ -116,7 +119,7 @@ public class KinesisTarget extends BaseTarget {
 
     KinesisUtil.checkStreamExists(
         new ClientConfiguration(),
-        conf,
+        conf.connection,
         conf.streamName,
         issues,
         getContext()
@@ -132,15 +135,30 @@ public class KinesisTarget extends BaseTarget {
       );
       generatorFactory = conf.dataFormatConfig.getDataGeneratorFactory();
       try {
-        KinesisProducerConfiguration producerConfig = KinesisProducerConfiguration
-            .fromProperties(additionalConfigs)
-            .setCredentialsProvider(AWSUtil.getCredentialsProvider(conf.awsConfig));
+        KinesisProducerConfiguration producerConfig = KinesisProducerConfiguration.fromProperties(additionalConfigs);
 
-        if (conf.region == AwsRegion.OTHER) {
-          producerConfig.setKinesisEndpoint(conf.endpoint);
+        Regions region = Regions.DEFAULT_REGION;
+        if (conf.connection.region == AwsRegion.OTHER) {
+          Matcher matcher = KinesisUtil.REGION_PATTERN.matcher(conf.connection.endpoint);
+          if (matcher.find()) {
+            region = Regions.fromName(matcher.group(1).toLowerCase());
+            producerConfig.setKinesisEndpoint(conf.connection.endpoint.substring(matcher.start(), matcher.end()));
+          } else {
+            issues.add(getContext().createConfigIssue(
+                Groups.KINESIS.name(),
+                KINESIS_CONFIG_BEAN_CONNECTION + ".endpoint",
+                Errors.KINESIS_19
+            ));
+          }
         } else {
-          producerConfig.setRegion(conf.region.getId());
+          region = Regions.fromName(conf.connection.region.getId().toLowerCase());
         }
+
+        producerConfig.setRegion(region.getName().toLowerCase())
+                      .setCredentialsProvider(AWSKinesisUtil.getCredentialsProvider(conf.connection.awsConfig,
+                          getContext(),
+                          region
+                      ));
 
         // Mock injected during testing, we shouldn't clobber it.
         if (kinesisProducer == null) {
@@ -150,7 +168,7 @@ public class KinesisTarget extends BaseTarget {
         LOG.error(Utils.format(Errors.KINESIS_12.getMessage(), ex.toString()), ex);
         issues.add(getContext().createConfigIssue(
             Groups.KINESIS.name(),
-            KINESIS_CONFIG_BEAN + ".awsConfig.awsAccessKeyId",
+            KINESIS_CONFIG_BEAN_CONNECTION + ".awsConfig.awsAccessKeyId",
             Errors.KINESIS_12,
             ex.toString()
         ));
@@ -183,7 +201,9 @@ public class KinesisTarget extends BaseTarget {
     if (kinesisProducer != null) {
       kinesisProducer.flushSync();
       kinesisProducer.destroy();
+      kinesisProducer = null;
     }
+
     super.destroy();
   }
 

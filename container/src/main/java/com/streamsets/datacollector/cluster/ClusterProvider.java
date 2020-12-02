@@ -19,6 +19,7 @@ import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.RuleDefinitions;
 import com.streamsets.datacollector.creation.PipelineConfigBean;
 import com.streamsets.datacollector.credential.CredentialStoresTask;
+import com.streamsets.datacollector.runner.InterceptorCreatorContextBuilder;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.lib.security.acl.dto.Acl;
 import com.streamsets.pipeline.api.StageException;
@@ -26,6 +27,7 @@ import com.streamsets.pipeline.api.StageException;
 import java.io.File;
 import java.io.IOException;
 import java.net.URLClassLoader;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
@@ -60,9 +62,13 @@ public interface ClusterProvider {
       File bootstrapDir,
       URLClassLoader apiCL,
       URLClassLoader containerCL,
+      URLClassLoader asterClientCL,
       long timeToWaitForFailure,
       RuleDefinitions ruleDefinitions,
-      Acl acl
+      Acl acl,
+      InterceptorCreatorContextBuilder interceptorCreatorContextBuilder,
+      List<String> blobStoreResources,
+      String user
   ) throws TimeoutException, IOException, StageException;
 
 

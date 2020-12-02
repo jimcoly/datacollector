@@ -17,11 +17,17 @@ package com.streamsets.pipeline.stage.origin.multikafka;
 
 import com.streamsets.pipeline.api.ConfigDef;
 import com.streamsets.pipeline.api.ConfigDefBean;
+import com.streamsets.pipeline.api.FieldSelectorModel;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.config.DataFormat;
+import com.streamsets.pipeline.kafka.api.KafkaOriginGroups;
 import com.streamsets.pipeline.lib.kafka.KafkaAutoOffsetReset;
 import com.streamsets.pipeline.lib.kafka.KafkaAutoOffsetResetValues;
+import com.streamsets.pipeline.lib.kafka.connection.KafkaConnectionConfigBean;
+import com.streamsets.pipeline.lib.kafka.KafkaSecurityUtil;
+import com.streamsets.pipeline.stage.origin.kafka.KeyCaptureMode;
+import com.streamsets.pipeline.stage.origin.kafka.KeyCaptureModeChooserValues;
 import com.streamsets.pipeline.stage.origin.lib.DataParserFormatConfig;
 
 import java.util.ArrayList;
@@ -31,6 +37,9 @@ import java.util.Map;
 public class MultiKafkaBeanConfig {
   @ConfigDefBean(groups = "KAFKA")
   public DataParserFormatConfig dataFormatConfig = new DataParserFormatConfig();
+
+  @ConfigDefBean()
+  public KafkaConnectionConfigBean connectionConfig = new KafkaConnectionConfigBean();
 
   @ConfigDef(
       required = true,
@@ -42,17 +51,6 @@ public class MultiKafkaBeanConfig {
   )
   @ValueChooserModel(DataFormatChooserValues.class)
   public DataFormat dataFormat;
-
-  @ConfigDef(
-      required = true,
-      type = ConfigDef.Type.STRING,
-      defaultValue = "localhost:9092",
-      label = "Broker URI",
-      description = "Comma-separated list of Kafka brokers. Use format <HOST>:<PORT>",
-      displayPosition = 10,
-      group = "KAFKA"
-  )
-  public String brokerURI = "localhost:9092";
 
   @ConfigDef(
       required = true,
@@ -166,11 +164,50 @@ public class MultiKafkaBeanConfig {
       defaultValue = "STRING",
       dependsOn = "dataFormat",
       triggeredByValue = "AVRO",
-      displayPosition = 110,
+      displayPosition = 130,
       group = "KAFKA"
   )
   @ValueChooserModel(KeyDeserializerChooserValues.class)
   public Deserializer keyDeserializer = Deserializer.STRING;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      label = "Key Capture Mode",
+      description = "Controls how the Kafka message key is stored in the record.",
+      defaultValue = "NONE",
+      displayPosition = 135,
+      group = "KAFKA"
+  )
+  @ValueChooserModel(KeyCaptureModeChooserValues.class)
+  public KeyCaptureMode keyCaptureMode = KeyCaptureMode.NONE;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.STRING,
+      label = "Key Capture Header Attribute",
+      description = "Sets the record header attribute name where the message key will be stored.",
+      defaultValue = "kafkaMessageKey",
+      displayPosition = 136,
+      group = "KAFKA",
+      dependsOn = "keyCaptureMode",
+      triggeredByValue = {"RECORD_HEADER", "RECORD_HEADER_AND_FIELD"}
+  )
+  public String keyCaptureAttribute;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      label = "Key Capture Field",
+      description = "Sets the record field where the message key will be stored.",
+      defaultValue = "/kafkaMessageKey",
+      displayPosition = 137,
+      group = "KAFKA",
+      dependsOn = "keyCaptureMode",
+      triggeredByValue = {"RECORD_FIELD", "RECORD_HEADER_AND_FIELD"}
+  )
+  @FieldSelectorModel(singleValued = true)
+  public String keyCaptureField;
 
   @ConfigDef(
       required = true,
@@ -180,13 +217,32 @@ public class MultiKafkaBeanConfig {
       defaultValue = "DEFAULT",
       dependsOn = "dataFormat",
       triggeredByValue = "AVRO",
-      displayPosition = 120,
+      displayPosition = 140,
       group = "KAFKA"
   )
   @ValueChooserModel(ValueDeserializerChooserValues.class)
   public Deserializer valueDeserializer = Deserializer.DEFAULT;
 
-  public void init(Stage.Context context, List<Stage.ConfigIssue> issues) {
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "Include Timestamps",
+      description = "Includes the timestamps inherited from Kafka in the record header",
+      displayPosition = 130,
+      group = "KAFKA"
+  )
+  public boolean timestampsEnabled;
 
+
+  public void init(Stage.Context context, List<Stage.ConfigIssue> issues) {
+    KafkaSecurityUtil.validateAdditionalProperties(
+        connectionConfig.connection.securityConfig,
+        kafkaOptions,
+        KafkaOriginGroups.KAFKA.name(),
+        "conf.kafkaOptions",
+        issues,
+        context
+    );
   }
 }

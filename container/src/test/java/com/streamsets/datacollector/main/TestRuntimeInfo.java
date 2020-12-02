@@ -21,6 +21,7 @@ import com.streamsets.datacollector.execution.runner.common.Constants;
 import com.streamsets.datacollector.util.Configuration;
 
 import com.streamsets.lib.security.http.RemoteSSOService;
+import com.streamsets.pipeline.api.gateway.GatewayInfo;
 import dagger.ObjectGraph;
 
 import org.junit.After;
@@ -36,12 +37,12 @@ import java.io.Writer;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
 
 public class TestRuntimeInfo {
-
   @Before
   public void before() {
     System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.STATIC_WEB_DIR, "target/w");
@@ -58,7 +59,7 @@ public class TestRuntimeInfo {
     System.getProperties().remove(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.DATA_DIR);
     System.getProperties().remove(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.STATIC_WEB_DIR);
     System.getProperties().remove(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.RESOURCES_DIR);
-    System.getProperties().remove(RuntimeInfo.DATA_COLLECTOR_BASE_HTTP_URL);
+    System.getProperties().remove(String.format(RuntimeInfo.BASE_HTTP_URL_ATTR, RuntimeInfo.SDC_PRODUCT));
   }
 
   @Test
@@ -70,7 +71,12 @@ public class TestRuntimeInfo {
     System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.RESOURCES_DIR, "r");
 
     List<? extends ClassLoader> customCLs = Arrays.asList(new URLClassLoader(new URL[0], null));
-    RuntimeInfo info = new StandaloneRuntimeInfo(RuntimeModule.SDC_PROPERTY_PREFIX, new MetricRegistry(), customCLs);
+    RuntimeInfo info = new StandaloneRuntimeInfo(
+        RuntimeInfo.SDC_PRODUCT,
+        RuntimeModule.SDC_PROPERTY_PREFIX,
+        new MetricRegistry(),
+        customCLs
+    );
     Assert.assertEquals(System.getProperty("user.dir"), info.getRuntimeDir());
     Assert.assertEquals("w", info.getStaticWebDir());
     Assert.assertEquals("x", info.getConfigDir());
@@ -84,8 +90,12 @@ public class TestRuntimeInfo {
 
   @Test
   public void testAttributes() {
-    RuntimeInfo info = new StandaloneRuntimeInfo(RuntimeModule.SDC_PROPERTY_PREFIX, new MetricRegistry(),
-      Arrays.asList(getClass().getClassLoader()));
+    RuntimeInfo info = new StandaloneRuntimeInfo(
+        RuntimeInfo.SDC_PRODUCT,
+        RuntimeModule.SDC_PROPERTY_PREFIX,
+        new MetricRegistry(),
+        Arrays.asList(getClass().getClassLoader())
+    );
     Assert.assertFalse(info.hasAttribute("a"));
     info.setAttribute("a", 1);
     Assert.assertTrue(info.hasAttribute("a"));
@@ -114,7 +124,7 @@ public class TestRuntimeInfo {
     Assert.assertTrue(dir.mkdirs());
     System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.CONFIG_DIR, dir.getAbsolutePath());
     Properties props = new Properties();
-    props.setProperty(RuntimeInfo.DATA_COLLECTOR_BASE_HTTP_URL, "HTTP");
+    props.setProperty(String.format(RuntimeInfo.BASE_HTTP_URL_ATTR, RuntimeInfo.SDC_PRODUCT), "HTTP");
     props.setProperty(RemoteSSOService.SECURITY_SERVICE_APP_AUTH_TOKEN_CONFIG, "AUTH_TOKEN");
     props.setProperty(RemoteSSOService.DPM_ENABLED, "true");
     props.setProperty(RemoteSSOService.DPM_DEPLOYMENT_ID, "foo");
@@ -131,12 +141,42 @@ public class TestRuntimeInfo {
   }
 
   @Test
+  public void testTransformerRuntimeInfoConfigAndId() throws Exception {
+    final String productName = "transformer";
+    System.setProperty(productName + RuntimeInfo.DATA_DIR, "target/z");
+
+    try {
+      File dir = new File("target", UUID.randomUUID().toString());
+      Assert.assertTrue(dir.mkdirs());
+      System.setProperty(productName + RuntimeInfo.CONFIG_DIR, dir.getAbsolutePath());
+      Properties props = new Properties();
+      props.setProperty(String.format(RuntimeInfo.BASE_HTTP_URL_ATTR, productName), "HTTP");
+      Writer writer = new FileWriter(new File(dir, productName + ".properties"));
+      props.store(writer, "");
+      writer.close();
+      RuntimeModule.setProductName(productName);
+      RuntimeModule.setPropertyPrefix(productName);
+      ObjectGraph og = ObjectGraph.create(RuntimeModule.class);
+      og.get(Configuration.class);
+      RuntimeInfo info = og.get(RuntimeInfo.class);
+      Assert.assertEquals("HTTP", info.getBaseHttpUrl());
+    } finally {
+      // set productName back to default value of SDC
+      RuntimeModule.setProductName(RuntimeInfo.SDC_PRODUCT);
+      RuntimeModule.setPropertyPrefix(RuntimeInfo.SDC_PRODUCT);
+      // Clean up the system properties set for the transformer
+      System.getProperties().remove(productName + RuntimeInfo.DATA_DIR);
+      System.getProperties().remove(productName + RuntimeInfo.CONFIG_DIR);
+    }
+  }
+
+  @Test
   public void testSlaveRuntimeInfoConfigAndId() throws Exception {
     File dir = new File("target", UUID.randomUUID().toString());
     Assert.assertTrue(dir.mkdirs());
     System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.CONFIG_DIR, dir.getAbsolutePath());
     Properties props = new Properties();
-    props.setProperty(RuntimeInfo.DATA_COLLECTOR_BASE_HTTP_URL, "HTTP");
+    props.setProperty(String.format(RuntimeInfo.BASE_HTTP_URL_ATTR, RuntimeInfo.SDC_PRODUCT), "HTTP");
     props.setProperty(ClusterModeConstants.CLUSTER_PIPELINE_REMOTE, "true");
     props.setProperty(RemoteSSOService.SECURITY_SERVICE_APP_AUTH_TOKEN_CONFIG, "AUTH_TOKEN");
     props.setProperty(RemoteSSOService.DPM_ENABLED, "true");
@@ -160,7 +200,7 @@ public class TestRuntimeInfo {
 
   @Test
   public void testTrailingSlashRemovedFromHttpURL() throws Exception {
-    RuntimeInfo runtimeInfo = new StandaloneRuntimeInfo(null, null, null);
+    RuntimeInfo runtimeInfo = new StandaloneRuntimeInfo(RuntimeInfo.SDC_PRODUCT,null, null, null);
     runtimeInfo.setBaseHttpUrl("http://localhost:18630");
     Assert.assertEquals("http://localhost:18630", runtimeInfo.getBaseHttpUrl());
     // add a leading forward slash
@@ -181,20 +221,107 @@ public class TestRuntimeInfo {
                        new File("target", UUID.randomUUID().toString()).getAbsolutePath());
 
     List<? extends ClassLoader> customCLs = Arrays.asList(new URLClassLoader(new URL[0], null));
-    RuntimeInfo info = new StandaloneRuntimeInfo(RuntimeModule.SDC_PROPERTY_PREFIX, new MetricRegistry(), customCLs);
+    RuntimeInfo info = new StandaloneRuntimeInfo(
+        RuntimeInfo.SDC_PRODUCT,
+        RuntimeModule.SDC_PROPERTY_PREFIX,
+        new MetricRegistry(),
+        customCLs
+    );
     info.init();
     String id = info.getId();
     Assert.assertNotNull(id);
-    info = new StandaloneRuntimeInfo(RuntimeModule.SDC_PROPERTY_PREFIX, new MetricRegistry(), customCLs);
+    info = new StandaloneRuntimeInfo(
+        RuntimeInfo.SDC_PRODUCT,
+        RuntimeModule.SDC_PROPERTY_PREFIX,
+        new MetricRegistry(),
+        customCLs
+    );
     info.init();
     Assert.assertEquals(id, info.getId());
 
     System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.DATA_DIR,
                        new File("target", UUID.randomUUID().toString()).getAbsolutePath());
-    info = new StandaloneRuntimeInfo(RuntimeModule.SDC_PROPERTY_PREFIX, new MetricRegistry(), customCLs);
+    info = new StandaloneRuntimeInfo(
+        RuntimeInfo.SDC_PRODUCT,
+        RuntimeModule.SDC_PROPERTY_PREFIX,
+        new MetricRegistry(),
+        customCLs
+    );
     info.init();
     Assert.assertNotEquals(id, info.getId());
     Assert.assertFalse(info.isClusterSlave());
+  }
+
+  @Test
+  public void testRuntimeInfoAsterClientDir() {
+    System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.STATIC_WEB_DIR, "w");
+    System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.CONFIG_DIR, "x");
+    System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.LOG_DIR, "y");
+    System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.RESOURCES_DIR, "r");
+    System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.DATA_DIR,
+        new File("target", UUID.randomUUID().toString()).getAbsolutePath());
+    String asterDir = new File("target", UUID.randomUUID().toString()).getAbsolutePath();
+    System.setProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.ASTER_CLIENT_LIB_DIR, asterDir);
+    List<? extends ClassLoader> customCLs = Arrays.asList(new URLClassLoader(new URL[0], null));
+    RuntimeInfo info = new StandaloneRuntimeInfo(
+        RuntimeInfo.SDC_PRODUCT,
+        RuntimeModule.SDC_PROPERTY_PREFIX,
+        new MetricRegistry(),
+        customCLs
+    );
+    info.init();
+    Assert.assertEquals(asterDir, info.getAsterClientDir());
+  }
+
+  @Test
+  public void testApiGatewayMethods() throws Exception {
+    RuntimeInfo runtimeInfo = new StandaloneRuntimeInfo(
+        RuntimeInfo.SDC_PRODUCT,
+        RuntimeModule.SDC_PROPERTY_PREFIX,
+        new MetricRegistry(),
+        Collections.singletonList(getClass().getClassLoader())
+    );
+    runtimeInfo.setBaseHttpUrl("http://localhost:18630");
+
+    GatewayInfo gatewayInfo = runtimeInfo.getApiGateway("invalidService");
+    Assert.assertNull(gatewayInfo);
+
+    GatewayInfo testGatewayInfo = new GatewayInfo() {
+      @Override
+      public String getPipelineId() {
+        return "pipelineId";
+      }
+
+      @Override
+      public String getServiceName() {
+        return "serviceName1";
+      }
+
+      @Override
+      public String getServiceUrl() {
+        return "http://localhost:8080";
+      }
+
+      @Override
+      public boolean getNeedGatewayAuth() {
+        return false;
+      }
+
+      @Override
+      public String getSecret() {
+        return "1234";
+      }
+    };
+
+    String gatewayEndpoint = runtimeInfo.registerApiGateway(testGatewayInfo);
+    Assert.assertEquals("http://localhost:18630/public-rest/v1/gateway/serviceName1", gatewayEndpoint);
+
+    GatewayInfo savedGatewayInfo = runtimeInfo.getApiGateway("serviceName1");
+    Assert.assertEquals(testGatewayInfo, savedGatewayInfo);
+
+    runtimeInfo.unregisterApiGateway(testGatewayInfo);
+    savedGatewayInfo = runtimeInfo.getApiGateway("invalidService");
+    Assert.assertNull(savedGatewayInfo);
   }
 
 }

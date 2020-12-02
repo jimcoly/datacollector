@@ -24,13 +24,14 @@ import com.streamsets.pipeline.api.base.configurablestage.DTarget;
 
 @GenerateResourceBundle
 @StageDef(
-    version = 5,
+    version = 6,
     label = "Kudu",
     description = "Writes data to Kudu",
     icon = "kudu.png",
     privateClassLoader = true,
     onlineHelpRefUrl ="index.html?contextID=task_c4x_tmh_4v",
-    upgrader = KuduTargetUpgrader.class
+    upgrader = KuduTargetUpgrader.class,
+    upgraderDef = "upgrader/KuduDTarget.yaml"
 )
 @ConfigGroups(Groups.class)
 public class KuduDTarget extends DTarget {

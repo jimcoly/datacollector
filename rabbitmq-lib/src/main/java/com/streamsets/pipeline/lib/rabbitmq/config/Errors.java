@@ -29,7 +29,9 @@ public enum Errors implements ErrorCode {
   RABBITMQ_07("Failed to write record to RabbitMQ: {}"),
   RABBITMQ_08("RabbitMQ error - Records are returned, check Mandatory flag." +
       " ReplyCode - {}, ReplyText - {}, Exchange - {}, RoutingKey - {}"),
-  RABBITMQ_09("Invalid Configuration Value - {} for {}");
+  RABBITMQ_09("Invalid Configuration Value - {} for {}"),
+  RABBITMQ_10("Queue name can not be empty. The RabbitMQ Consumer needs a specific queue to read from."),
+  RABBITMQ_11("Batch size greater than maximal batch size allowed in sdc.properties, maxBatchSize: {}"),
   ;
   private final String msg;
 

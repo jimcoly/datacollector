@@ -20,7 +20,7 @@ import com.streamsets.pipeline.api.GenerateResourceBundle;
 
 @GenerateResourceBundle
 public enum Errors implements ErrorCode {
-  KUDU_00("Error connecting to kudu master '{}': {}"),
+  KUDU_00("Cannot connect to Kudu. Please verify the master(s) are running and accessible at '{}'"),
   KUDU_01("Table '{}' does not exist"),
   KUDU_02("Parameter is not valid"),
   KUDU_03("Errors while interacting with Kudu: {}"),
@@ -34,7 +34,7 @@ public enum Errors implements ErrorCode {
   KUDU_12("Invalid table name template expression '{}': {}"),
   KUDU_13("Operation not supported: {}"),
   KUDU_14("Unknown action for unsupported operation: {}"),
-  KUDU_15("Row key '{}' not found"),
+  KUDU_15("Row key '{}' not found for table '{}'"),
 
   KUDU_30("Column mappings must be specified for lookup processor"),
   KUDU_31("No rows found"),

@@ -26,6 +26,7 @@ import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.streamsets.pipeline.api.Batch;
 import com.streamsets.pipeline.api.Field;
 import com.streamsets.pipeline.api.Record;
@@ -40,6 +41,8 @@ import com.streamsets.pipeline.lib.el.RecordEL;
 import com.streamsets.pipeline.stage.bigquery.lib.BigQueryDelegate;
 import com.streamsets.pipeline.stage.bigquery.lib.Errors;
 import com.streamsets.pipeline.stage.bigquery.lib.Groups;
+import com.streamsets.pipeline.stage.common.DefaultErrorRecordHandler;
+import com.streamsets.pipeline.stage.common.ErrorRecordHandler;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,6 +82,7 @@ public class BigQueryTarget extends BaseTarget {
   private ELEval tableNameELEval;
   private ELEval rowIdELEval;
   private LoadingCache<TableId, Boolean> tableIdExistsCache;
+  private ErrorRecordHandler errorRecordHandler;
 
   BigQueryTarget(BigQueryTargetConfig conf) {
     this.conf = conf;
@@ -101,12 +105,13 @@ public class BigQueryTarget extends BaseTarget {
     conf.credentials.getCredentialsProvider(getContext(), issues).ifPresent(provider -> {
       if (issues.isEmpty()) {
         try {
-          Optional.ofNullable(provider.getCredentials()).ifPresent(c -> bigQuery = BigQueryDelegate.getBigquery(c, conf.credentials.projectId));
+          Optional.ofNullable(provider.getCredentials()).ifPresent(credentials ->
+              bigQuery
+                  = BigQueryDelegate.getBigquery(credentials, conf.credentials.getProjectId()));
         } catch (IOException e) {
           LOG.error(Errors.BIGQUERY_05.getMessage(), e);
-          issues.add(getContext().createConfigIssue(
-              Groups.CREDENTIALS.name(),
-              "conf.credentials.credentialsProvider",
+          issues.add(getContext().createConfigIssue(Groups.CREDENTIALS.name(),
+              "conf.credentials.connection.credentialsProvider",
               Errors.BIGQUERY_05
           ));
         }
@@ -128,6 +133,7 @@ public class BigQueryTarget extends BaseTarget {
         return bigQuery.getTable(key) != null;
       }
     });
+    errorRecordHandler = new DefaultErrorRecordHandler(getContext());
 
     return issues;
   }
@@ -145,19 +151,41 @@ public class BigQueryTarget extends BaseTarget {
           String datasetName = dataSetEval.eval(elVars, conf.datasetEL, String.class);
           String tableName = tableNameELEval.eval(elVars, conf.tableNameEL, String.class);
           TableId tableId = TableId.of(datasetName, tableName);
-          if (tableIdExistsCache.get(tableId)) {
+          if(!tableIdExistsCache.get(tableId)) {
+            errorRecordHandler.onError(new OnRecordErrorException(
+                record,
+                Errors.BIGQUERY_17,
+                datasetName,
+                tableName,
+                conf.credentials.getProjectId()
+            ));
+          }
+          else {
             List<Record> tableIdRecords = tableIdToRecords.computeIfAbsent(tableId, t -> new ArrayList<>());
             tableIdRecords.add(record);
-          } else {
-            getContext().toError(record, Errors.BIGQUERY_17, datasetName, tableName, conf.credentials.projectId);
           }
         } catch (ELEvalException e) {
           LOG.error("Error evaluating DataSet/TableName EL", e);
-          getContext().toError(record, Errors.BIGQUERY_10, e);
+          errorRecordHandler.onError(new OnRecordErrorException(
+              record,
+              Errors.BIGQUERY_10,
+              e
+          ));
         } catch (ExecutionException e){
-          LOG.error("Error when checking exists for tableId, Reason : {}", e);
+          LOG.error("Error when checking exists for tableId, Reason : {}", e.getMessage(), e);
           Throwable rootCause = Throwables.getRootCause(e);
-          getContext().toError(record, Errors.BIGQUERY_13, rootCause);
+          errorRecordHandler.onError(new OnRecordErrorException(
+              record,
+              Errors.BIGQUERY_13,
+              rootCause
+          ));
+
+        } catch (IllegalArgumentException | BigQueryException | UncheckedExecutionException e) {
+          errorRecordHandler.onError(new OnRecordErrorException(
+              record,
+              Errors.BIGQUERY_18,
+              e.getMessage()
+          ));
         }
       });
 
@@ -181,7 +209,7 @@ public class BigQueryTarget extends BaseTarget {
                     record.getHeader().getSourceId(),
                     e.getMessage()
                 );
-                getContext().toError(record, e.getErrorCode(), e.getParams());
+                errorRecordHandler.onError(e);
               }
             }
         );
@@ -214,7 +242,12 @@ public class BigQueryTarget extends BaseTarget {
                       reasons,
                       messages
                   );
-                  getContext().toError(record, Errors.BIGQUERY_11, reasons, messages);
+                  errorRecordHandler.onError(new OnRecordErrorException(
+                      record,
+                      Errors.BIGQUERY_11,
+                      reasons,
+                      messages
+                  ));
                 });
               }
             } catch (BigQueryException e) {
@@ -222,7 +255,11 @@ public class BigQueryTarget extends BaseTarget {
               //Put all records to error.
               for (long i = 0; i < request.getRows().size(); i++) {
                 Record record = requestIndexToRecords.get(i);
-                getContext().toError(record, Errors.BIGQUERY_13, e);
+                errorRecordHandler.onError(new OnRecordErrorException(
+                    record,
+                    Errors.BIGQUERY_13,
+                    e
+                ));
               }
             }
           }

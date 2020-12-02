@@ -15,40 +15,73 @@
  */
 package com.streamsets.datacollector.usagestats;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 // stats bean that is send back to StreamSets.
 public class StatsBean {
+  private boolean reported;
+  private String sdcId;
+  private String productName;
   private String version;
   private String dataCollectorVersion;
+  private String buildRepoSha;
+  private Map<String, Object> extraInfo;
   private boolean dpmEnabled;
   private long startTime;
   private long endTime;
   private long upTime;
   private long activePipelines;
   private long pipelineMilliseconds;
+  private List<PipelineRunReport> pipelineRunReports;
   private Map<String, Long> stageMilliseconds;
   private long recordsOM;
+  private Map<String, Long> errorCodes;
+  private List<FirstPipelineUse> createToPreview;
+  private List<FirstPipelineUse> createToRun;
+  private List<StatsBeanExtension> extensions;
+  private ActivationInfo activationInfo;
 
   public StatsBean() {
     stageMilliseconds = new HashMap<>();
   }
 
-  public StatsBean(ActiveStats activeStats) {
+  public StatsBean(String sdcId, ActiveStats activeStats) {
     this();
+    setSdcId(sdcId);
+    setProductName(activeStats.getProductName());
     setVersion(activeStats.getVersion());
     setDataCollectorVersion(activeStats.getDataCollectorVersion());
+    setBuildRepoSha(activeStats.getBuildRepoSha());
+    setExtraInfo(activeStats.getExtraInfo());
     setDpmEnabled(activeStats.isDpmEnabled());
     setStartTime(activeStats.getStartTime());
     setEndTime(activeStats.getEndTime());
     setUpTime(activeStats.getUpTime().getAccumulatedTime());
+
     long pipelineMilliseconds = 0;
-    setActivePipelines(activeStats.getPipelines().size());
-    for (UsageTimer timer : activeStats.getPipelines()) {
+    setActivePipelines(activeStats.getDeprecatedPipelines().size() + activeStats.getPipelineStats().size());
+    for (UsageTimer timer : activeStats.getDeprecatedPipelines()) {
       pipelineMilliseconds += timer.getAccumulatedTime();
     }
+    List<PipelineRunReport> runReports = new ArrayList<>();
+    for (Map.Entry<String, PipelineStats> entry : activeStats.getPipelineStats().entrySet()) {
+      String hashedId = activeStats.hashPipelineId(entry.getKey());
+      PipelineStats ps = entry.getValue();
+      for (PipelineRunStats run : ps.getRuns()) {
+        pipelineMilliseconds += run.getTimer().getAccumulatedTime();
+        runReports.add(new PipelineRunReport(hashedId, run));
+      }
+    }
     setPipelineMilliseconds(pipelineMilliseconds);
+    setPipelineRunReports(runReports);
+
     for (UsageTimer timer : activeStats.getStages()) {
       getStageMilliseconds().put(timer.getName(), timer.getAccumulatedTime());
     }
@@ -57,6 +90,51 @@ public class StatsBean {
     } else {
       setRecordsOM(-1); // no records
     }
+    setErrorCodes(new HashMap<>(activeStats.getErrorCodes()));
+    createToPreview = getFirstUse(activeStats.getCreateToPreview());
+    createToRun = getFirstUse(activeStats.getCreateToRun());
+    extensions = activeStats.getExtensions().stream()
+        .map(AbstractStatsExtension::report)
+        .collect(Collectors.toList());
+
+    activationInfo = activeStats.getActivationInfo();
+  }
+
+  @NotNull
+  List<FirstPipelineUse> getFirstUse(Map<String, FirstPipelineUse> map) {
+    return map.entrySet()
+        .stream()
+        .filter(e -> e.getValue().getFirstUseOn() > 0)
+        .map(e -> e.getValue())
+        .collect(Collectors.toList());
+  }
+
+  // it will only be serialized to JSON if TRUE, when we report it is still false, thus we don't introduce any
+  // change in the telemetry payload.
+  @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+  public boolean isReported() {
+    return reported;
+  }
+
+  public StatsBean setReported() {
+    this.reported = true;
+    return this;
+  }
+
+  public String getSdcId() {
+    return sdcId;
+  }
+
+  public StatsBean setSdcId(String sdcId) {
+    this.sdcId = sdcId;
+    return this;
+  }
+
+  public String getProductName() { return productName; }
+
+  public StatsBean setProductName(String productName) {
+    this.productName = productName;
+    return this;
   }
 
   public String getVersion() {
@@ -73,6 +151,24 @@ public class StatsBean {
 
   public void setDataCollectorVersion(String version) {
     this.dataCollectorVersion = version;
+  }
+
+  public String getBuildRepoSha() {
+    return buildRepoSha;
+  }
+
+  public StatsBean setBuildRepoSha(String buildRepoSha) {
+    this.buildRepoSha = buildRepoSha;
+    return this;
+  }
+
+  public Map<String, Object> getExtraInfo() {
+    return extraInfo;
+  }
+
+  public StatsBean setExtraInfo(Map<String, Object> extraInfo) {
+    this.extraInfo = extraInfo;
+    return this;
   }
 
   public boolean isDpmEnabled() {
@@ -123,6 +219,10 @@ public class StatsBean {
     this.pipelineMilliseconds = pipelineMilliseconds;
   }
 
+  public List<PipelineRunReport> getPipelineRunReports() { return pipelineRunReports; }
+
+  public void setPipelineRunReports(List<PipelineRunReport> pipelineRunReports) { this.pipelineRunReports = pipelineRunReports; }
+
   public Map<String, Long> getStageMilliseconds() {
     return stageMilliseconds;
   }
@@ -139,4 +239,47 @@ public class StatsBean {
     this.recordsOM = recordsOM;
   }
 
+  public Map<String, Long> getErrorCodes() {
+    return errorCodes;
+  }
+
+  public void setErrorCodes(Map<String, Long> errorCodes) {
+    this.errorCodes = errorCodes;
+  }
+
+  public List<FirstPipelineUse> getCreateToPreview() {
+    return createToPreview;
+  }
+
+  public StatsBean setCreateToPreview(List<FirstPipelineUse> createToPreview) {
+    this.createToPreview = createToPreview;
+    return this;
+  }
+
+  public List<FirstPipelineUse> getCreateToRun() {
+    return createToRun;
+  }
+
+  public StatsBean setCreateToRun(List<FirstPipelineUse> createToRun) {
+    this.createToRun = createToRun;
+    return this;
+  }
+
+  public List<StatsBeanExtension> getExtensions() {
+    return extensions;
+  }
+
+  public StatsBean setExtensions(List<StatsBeanExtension> extensions) {
+    this.extensions = extensions;
+    return this;
+  }
+
+  public ActivationInfo getActivationInfo() {
+    return activationInfo;
+  }
+
+  public StatsBean setActivationInfo(ActivationInfo activationInfo) {
+    this.activationInfo = activationInfo;
+    return this;
+  }
 }

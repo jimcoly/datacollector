@@ -193,7 +193,9 @@ public class HiveMetastoreTarget extends BaseTarget {
               resolvedHeaders
           );
         } else {
-          handlePartitionAddition(metadataRecord, qualifiedTableName, location, queryExecutor, resolvedHeaders);
+          boolean customLocation = HiveMetastoreUtil.getCustomLocation(metadataRecord);
+          handlePartitionAddition(metadataRecord, qualifiedTableName, location, customLocation, queryExecutor,
+              resolvedHeaders);
         }
       } catch (HiveStageCheckedException e) {
         LOG.error("Error processing record: {}", e);
@@ -304,13 +306,10 @@ public class HiveMetastoreTarget extends BaseTarget {
             qualifiedTableName,
             headers
           );
-        }
-
-        //Add Columns
-        hiveQueryExecutor.executeAlterTableAddColumnsQuery(qualifiedTableName, columnDiff);
-
-        if (!conf.storedAsAvro) {
           hiveQueryExecutor.executeAlterTableSetTblPropertiesQuery(qualifiedTableName, schemaPath);
+        } else {
+          //Add Columns
+          hiveQueryExecutor.executeAlterTableAddColumnsQuery(qualifiedTableName, columnDiff);
         }
         cachedColumnTypeInfo.updateState(columnDiff);
 
@@ -364,6 +363,7 @@ public class HiveMetastoreTarget extends BaseTarget {
       Record metadataRecord,
       String qualifiedTableName,
       String location,
+      boolean customLocation,
       HiveQueryExecutor hiveQueryExecutor,
       Map<String, String> headers
   ) throws StageException {
@@ -402,7 +402,7 @@ public class HiveMetastoreTarget extends BaseTarget {
           qualifiedTableName,
           partitionValMap,
           cachedTypeInfo.getPartitionTypeInfo(),
-          location
+          customLocation ? location : null
       );
       if (cachedPartitionInfo != null) {
         cachedPartitionInfo.updateState(partitionInfoDiff);

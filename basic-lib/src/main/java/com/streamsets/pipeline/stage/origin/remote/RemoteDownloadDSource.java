@@ -23,20 +23,26 @@ import com.streamsets.pipeline.api.HideConfigs;
 import com.streamsets.pipeline.api.Source;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.base.configurablestage.DSource;
+import com.streamsets.pipeline.lib.event.FinishedFileEvent;
+import com.streamsets.pipeline.lib.event.NewFileEvent;
+import com.streamsets.pipeline.lib.event.NoMoreDataEvent;
+import com.streamsets.pipeline.lib.util.SystemClock;
 
 @StageDef(
-    version = 3,
-    label = "SFTP FTP Client",
-    description = "Uses an SFTP/FTP client to read records from an URL.",
+    version = 6,
+    label = "SFTP/FTP/FTPS Client",
+    description = "Uses an SFTP/FTP/FTPS client to read data from a URL.",
     icon = "sftp-client.png",
     execution = ExecutionMode.STANDALONE,
     recordsByRef = true,
     resetOffset = true,
     producesEvents = true,
+    eventDefs = {NewFileEvent.class, FinishedFileEvent.class, NoMoreDataEvent.class},
     upgrader = RemoteDownloadSourceUpgrader.class,
+    upgraderDef = "upgrader/RemoteDownloadDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_lfx_fzd_5v"
 )
-@HideConfigs(value = {"conf.dataFormatConfig.verifyChecksum"})
+@HideConfigs(value = {"conf.dataFormatConfig.verifyChecksum", "conf.remoteConfig.createPathIfNotExists"})
 @GenerateResourceBundle
 @ConfigGroups(Groups.class)
 public class RemoteDownloadDSource extends DSource {
@@ -46,6 +52,9 @@ public class RemoteDownloadDSource extends DSource {
 
   @Override
   protected Source createSource() {
-    return new RemoteDownloadSource(conf);
+    return new RemoteDownloadSource(
+        conf,
+        new FileDelayer(new SystemClock(), conf.processingDelay)
+    );
   }
 }

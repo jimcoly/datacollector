@@ -15,6 +15,7 @@
  */
 package com.streamsets.datacollector.validation;
 
+import com.streamsets.pipeline.api.AntennaDoctorMessage;
 import com.streamsets.pipeline.api.ErrorCode;
 import com.streamsets.pipeline.api.impl.ErrorMessage;
 import com.streamsets.pipeline.api.impl.LocalizableString;
@@ -23,6 +24,7 @@ import com.streamsets.pipeline.validation.ValidationIssue;
 
 import java.io.Serializable;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class Issue implements Serializable, ValidationIssue {
@@ -31,8 +33,9 @@ public class Issue implements Serializable, ValidationIssue {
   private final String configGroup;
   private final String configName;
   private long count;
-  private final LocalizableString message;
+  private LocalizableString message;
   private Map<String, Object> additionalInfo;
+  private List<AntennaDoctorMessage> antennaDoctorMessages;
 
   protected Issue(String instanceName, String serviceName, String configGroup, String configName, ErrorCode error, Object... args) {
     this.instanceName = instanceName;
@@ -43,11 +46,35 @@ public class Issue implements Serializable, ValidationIssue {
     message = new ErrorMessage(error, args);
   }
 
+  public Issue(
+      String instanceName,
+      String serviceName,
+      String configGroup,
+      String configName,
+      long count,
+      LocalizableString message,
+      Map<String, Object> additionalInfo,
+      List<AntennaDoctorMessage> antennaDoctorMessages
+  ) {
+    this.instanceName = instanceName;
+    this.serviceName = serviceName;
+    this.configGroup = configGroup;
+    this.configName = configName;
+    this.count = count;
+    this.message = message;
+    this.additionalInfo = additionalInfo;
+    this.antennaDoctorMessages = antennaDoctorMessages;
+  }
+
   public void setAdditionalInfo(String key, Object value) {
     if (additionalInfo == null) {
       additionalInfo = new HashMap<>();
     }
     additionalInfo.put(key, value);
+  }
+
+  public void setMessage(LocalizableString message) {
+    this.message = message;
   }
 
   @Override
@@ -115,4 +142,11 @@ public class Issue implements Serializable, ValidationIssue {
     count++;
   }
 
+  public void setAntennaDoctorMessages(List<AntennaDoctorMessage> messages) {
+    this.antennaDoctorMessages = messages;
+  }
+
+  public List<AntennaDoctorMessage> getAntennaDoctorMessages() {
+    return antennaDoctorMessages;
+  }
 }

@@ -24,6 +24,7 @@ import com.streamsets.pipeline.lib.executor.SafeScheduledExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,7 @@ public abstract class SpoolDirBaseSource extends BasePushSource {
   private int numberOfThreads;
   private ExecutorService executorService;
   private WrappedFileSystem fs;
+  protected SpoolDirBaseContext spoolDirBaseContext;
 
   abstract public WrappedFileSystem getFs();
 
@@ -71,6 +73,7 @@ public abstract class SpoolDirBaseSource extends BasePushSource {
     fs = getFs();
 
     numberOfThreads = conf.numberOfThreads;
+    this.spoolDirBaseContext = new SpoolDirBaseContext(getContext(), numberOfThreads);
     lastSourceFileName = null;
 
     conf.dataFormatConfig.checkForInvalidAvroSchemaLookupMode(conf.dataFormat,
@@ -166,35 +169,51 @@ public abstract class SpoolDirBaseSource extends BasePushSource {
 
     if (issues.isEmpty()) {
       if (getContext().isPreview()) {
-        conf.poolingTimeoutSecs = 1;
+        conf.poolingTimeoutSecs = 5;
       }
 
-      DirectorySpooler.Builder builder = DirectorySpooler.builder()
-          .setWrappedFileSystem(getFs())
-          .setDir(conf.spoolDir)
-          .setFilePattern(conf.filePattern)
-          .setMaxSpoolFiles(conf.maxSpoolFiles)
-          .setPostProcessing(DirectorySpooler.FilePostProcessing.valueOf(conf.postProcessing.name()))
-          .waitForPathAppearance(waitForPathToBePresent)
-          .processSubdirectories(conf.processSubdirectories)
-          .setSpoolingPeriodSec(conf.spoolingPeriod);
+      try {
+        DirectorySpooler.Builder builder = getDirectorySpoolerBuilder()
+            .setWrappedFileSystem(getFs())
+            .setDir(conf.spoolDir)
+            .setFilePattern(conf.filePattern)
+            .setMaxSpoolFiles(conf.maxSpoolFiles)
+            .setPostProcessing(DirectorySpooler.FilePostProcessing.valueOf(conf.postProcessing.name()))
+            .waitForPathAppearance(waitForPathToBePresent)
+            .processSubdirectories(conf.processSubdirectories)
+            .setSpoolingPeriodSec(conf.spoolingPeriod);
 
-      if (conf.postProcessing == PostProcessingOptions.ARCHIVE) {
-        builder.setArchiveDir(conf.archiveDir);
-        builder.setArchiveRetention(conf.retentionTimeMins);
+        if (conf.postProcessing == PostProcessingOptions.ARCHIVE) {
+          builder.setArchiveDir(conf.archiveDir);
+          builder.setArchiveRetention(conf.retentionTimeMins);
+        }
+        if (conf.errorArchiveDir != null && !conf.errorArchiveDir.isEmpty()) {
+          builder.setErrorArchiveDir(conf.errorArchiveDir);
+        }
+        builder.setPathMatcherMode(conf.pathMatcherMode);
+        builder.setContext(getContext());
+        this.useLastModified = conf.useLastModified == FileOrdering.TIMESTAMP;
+        builder.setUseLastModifiedTimestamp(useLastModified);
+        spooler = builder.build();
+        spooler.init(conf.initialFileToProcess);
+      } catch (IOException e) {
+        issues.add(
+            getContext().createConfigIssue(
+                GROUP_FILE_CONFIG_NAME,
+                SPOOLDIR_CONFIG_BEAN_PREFIX + "spoolDir",
+                Errors.SPOOLDIR_32,
+                conf.filePattern
+            )
+        );
       }
-      if (conf.errorArchiveDir != null && !conf.errorArchiveDir.isEmpty()) {
-        builder.setErrorArchiveDir(conf.errorArchiveDir);
-      }
-      builder.setPathMatcherMode(conf.pathMatcherMode);
-      builder.setContext(getContext());
-      this.useLastModified = conf.useLastModified == FileOrdering.TIMESTAMP;
-      builder.setUseLastModifiedTimestamp(useLastModified);
-      spooler = builder.build();
-      spooler.init(conf.initialFileToProcess);
+
     }
 
     return issues;
+  }
+
+  protected DirectorySpooler.Builder getDirectorySpoolerBuilder() {
+    return new DirectorySpooler.Builder();
   }
 
   private boolean validateDir(
@@ -207,25 +226,37 @@ public abstract class SpoolDirBaseSource extends BasePushSource {
     if (dir.isEmpty()) {
       issues.add(getContext().createConfigIssue(group, config, Errors.SPOOLDIR_11));
     }
-    return validateDirPresence(dir, group, config, issues, addDirPresenceIssues);
+    return validateDirPresenceAndPermissions(dir, group, config, issues, addDirPresenceIssues);
   }
 
-  private boolean validateDirPresence(
+  private boolean validateDirPresenceAndPermissions(
       String dir,
       String group,
       String config,
       List<ConfigIssue> issues,
       boolean addDirPresenceIssues
   ) {
+    if (SpoolDirUtil.isGlobPattern(dir)) {
+      dir = SpoolDirUtil.truncateGlobPatternDirectory(dir);
+    }
 
-    WrappedFile fDir = fs.getFile(dir);
     List<ConfigIssue> issuesToBeAdded = new ArrayList<>();
     boolean isValid = true;
-    if (!fs.exists(fDir)) {
-      issuesToBeAdded.add(getContext().createConfigIssue(group, config, Errors.SPOOLDIR_12, dir));
-      isValid = false;
-    } else if (!fs.isDirectory(fDir)) {
-      issuesToBeAdded.add(getContext().createConfigIssue(group, config, Errors.SPOOLDIR_13, dir));
+
+    try {
+      WrappedFile fDir = fs.getFile(dir);
+      if (!fs.exists(fDir)) {
+        issuesToBeAdded.add(getContext().createConfigIssue(group, config, Errors.SPOOLDIR_12, dir));
+        isValid = false;
+      } else if (!fs.isDirectory(fDir)) {
+        issuesToBeAdded.add(getContext().createConfigIssue(group, config, Errors.SPOOLDIR_13, dir));
+        isValid = false;
+      } else if (!fDir.canRead()) {
+        issuesToBeAdded.add(getContext().createConfigIssue(group, config, Errors.SPOOLDIR_38, dir));
+        isValid = false;
+      }
+    } catch (IOException e) {
+      issuesToBeAdded.add(getContext().createConfigIssue(group, config, Errors.SPOOLDIR_36, dir, e));
       isValid = false;
     }
     if (addDirPresenceIssues) {
@@ -264,7 +295,20 @@ public abstract class SpoolDirBaseSource extends BasePushSource {
 
   private void validateInitialFileToProcess(List<ConfigIssue> issues) {
     if (conf.initialFileToProcess != null && !conf.initialFileToProcess.isEmpty()) {
-      WrappedFile file = fs.getFile(conf.initialFileToProcess);
+      WrappedFile file = null;
+      try {
+        file = fs.getFile(conf.initialFileToProcess);
+      } catch (IOException e) {
+        issues.add(
+            getContext().createConfigIssue(
+                GROUP_FILE_CONFIG_NAME,
+                SPOOLDIR_CONFIG_BEAN_PREFIX + "initialFileToProcess",
+                Errors.SPOOLDIR_36,
+                conf.initialFileToProcess,
+                e
+            )
+        );
+      }
 
       if (!fs.patternMatches(file.getFileName())) {
         issues.add(
@@ -302,6 +346,9 @@ public abstract class SpoolDirBaseSource extends BasePushSource {
   @Override
   public void produce(Map<String, String> lastSourceOffset, int maxBatchSize) throws StageException {
     int batchSize = Math.min(conf.batchSize, maxBatchSize);
+    if (!getContext().isPreview() && conf.batchSize > maxBatchSize) {
+      getContext().reportError(Errors.SPOOLDIR_37, maxBatchSize);
+    }
 
     Map<String, Offset> newSourceOffset = handleLastSourceOffset(lastSourceOffset, getContext());
 
@@ -325,7 +372,10 @@ public abstract class SpoolDirBaseSource extends BasePushSource {
               e.getMessage(),
               e
           );
-          final Throwable rootCause = Throwables.getRootCause(e);
+          Throwable rootCause = Throwables.getRootCause(e);
+          if(spooler!=null && spooler.getDestroyCause() != null)
+            rootCause = spooler.getDestroyCause();
+
           if (rootCause instanceof StageException) {
             throw (StageException) rootCause;
           }
@@ -364,6 +414,7 @@ public abstract class SpoolDirBaseSource extends BasePushSource {
         .spooler(getSpooler())
         .conf(conf)
         .wrappedFileSystem(getFs())
+        .spoolDirBaseContext(spoolDirBaseContext)
         .build();
   }
 }

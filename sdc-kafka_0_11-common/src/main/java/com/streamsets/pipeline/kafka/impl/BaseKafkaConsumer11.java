@@ -24,6 +24,7 @@ import com.streamsets.pipeline.lib.kafka.KafkaAutoOffsetReset;
 import com.streamsets.pipeline.lib.kafka.KafkaErrors;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
@@ -72,18 +73,17 @@ public abstract class BaseKafkaConsumer11 extends KafkaConsumer09 {
     this.timestampToSearchOffsets = timestampToSearchOffsets;
 
     auxiliaryKafkaConsumerProperties = new Properties();
+    // First set any and all properties set by user, this is super important as all security properties will be set here
+    if (kafkaConsumerConfigs != null && !kafkaConsumerConfigs.isEmpty()) {
+      auxiliaryKafkaConsumerProperties.putAll(kafkaConsumerConfigs);
+    }
+    // And finally finish setting the rest of what we need
     auxiliaryKafkaConsumerProperties.put(ConsumerConfig.GROUP_ID_CONFIG, consumerGroup);
-    auxiliaryKafkaConsumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
-        OffsetResetStrategy.NONE.name().toLowerCase()
-    );
+    auxiliaryKafkaConsumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, OffsetResetStrategy.NONE.name().toLowerCase());
     auxiliaryKafkaConsumerProperties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootStrapServers);
     auxiliaryKafkaConsumerProperties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-    auxiliaryKafkaConsumerProperties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
-        StringDeserializer.class.getName()
-    );
-    auxiliaryKafkaConsumerProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
-        StringDeserializer.class.getName()
-    );
+    auxiliaryKafkaConsumerProperties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+    auxiliaryKafkaConsumerProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
   }
 
   @Override
@@ -95,14 +95,16 @@ public abstract class BaseKafkaConsumer11 extends KafkaConsumer09 {
   MessageAndOffset getMessageAndOffset(ConsumerRecord message, boolean isEnabled) {
     MessageAndOffset messageAndOffset;
     if (message.timestampType() != TimestampType.NO_TIMESTAMP_TYPE && message.timestamp() > 0 && isEnabled) {
-      messageAndOffset = new MessageAndOffsetWithTimestamp(message.value(),
+      messageAndOffset = new MessageAndOffsetWithTimestamp(
+          message.key(),
+          message.value(),
           message.offset(),
           message.partition(),
           message.timestamp(),
           message.timestampType().toString()
       );
     } else {
-      messageAndOffset = new MessageAndOffset(message.value(), message.offset(), message.partition());
+      messageAndOffset = new MessageAndOffset(message.key(), message.value(), message.offset(), message.partition());
     }
     return messageAndOffset;
   }
@@ -123,7 +125,7 @@ public abstract class BaseKafkaConsumer11 extends KafkaConsumer09 {
   }
 
   private boolean firstConnection() throws StageException {
-    try (KafkaConsumer kafkaAuxiliaryConsumer = new KafkaConsumer(auxiliaryKafkaConsumerProperties)) {
+    try (Consumer kafkaAuxiliaryConsumer = new KafkaConsumer(auxiliaryKafkaConsumerProperties)) {
       List<PartitionInfo> partitionInfoList = kafkaAuxiliaryConsumer.partitionsFor(topic);
       for (PartitionInfo partitionInfo : partitionInfoList) {
         TopicPartition topicPartition = new TopicPartition(topic, partitionInfo.partition());

@@ -111,6 +111,7 @@ public class TestSpoolDirWithCompression {
 
       TestOffsetUtil.compare("logArchive2.zip::-1", runner.getOffsets());
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -141,6 +142,7 @@ public class TestSpoolDirWithCompression {
       Assert.assertEquals(37044, records.size());
       TestOffsetUtil.compare("logArchive2.tar.gz::-1", runner.getOffsets());
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -171,6 +173,7 @@ public class TestSpoolDirWithCompression {
       Assert.assertEquals(48000, records.size());
       TestOffsetUtil.compare("testAvro2.tar.gz::-1", runner.getOffsets());
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -201,6 +204,7 @@ public class TestSpoolDirWithCompression {
       Assert.assertEquals(4, records.size());
       TestOffsetUtil.compare("testFile2.bz2::-1", runner.getOffsets());
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -211,7 +215,7 @@ public class TestSpoolDirWithCompression {
     conf.spoolDir = testDir.getAbsolutePath();
     conf.batchSize = 1000;
     conf.overrunLimit = 65;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "logArchive*.zip";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -235,7 +239,7 @@ public class TestSpoolDirWithCompression {
     conf.spoolDir = testDir.getAbsolutePath();
     conf.batchSize = 1000;
     conf.overrunLimit = 65;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "logArchive*.tar.gz";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -260,7 +264,7 @@ public class TestSpoolDirWithCompression {
     conf.spoolDir = testDir.getAbsolutePath();
     conf.batchSize = 1000;
     conf.overrunLimit = 65;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "testAvro*.tar.gz";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -283,7 +287,7 @@ public class TestSpoolDirWithCompression {
     conf.spoolDir = testDir.getAbsolutePath();
     conf.batchSize = 1000;
     conf.overrunLimit = 65;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "testFile*.bz2";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;

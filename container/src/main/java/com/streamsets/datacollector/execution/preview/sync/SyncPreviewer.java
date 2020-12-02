@@ -18,12 +18,14 @@ package com.streamsets.datacollector.execution.preview.sync;
 import com.google.common.annotations.VisibleForTesting;
 import com.streamsets.datacollector.blobstore.BlobStoreTask;
 import com.streamsets.datacollector.config.ConfigDefinition;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.RawSourceDefinition;
 import com.streamsets.datacollector.config.StageConfiguration;
 import com.streamsets.datacollector.config.StageDefinition;
 import com.streamsets.datacollector.el.JobEL;
 import com.streamsets.datacollector.el.PipelineEL;
+import com.streamsets.datacollector.event.dto.PipelineStartEvent;
 import com.streamsets.datacollector.execution.PreviewOutput;
 import com.streamsets.datacollector.execution.PreviewStatus;
 import com.streamsets.datacollector.execution.Previewer;
@@ -34,7 +36,9 @@ import com.streamsets.datacollector.execution.preview.common.PreviewOutputImpl;
 import com.streamsets.datacollector.execution.preview.common.RawPreviewImpl;
 import com.streamsets.datacollector.execution.runner.common.PipelineStopReason;
 import com.streamsets.datacollector.lineage.LineagePublisherTask;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
+import com.streamsets.datacollector.restapi.PreviewResource;
 import com.streamsets.datacollector.runner.PipelineRuntimeException;
 import com.streamsets.datacollector.runner.SourceOffsetTracker;
 import com.streamsets.datacollector.runner.StageOutput;
@@ -70,14 +74,12 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 
 public class SyncPreviewer implements Previewer {
   private static final Logger LOG = LoggerFactory.getLogger(SyncPreviewer.class);
 
-  private static final String MAX_BATCH_SIZE_KEY = "preview.maxBatchSize";
-  private static final int MAX_BATCH_SIZE_DEFAULT = 10;
-  private static final String MAX_BATCHES_KEY = "preview.maxBatches";
-  private static final int MAX_BATCHES_DEFAULT = 10;
   private static final String MAX_SOURCE_PREVIEW_SIZE_KEY = "preview.maxSourcePreviewSize";
   private static final int MAX_SOURCE_PREVIEW_SIZE_DEFAULT = 4*1024;
 
@@ -85,11 +87,16 @@ public class SyncPreviewer implements Previewer {
   private final UserContext userContext;
   private final String name;
   private final String rev;
+  private final Map<String, ConnectionConfiguration> connections;
   private final PreviewerListener previewerListener;
+  private final List<PipelineStartEvent.InterceptorConfiguration> interceptorConfs;
+  private final Function afterActionsFunction;
+
   @Inject Configuration configuration;
   @Inject StageLibraryTask stageLibrary;
   @Inject PipelineStoreTask pipelineStore;
   @Inject RuntimeInfo runtimeInfo;
+  @Inject BuildInfo buildInfo;
   @Inject BlobStoreTask blobStoreTask;
   @Inject LineagePublisherTask lineagePublisherTask;
   @Inject StatsCollector statsCollector;
@@ -104,7 +111,10 @@ public class SyncPreviewer implements Previewer {
       String name,
       String rev,
       PreviewerListener previewerListener,
-      ObjectGraph objectGraph
+      ObjectGraph objectGraph,
+      List<PipelineStartEvent.InterceptorConfiguration> interceptorConfs,
+      Function<Object, Void> afterActionsFunction,
+      Map<String, ConnectionConfiguration> connections
   ) {
     objectGraph.inject(this);
     this.id = id;
@@ -119,6 +129,9 @@ public class SyncPreviewer implements Previewer {
     this.rev = rev;
     this.previewerListener = previewerListener;
     this.previewStatus = PreviewStatus.CREATED;
+    this.interceptorConfs = interceptorConfs;
+    this.afterActionsFunction = afterActionsFunction;
+    this.connections = connections;
   }
 
   @Override
@@ -137,32 +150,38 @@ public class SyncPreviewer implements Previewer {
   }
 
   @Override
+  public List<PipelineStartEvent.InterceptorConfiguration> getInterceptorConfs() {
+    return interceptorConfs;
+  }
+
+  @Override
+  public Map<String, ConnectionConfiguration> getConnections() {
+    return connections;
+  }
+
+  @Override
   public void validateConfigs(long timeoutMillis) throws PipelineException {
     changeState(PreviewStatus.VALIDATING, null);
     try {
       previewPipeline = buildPreviewPipeline(0, 0, null, false, true, false);
       List<Issue> stageIssues = previewPipeline.validateConfigs();
       PreviewStatus status = stageIssues.size() == 0 ? PreviewStatus.VALID : PreviewStatus.INVALID;
-      changeState(status, new PreviewOutputImpl(status, new Issues(stageIssues), null, null));
+      changeState(status, new PreviewOutputImpl(status, new Issues(stageIssues), (List)null));
     } catch (PipelineRuntimeException e) {
       //Preview Pipeline Builder validates configurations and throws PipelineRuntimeException with code CONTAINER_0165
       //for validation errors.
       if (e.getErrorCode() == ContainerError.CONTAINER_0165) {
-        changeState(PreviewStatus.INVALID, new PreviewOutputImpl(PreviewStatus.INVALID, e.getIssues(), null,
-            e.toString()));
+        changeState(PreviewStatus.INVALID, new PreviewOutputImpl(PreviewStatus.INVALID, e.getIssues(), e));
       } else {
-        changeState(PreviewStatus.VALIDATION_ERROR, new PreviewOutputImpl(PreviewStatus.VALIDATION_ERROR, null, null,
-            e.toString()));
+        changeState(PreviewStatus.VALIDATION_ERROR, new PreviewOutputImpl(PreviewStatus.VALIDATION_ERROR, e));
         throw e;
       }
     } catch (PipelineStoreException e) {
-      changeState(PreviewStatus.VALIDATION_ERROR, new PreviewOutputImpl(PreviewStatus.VALIDATION_ERROR, null, null,
-          e.toString()));
+      changeState(PreviewStatus.VALIDATION_ERROR, new PreviewOutputImpl(PreviewStatus.VALIDATION_ERROR, e));
       throw e;
     } catch (Throwable e) {
       //Wrap stage exception in PipelineException
-      changeState(PreviewStatus.VALIDATION_ERROR, new PreviewOutputImpl(PreviewStatus.VALIDATION_ERROR, null, null,
-          e.toString()));
+      changeState(PreviewStatus.VALIDATION_ERROR, new PreviewOutputImpl(PreviewStatus.VALIDATION_ERROR, e));
       throw new PipelineException(PreviewError.PREVIEW_0003, e.toString(), e) ;
     } finally {
       PipelineEL.unsetConstantsInContext();
@@ -218,7 +237,7 @@ public class SyncPreviewer implements Previewer {
       previewPipeline = buildPreviewPipeline(batches, batchSize, stopStage, skipTargets, skipLifecycleEvents, testOrigin);
       PreviewPipelineOutput output = previewPipeline.run(stagesOverride);
       changeState(PreviewStatus.FINISHED, new PreviewOutputImpl(PreviewStatus.FINISHED, output.getIssues(),
-          output.getBatchesOutput(), null));
+          output.getBatchesOutput()));
     } catch (PipelineRuntimeException e) {
       if(timingOut) {
         LOG.debug("Ignoring exception during time out {}", e.toString(), e);
@@ -227,11 +246,9 @@ public class SyncPreviewer implements Previewer {
       //Preview Pipeline Builder validates configurations and throws PipelineRuntimeException with code CONTAINER_0165
       //for validation errors.
       if (e.getErrorCode() == ContainerError.CONTAINER_0165) {
-        changeState(PreviewStatus.INVALID, new PreviewOutputImpl(PreviewStatus.INVALID, e.getIssues(), null,
-            e.toString()));
+        changeState(PreviewStatus.INVALID, new PreviewOutputImpl(PreviewStatus.INVALID, e.getIssues(), e));
       } else {
-        changeState(PreviewStatus.RUN_ERROR, new PreviewOutputImpl(PreviewStatus.RUN_ERROR, e.getIssues(), null,
-            e.toString()));
+        changeState(PreviewStatus.RUN_ERROR, new PreviewOutputImpl(PreviewStatus.RUN_ERROR, e.getIssues(), e));
         throw e;
       }
     } catch (PipelineStoreException e) {
@@ -239,14 +256,14 @@ public class SyncPreviewer implements Previewer {
         LOG.debug("Ignoring exception during time out {}", e.toString(), e);
         return;
       }
-      changeState(PreviewStatus.RUN_ERROR, new PreviewOutputImpl(PreviewStatus.RUN_ERROR, null, null, e.toString()));
+      changeState(PreviewStatus.RUN_ERROR, new PreviewOutputImpl(PreviewStatus.RUN_ERROR, e));
       throw e;
     } catch (Throwable e) {
       if(timingOut) {
         LOG.debug("Ignoring exception during time out {}", e.toString(), e);
         return;
       }
-      changeState(PreviewStatus.RUN_ERROR, new PreviewOutputImpl(PreviewStatus.RUN_ERROR, null, null, e.toString()));
+      changeState(PreviewStatus.RUN_ERROR, new PreviewOutputImpl(PreviewStatus.RUN_ERROR, e));
       throw new PipelineException(PreviewError.PREVIEW_0003, e.toString(), e);
     } finally {
       if (previewPipeline != null) {
@@ -274,6 +291,17 @@ public class SyncPreviewer implements Previewer {
     }
     PipelineEL.unsetConstantsInContext();
     JobEL.unsetConstantsInContext();
+    runAfterActionsIfNecessary();
+  }
+
+  public void runAfterActionsIfNecessary() {
+    if (afterActionsFunction != null) {
+      // to make ErrorProne happy
+      final Object ignored = afterActionsFunction.apply(this);
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Return value from afterActionsFunction: {}", ignored);
+      }
+    }
   }
 
   public void prepareForTimeout() {
@@ -336,9 +364,9 @@ public class SyncPreviewer implements Previewer {
       boolean skipLifecycleEvents,
       boolean testOrigin
   ) throws PipelineException {
-    int maxBatchSize = configuration.get(MAX_BATCH_SIZE_KEY, MAX_BATCH_SIZE_DEFAULT);
+    int maxBatchSize = configuration.get(PreviewResource.MAX_BATCH_SIZE_KEY, PreviewResource.MAX_BATCH_SIZE_DEFAULT);
     batchSize = Math.min(maxBatchSize, batchSize);
-    int maxBatches = configuration.get(MAX_BATCHES_KEY, MAX_BATCHES_DEFAULT);
+    int maxBatches = configuration.get(PreviewResource.MAX_BATCHES_KEY, PreviewResource.MAX_BATCHES_DEFAULT);
     PipelineConfiguration pipelineConf = pipelineStore.load(name, rev);
     PipelineEL.setConstantsInContext(
         pipelineConf,
@@ -351,6 +379,7 @@ public class SyncPreviewer implements Previewer {
     PreviewPipelineRunner runner = new PreviewPipelineRunner(
         name,
         rev,
+        buildInfo,
         runtimeInfo,
         tracker,
         batchSize,
@@ -361,7 +390,9 @@ public class SyncPreviewer implements Previewer {
     );
     return new PreviewPipelineBuilder(
         stageLibrary,
+        buildInfo,
         configuration,
+        runtimeInfo,
         name,
         rev,
         pipelineConf,
@@ -369,7 +400,9 @@ public class SyncPreviewer implements Previewer {
         blobStoreTask,
         lineagePublisherTask,
         statsCollector,
-        testOrigin
+        testOrigin,
+        interceptorConfs,
+        connections
     ).build(userContext, runner);
   }
 

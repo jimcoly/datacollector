@@ -15,12 +15,12 @@
  */
 package com.streamsets.pipeline.stage.destination.kinesis;
 
-import com.streamsets.datacollector.config.AmazonEMRConfig;
+
 import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.impl.Utils;
 import com.streamsets.pipeline.config.upgrade.DataFormatUpgradeHelper;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
 import com.streamsets.pipeline.stage.lib.kinesis.KinesisBaseUpgrader;
 
 import java.util.List;
@@ -47,11 +47,18 @@ public class FirehoseTargetUpgrader extends KinesisBaseUpgrader {
         // fall through
       case 3:
         upgradeV3toV4(configs);
+        // fall through
+      case 4:
+        upgradeV4toV5(configs);
         break;
       default:
         throw new IllegalStateException(Utils.format("Unexpected fromVersion {}", fromVersion));
     }
     return configs;
+  }
+
+  private void upgradeV4toV5(List<Config> configs) {
+    updateCredentialMode(configs);
   }
 
   private static void upgradeV3toV4(List<Config> configs) {

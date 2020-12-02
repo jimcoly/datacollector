@@ -25,19 +25,21 @@ import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.base.configurablestage.DPushSource;
 
 @StageDef(
-    version = 2,
+    version = 7,
     label = "Kafka Multitopic Consumer",
     description = "Reads data from multiple topics of a Kafka Broker",
     execution = ExecutionMode.STANDALONE,
     icon = "kafka.png",
     recordsByRef = true,
     upgrader = MultiKafkaSourceUpgrader.class,
+    upgraderDef = "upgrader/MultiKafkaDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_ost_3n4_x1b"
 )
 @RawSource(rawSourcePreviewer = MultiKafkaRawSourcePreviewer.class,  mimeType = "*/*")
 @ConfigGroups(Groups.class)
 @GenerateResourceBundle
 public class MultiKafkaDSource extends DPushSource {
+
   @ConfigDefBean
   public MultiKafkaBeanConfig conf;
 

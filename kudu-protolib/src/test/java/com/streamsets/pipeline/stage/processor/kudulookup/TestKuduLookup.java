@@ -52,7 +52,10 @@ import static org.junit.Assert.assertThat;
     KuduTable.class,
     AsyncKuduSession.class,
     })
-@PowerMockIgnore({ "javax.net.ssl.*" })
+@PowerMockIgnore({
+    "javax.net.ssl.*",
+    "jdk.internal.reflect.*"
+})
 public class TestKuduLookup {
 
   private static final String KUDU_MASTER = "localhost:7051";
@@ -99,7 +102,7 @@ public class TestKuduLookup {
       List<Stage.ConfigIssue> issues = runner.runValidateConfigs();
       Assert.assertEquals(1, issues.size());
       Stage.ConfigIssue issue = issues.get(0);
-      assertThat(issue.toString(), Matchers.containsIgnoringCase(KuduException.class.getSimpleName()));
+      assertThat(issue.toString(), Matchers.containsIgnoringCase("KUDU_00"));
     } catch (StageException e) {
       Assert.fail("should not throw StageException");
     }
@@ -113,7 +116,7 @@ public class TestKuduLookup {
   @NotNull
   private KuduLookupProcessor getKuduLookupConfig(String tableName) {
     KuduLookupConfig conf = new KuduLookupConfig();
-    conf.kuduMaster = KUDU_MASTER;
+    conf.connection.kuduMaster = KUDU_MASTER;
     conf.kuduTableTemplate = tableName;
     conf.keyColumnMapping = new ArrayList<>();
     conf.keyColumnMapping.add(new KuduFieldMappingConfig("/key", "key"));

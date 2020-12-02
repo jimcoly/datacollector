@@ -26,11 +26,11 @@ import java.util.List;
 public abstract class HttpConfigs {
   private static final String PORT_CONFIG = "port";
 
-  private final String gropuName;
+  private final String groupName;
   private final String configPrefix;
 
-  public HttpConfigs(String gropuName, String configPrefix) {
-    this.gropuName = gropuName;
+  public HttpConfigs(String groupName, String configPrefix) {
+    this.groupName = groupName;
     this.configPrefix = configPrefix;
   }
 
@@ -38,7 +38,7 @@ public abstract class HttpConfigs {
 
   public abstract int getMaxConcurrentRequests();
 
-  public abstract CredentialValue getAppId();
+  public abstract List<? extends CredentialValue> getAppIds();
 
   public abstract int getMaxHttpRequestSizeKB();
 
@@ -48,14 +48,34 @@ public abstract class HttpConfigs {
 
   public abstract TlsConfigBean getTlsConfigBean();
 
+  public abstract boolean isApplicationIdEnabled();
+
   public boolean getNeedClientAuth() {
     return false;
+  }
+
+  public boolean useApiGateway() {
+    return false;
+  }
+
+  public String getGatewayServiceName() {
+    return null;
+  }
+
+  public boolean getNeedGatewayAuth() {
+    return false;
+  }
+
+  public String getGatewaySecret() {
+    return null;
   }
 
   public List<Stage.ConfigIssue> init(Stage.Context context) {
     List<Stage.ConfigIssue> issues = new ArrayList<>();
 
-    validatePort(context, issues);
+    if (!useApiGateway()) {
+      validatePort(context, issues);
+    }
 
     if (isTlsEnabled()) {
       validateSecurity(context, issues);
@@ -66,12 +86,12 @@ public abstract class HttpConfigs {
 
   void validatePort(Stage.Context context, List<Stage.ConfigIssue> issues) {
     if (getPort() < 1 || getPort() > 65535) {
-      issues.add(context.createConfigIssue(gropuName, configPrefix + PORT_CONFIG, HttpServerErrors.HTTP_SERVER_ORIG_00));
+      issues.add(context.createConfigIssue(groupName, configPrefix + PORT_CONFIG, HttpServerErrors.HTTP_SERVER_ORIG_00));
 
     } else {
       try (ServerSocket ss = new ServerSocket(getPort())) {
       } catch (Exception ex) {
-        issues.add(context.createConfigIssue(gropuName,
+        issues.add(context.createConfigIssue(groupName,
             configPrefix + PORT_CONFIG,
             HttpServerErrors.HTTP_SERVER_ORIG_01,
             ex.toString()

@@ -17,7 +17,6 @@ package com.streamsets.datacollector.execution.runner.common;
 
 import com.codahale.metrics.MetricRegistry;
 import com.streamsets.datacollector.blobstore.BlobStoreTask;
-import com.streamsets.datacollector.config.MemoryLimitConfiguration;
 import com.streamsets.datacollector.execution.Manager;
 import com.streamsets.datacollector.execution.PipelineStateStore;
 import com.streamsets.datacollector.execution.PipelineStatus;
@@ -25,13 +24,14 @@ import com.streamsets.datacollector.execution.Runner;
 import com.streamsets.datacollector.execution.manager.standalone.StandaloneAndClusterPipelineManager;
 import com.streamsets.datacollector.execution.runner.standalone.StandaloneRunner;
 import com.streamsets.datacollector.lineage.LineagePublisherTask;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.RuntimeModule;
 import com.streamsets.datacollector.record.RecordImpl;
 import com.streamsets.datacollector.runner.ErrorSink;
 import com.streamsets.datacollector.runner.MockStages;
 import com.streamsets.datacollector.runner.Pipeline;
-import com.streamsets.datacollector.runner.SourceResponseSink;
+import com.streamsets.datacollector.runner.SourceResponseSinkImpl;
 import com.streamsets.datacollector.runner.production.BadRecordsHandler;
 import com.streamsets.datacollector.usagestats.StatsCollector;
 import com.streamsets.datacollector.util.Configuration;
@@ -55,6 +55,7 @@ import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.powermock.api.mockito.PowerMockito;
 import org.powermock.api.support.membermodification.MemberMatcher;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
@@ -74,6 +75,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
     Pipeline.class,
     BadRecordsHandler.class
 })
+@PowerMockIgnore({
+    "jdk.internal.reflect.*"
+})
 public class TestErrorRecord {
   private static final String SOURCE_INSTANCE_NAME = "s";
   private static final String PROCESSOR_INSTANCE_NAME = "p";
@@ -86,6 +90,7 @@ public class TestErrorRecord {
   private Runner runner;
   private Manager manager;
   private RuntimeInfo runtimeInfo;
+  private BuildInfo buildInfo;
   private PipelineStateStore pipelineStateStore;
   private CountDownLatch latch;
 
@@ -104,6 +109,8 @@ public class TestErrorRecord {
     runtimeInfo = Mockito.mock(RuntimeInfo.class);
     Mockito.when(runtimeInfo.getId()).thenReturn("id");
     Mockito.when(runtimeInfo.getDataDir()).thenReturn(testDir.getAbsolutePath());
+    buildInfo = Mockito.mock(BuildInfo.class);
+    Mockito.when(buildInfo.getVersion()).thenReturn("3.17.0");
   }
 
   @After
@@ -190,13 +197,14 @@ public class TestErrorRecord {
         "0",
         null,
         new Configuration(),
+        buildInfo,
         runtimeInfo,
         new MetricRegistry(),
+        null,
         null,
         null
     );
     runner.setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE);
-    runner.setMemoryLimitConfiguration(new MemoryLimitConfiguration());
     runner.setObserveRequests(new ArrayBlockingQueue<>(100, true /*FIFO*/));
     runner.setOffsetTracker(new TestUtil.SourceOffsetTrackerImpl(Collections.singletonMap(Source.POLL_SOURCE_OFFSET_KEY, "1")));
     ProductionPipeline pipeline = new ProductionPipelineBuilder(
@@ -204,6 +212,7 @@ public class TestErrorRecord {
         "0",
         new Configuration(),
         runtimeInfo,
+        buildInfo,
         MockStages.createStageLibrary(),
         runner,
         null,
@@ -236,7 +245,7 @@ public class TestErrorRecord {
         String.class,
         String.class,
         ErrorSink.class,
-        SourceResponseSink.class
+        SourceResponseSinkImpl.class
     )).with((proxy, method, args) -> {
       ErrorSink errorSink = (ErrorSink) args[2];
       for (Map.Entry<String, List<Record>> entry : errorSink.getErrorRecords().entrySet()) {

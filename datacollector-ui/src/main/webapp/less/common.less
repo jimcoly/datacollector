@@ -384,6 +384,10 @@ body {
             width: 48px;
             margin-left: 10px;
           }
+
+          &.aster-registration {
+            margin-bottom: 0;
+          }
         }
       }
 
@@ -407,7 +411,7 @@ body {
     //min-width: 500px;
     padding: 0 @smallPadding;
     border-radius: 3px;
-    position: relative;
+    //position: relative;
     color: #555;
     overflow: hidden;
 
@@ -418,6 +422,10 @@ body {
     .CodeMirror-scroll {
       margin-bottom: -36px;
     }
+  }
+
+  .CodeMirror-fullscreen {
+    z-index: 3000;
   }
 
   .CodeMirror-hints {

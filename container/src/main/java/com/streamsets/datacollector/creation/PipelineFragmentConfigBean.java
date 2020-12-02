@@ -62,7 +62,16 @@ public static final int VERSION = 2;
       label = "测试算子",
       description = "用于在预览模式中提供测试数据.",
       defaultValue = PipelineConfigBean.RAW_DATA_ORIGIN,
-      displayPosition = 21
+      displayPosition = 21,
+      dependsOn = "executionMode",
+      triggeredByValue =  {
+          "STANDALONE",
+          "CLUSTER_BATCH",
+          "CLUSTER_YARN_STREAMING",
+          "CLUSTER_MESOS_STREAMING",
+          "EDGE",
+          "EMR_BATCH"
+      }
   )
   @ValueChooserModel(PipelineTestStageChooserValues.class)
   public String testOriginStage;

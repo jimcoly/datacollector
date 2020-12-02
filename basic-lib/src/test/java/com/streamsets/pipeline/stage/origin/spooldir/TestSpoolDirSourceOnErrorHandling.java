@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableMap;
 import com.streamsets.pipeline.api.OnRecordError;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.Source;
+import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.config.Compression;
 import com.streamsets.pipeline.config.CsvHeader;
 import com.streamsets.pipeline.config.CsvMode;
@@ -29,8 +30,8 @@ import com.streamsets.pipeline.config.OnParseError;
 import com.streamsets.pipeline.config.PostProcessingOptions;
 import com.streamsets.pipeline.lib.dirspooler.Offset;
 import com.streamsets.pipeline.lib.dirspooler.PathMatcherMode;
-import com.streamsets.pipeline.sdk.PushSourceRunner;
 import com.streamsets.pipeline.lib.dirspooler.SpoolDirConfigBean;
+import com.streamsets.pipeline.sdk.PushSourceRunner;
 import org.apache.commons.io.IOUtils;
 import org.junit.Assert;
 import org.junit.Ignore;
@@ -70,7 +71,7 @@ public class TestSpoolDirSourceOnErrorHandling {
     conf.spoolDir = dir;
     conf.batchSize = 10;
     conf.overrunLimit = 100;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].csv";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -135,6 +136,7 @@ public class TestSpoolDirSourceOnErrorHandling {
       Assert.assertEquals(0, runner.getErrorRecords().size());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -181,6 +183,7 @@ public class TestSpoolDirSourceOnErrorHandling {
       Assert.assertEquals(1, runner.getErrors().size());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -203,6 +206,7 @@ public class TestSpoolDirSourceOnErrorHandling {
       });
       runner.waitOnProduce();
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -223,7 +227,7 @@ public class TestSpoolDirSourceOnErrorHandling {
     conf.spoolDir = dir;
     conf.batchSize = 10;
     conf.overrunLimit = 100;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].json";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -264,7 +268,7 @@ public class TestSpoolDirSourceOnErrorHandling {
     conf.spoolDir = dir;
     conf.batchSize = 10;
     conf.overrunLimit = 100;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].csv";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -318,6 +322,7 @@ public class TestSpoolDirSourceOnErrorHandling {
       Assert.assertEquals(0, runner.getErrorRecords().size());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -362,11 +367,12 @@ public class TestSpoolDirSourceOnErrorHandling {
       Assert.assertEquals(0, runner.getErrors().size());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
 
-  //@Test(expected = StageException.class)
+  @Test
   public void testOnErrorPipelineIOEx() throws Exception {
     SpoolDirSource source = createSourceIOEx();
     PushSourceRunner runner = new PushSourceRunner.Builder(SpoolDirDSource.class, source).addOutputLane("lane")
@@ -376,14 +382,54 @@ public class TestSpoolDirSourceOnErrorHandling {
       runner.runProduce(ImmutableMap.of(Source.POLL_SOURCE_OFFSET_KEY, "file-0.json::0"), 10, output -> {
 
       });
+    } catch (Exception e){
+      Assert.assertTrue(e instanceof StageException);
+
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
 
+  private SpoolDirSource createSourceDelimitedExWithBatchSize(int batchSize) throws Exception {
+    String dir = createTestDir();
+    File file = new File(dir, "file-0.csv").getAbsoluteFile();
+    Writer writer = new FileWriter(file);
+    IOUtils.write("|header1|header2|\n", writer);
+    final int sizeOfRecords = 20;
+    for (int i = 0; i < sizeOfRecords; i++) {
+      IOUtils.write("|value" + i + "1|value" + i + "2|value" + i + "3|\n", writer);
+    }
+    writer.close();
+
+    SpoolDirConfigBean conf = new SpoolDirConfigBean();
+    conf.dataFormat = DataFormat.DELIMITED;
+
+    conf.dataFormatConfig.useCustomDelimiter = true;
+    conf.dataFormatConfig.csvFileFormat = CsvMode.CUSTOM;
+    conf.dataFormatConfig.csvHeader = CsvHeader.WITH_HEADER;
+    conf.spoolDir = dir;
+    conf.batchSize = batchSize;
+    conf.overrunLimit = 100;
+    conf.poolingTimeoutSecs = 10;
+    conf.filePattern = "file-[0-9].csv";
+    conf.pathMatcherMode = PathMatcherMode.GLOB;
+    conf.maxSpoolFiles = 10;
+    conf.initialFileToProcess = null;
+    conf.errorArchiveDir = null;
+    conf.postProcessing = PostProcessingOptions.ARCHIVE;
+    conf.archiveDir = dir;
+    conf.retentionTimeMins = 10;
+    conf.dataFormatConfig.onParseError = OnParseError.ERROR;
+    conf.dataFormatConfig.maxStackTraceLines = 0;
+
+    return new SpoolDirSource(conf);
+  }
+
   @Test
   public void testOnObjectLengthException() throws Exception {
-    SpoolDirSource source = createSourceDelimitedEx();
+    int batchSize = 1;
+    SpoolDirSource source = createSourceDelimitedExWithBatchSize(batchSize);
     PushSourceRunner runner = new PushSourceRunner.Builder(SpoolDirDSource.class, source).addOutputLane("lane")
         .setOnRecordError(OnRecordError.TO_ERROR).build();
     List<Record> records = Collections.synchronizedList(new ArrayList<>(10));
@@ -391,9 +437,8 @@ public class TestSpoolDirSourceOnErrorHandling {
     runner.runInit();
 
     try {
-      final int maxBatchSize = 1;
       Offset offset = new Offset("1", "file-0.csv", "0");
-      runner.runProduce(ImmutableMap.of(Source.POLL_SOURCE_OFFSET_KEY, offset.toString()), maxBatchSize, output -> {
+      runner.runProduce(ImmutableMap.of(Source.POLL_SOURCE_OFFSET_KEY, offset.toString()), 1000, output -> {
         synchronized (records) {
           records.addAll(output.getRecords().get("lane"));
         }
@@ -402,11 +447,12 @@ public class TestSpoolDirSourceOnErrorHandling {
       runner.waitOnProduce();
 
       Assert.assertEquals(0, records.size());
-      Assert.assertEquals(maxBatchSize, runner.getErrorRecords().size());
+      Assert.assertEquals(batchSize, runner.getErrorRecords().size());
       Assert.assertEquals(0, runner.getErrors().size());
     } catch (Exception ex) {
       ex.getStackTrace();
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }

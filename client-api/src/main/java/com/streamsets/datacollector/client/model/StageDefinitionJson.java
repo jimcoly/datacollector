@@ -22,7 +22,6 @@ import io.swagger.annotations.ApiModelProperty;
 import java.util.ArrayList;
 import java.util.List;
 
-
 // This class was originally generated, however it's now maintained manually
 @ApiModel(description = "")
 public class StageDefinitionJson   {
@@ -53,6 +52,8 @@ public class StageDefinitionJson   {
     SLAVE("SLAVE"),
     EDGE("EDGE"),
     EMR_BATCH("EMR_BATCH"),
+    BATCH("BATCH"),
+    STREAMING("STREAMING"),
     ;
 
     private final String value;
@@ -76,6 +77,7 @@ public class StageDefinitionJson   {
   private RawSourceDefinitionJson rawSourceDefinition = null;
   private Boolean errorStage = null;
   private Boolean statsAggregatorStage = null;
+  private Boolean connectionVerifierStage = null;
   private Boolean pipelineLifecycleStage = null;
   private Boolean offsetCommitTrigger = null;
   private Boolean variableOutputStreams = null;
@@ -99,6 +101,12 @@ public class StageDefinitionJson   {
   private String onlineHelpRefUrl = null;
   private Boolean sendsResponse = null;
   private Boolean beta = null;
+  private Integer inputStreams = null;
+  private String inputStreamLabelProviderClass = null;
+  private List<String> inputStreamLabels = null;
+  private List<String> eventDefs = new ArrayList<>();
+  private Boolean bisectable = false;
+  private String yamlUpgrader;
 
   /**
    **/
@@ -204,6 +212,17 @@ public class StageDefinitionJson   {
   }
   public void setStatsAggregatorStage(Boolean statsAggregatorStage) {
     this.statsAggregatorStage = statsAggregatorStage;
+  }
+
+  /**
+   **/
+  @ApiModelProperty(value = "")
+  @JsonProperty("connectionVerifierStage")
+  public Boolean getConnectionVerifierStage() {
+    return connectionVerifierStage;
+  }
+  public void setConnectionVerifierStage(Boolean connectionVerifierStage) {
+    this.connectionVerifierStage = connectionVerifierStage;
   }
 
   /**
@@ -473,4 +492,69 @@ public class StageDefinitionJson   {
   public void setBeta(Boolean beta) {
     this.beta = beta;
   }
+
+  /**
+   **/
+  @ApiModelProperty(value = "")
+  @JsonProperty("inputStreams")
+  public Integer getInputStreams() {
+    return inputStreams;
+  }
+  public void setInputStreams(Integer inputStreams) {
+    this.inputStreams = inputStreams;
+  }
+
+  /**
+   **/
+  @ApiModelProperty(value = "")
+  @JsonProperty("inputStreamLabelProviderClass")
+  public String getInputStreamLabelProviderClass() {
+    return inputStreamLabelProviderClass;
+  }
+  public void setInputStreamLabelProviderClass(String inputStreamLabelProviderClass) {
+    this.inputStreamLabelProviderClass = inputStreamLabelProviderClass;
+  }
+
+  /**
+   **/
+  @ApiModelProperty(value = "")
+  @JsonProperty("inputStreamLabels")
+  public List<String> getInputStreamLabels() {
+    return inputStreamLabels;
+  }
+  public void setInputStreamLabels(List<String> inputStreamLabels) {
+    this.inputStreamLabels = inputStreamLabels;
+  }
+
+  public List<String> getEventDefs() {
+    return eventDefs;
+  }
+  public void setEventDefs(List<String> eventDefs) {
+    this.eventDefs = eventDefs;
+  }
+
+
+  /**
+   **/
+  @ApiModelProperty(value = "")
+  @JsonProperty("bisectable")
+  public Boolean isBisectable() {
+    return bisectable;
+  }
+
+  public void setBisectable(Boolean bisectable) {
+    this.bisectable = bisectable;
+  }
+
+  @ApiModelProperty(value = "")
+  @JsonProperty("yamlUpgrader")
+  public String getYamlUpgrader() {
+    return yamlUpgrader;
+  }
+
+  public StageDefinitionJson setYamlUpgrader(String yamlUpgrader) {
+    this.yamlUpgrader = yamlUpgrader;
+    return this;
+  }
+
 }

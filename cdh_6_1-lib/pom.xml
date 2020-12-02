@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Copyright 2019 StreamSets Inc.
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.streamsets</groupId>
+        <artifactId>streamsets-datacollector-cdh_6-stagelib-base</artifactId>
+        <version>3.21.0-SNAPSHOT</version>
+        <relativePath>../cdh_6-stagelib-base</relativePath>
+    </parent>
+    <groupId>com.streamsets</groupId>
+    <artifactId>streamsets-datacollector-cdh_6_1-lib</artifactId>
+    <version>3.21.0-SNAPSHOT</version>
+    <description>StreamSets Data Collector CDH 6.1 Lib</description>
+    <name>StreamSets Data Collector CDH 6.1 Lib</name>
+    <packaging>jar</packaging>
+
+    <!--
+         This also needs the same stage libs from the CDH 5 streaming libs as both spark 2 and kafka are part of CDH now.
+    -->
+    <properties>
+        <avro.version>1.8.2-cdh6.1.1</avro.version>
+        <flume.version>1.8.0-cdh6.1.1</flume.version>
+        <hadoop.version>3.0.0-cdh6.1.1</hadoop.version>
+        <hbase.version>2.1.0-cdh6.1.1</hbase.version>
+        <hive.version>2.1.1-cdh6.1.1</hive.version>
+        <kudu.version>1.8.0-cdh6.1.1</kudu.version>
+        <solr.version>7.4.0-cdh6.1.1</solr.version>
+        <solr.test.jetty.version>9.3.20.v20170531</solr.test.jetty.version>
+        <spark.version>2.4.0-cdh6.1.1</spark.version>
+        <kafka.version>2.0.0-cdh6.1.1</kafka.version>
+        <confluent.version>5.0.3</confluent.version>
+
+        <thrift.version>0.9.3</thrift.version>
+        <netty.version>4.1.17.Final</netty.version>
+
+        <!-- Jackson version determined by Hive version above -->
+        <jackson.version>2.9.5</jackson.version>
+        <parquet.version>1.9.0-cdh6.1.1</parquet.version>
+
+        <!-- metrics version determined by spark-core_2.11 dependency -->
+        <metrics.version>3.1.5</metrics.version>
+
+        <scala.version>2.11.12</scala.version>
+        <zkclient.version>0.8</zkclient.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka_2.12</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.streamsets</groupId>
+            <artifactId>streamsets-datacollector-sdc-kafka-2_0</artifactId>
+        </dependency>
+    </dependencies>
+</project>

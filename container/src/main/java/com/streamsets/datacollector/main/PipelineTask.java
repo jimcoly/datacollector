@@ -16,9 +16,11 @@
 package com.streamsets.datacollector.main;
 
 import com.google.common.collect.ImmutableList;
+import com.streamsets.datacollector.antennadoctor.AntennaDoctor;
 import com.streamsets.datacollector.blobstore.BlobStoreTask;
 import com.streamsets.datacollector.bundles.SupportBundleManager;
 import com.streamsets.datacollector.credential.CredentialStoresTask;
+import com.streamsets.datacollector.aster.EntitlementSyncTask;
 import com.streamsets.datacollector.event.handler.EventHandlerTask;
 import com.streamsets.datacollector.execution.Manager;
 import com.streamsets.datacollector.http.DataCollectorWebServerTask;
@@ -41,6 +43,8 @@ public class PipelineTask extends CompositeTask {
   private final LineagePublisherTask lineagePublisherTask;
   private final SupportBundleManager supportBundleManager;
   private final CredentialStoresTask credentialStoresTask;
+  private final AntennaDoctor antennaDoctor;
+  private final EntitlementSyncTask entitlementSyncTask;
 
   @Inject
   public PipelineTask(
@@ -53,7 +57,9 @@ public class PipelineTask extends CompositeTask {
     SupportBundleManager supportBundleManager,
     BlobStoreTask blobStoreTask,
     CredentialStoresTask credentialStoresTask,
-    StatsCollector statsCollectorTask
+    StatsCollector statsCollectorTask,
+    AntennaDoctor antennaDoctor,
+    EntitlementSyncTask entitlementSyncTask
   ) {
     super(
       "pipelineNode",
@@ -67,7 +73,9 @@ public class PipelineTask extends CompositeTask {
             manager,
             eventHandlerTask,
             supportBundleManager,
-            statsCollectorTask
+            statsCollectorTask,
+            antennaDoctor,
+            entitlementSyncTask
         ),
       true);
     this.webServerTask = webServerTask;
@@ -78,6 +86,8 @@ public class PipelineTask extends CompositeTask {
     this.lineagePublisherTask = lineagePublisherTask;
     this.supportBundleManager = supportBundleManager;
     this.credentialStoresTask = credentialStoresTask;
+    this.antennaDoctor = antennaDoctor;
+    this.entitlementSyncTask = entitlementSyncTask;
   }
 
   public Manager getManager() {
@@ -104,5 +114,10 @@ public class PipelineTask extends CompositeTask {
   public CredentialStoresTask getCredentialStoresTask() {
     return credentialStoresTask;
   }
-
+  public AntennaDoctor getAntennaDoctor() {
+    return antennaDoctor;
+  }
+  public EntitlementSyncTask getEntitlementSyncTask() {
+    return entitlementSyncTask;
+  }
 }

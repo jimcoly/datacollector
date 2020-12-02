@@ -23,6 +23,7 @@ import com.streamsets.pipeline.api.ListBeanModel;
 import com.streamsets.pipeline.api.ProtoConfigurableEntity;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.ValueChooserModel;
+import com.streamsets.pipeline.api.credential.CredentialValue;
 import com.streamsets.pipeline.common.DataFormatConstants;
 import com.streamsets.pipeline.config.AvroSchemaLookupMode;
 import com.streamsets.pipeline.config.CharsetChooserValues;
@@ -52,6 +53,7 @@ import com.streamsets.pipeline.lib.el.DataUnitsEL;
 import com.streamsets.pipeline.lib.parser.DataParserFactory;
 import com.streamsets.pipeline.lib.parser.DataParserFactoryBuilder;
 import com.streamsets.pipeline.lib.parser.DataParserFormat;
+import com.streamsets.pipeline.lib.parser.excel.WorkbookParserConstants;
 import com.streamsets.pipeline.lib.parser.log.LogDataFormatValidator;
 import com.streamsets.pipeline.lib.parser.log.LogDataParserFactory;
 import com.streamsets.pipeline.lib.parser.log.RegExConfig;
@@ -76,6 +78,8 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -98,7 +102,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
   private static final String DEFAULT_LOG4J_CUSTOM_FORMAT = "%r [%t] %-5p %c %x - %m%n";
 
   private LogDataFormatValidator logDataFormatValidator;
-  private DataParserFactory parserFactory;
+  protected DataParserFactory parserFactory;
 
   /* Compression always shown immediately after Data Format */
 
@@ -113,6 +117,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       // Show for all except Avro, Datagram, Whole File
       triggeredByValue = {"TEXT", "JSON", "DELIMITED", "XML", "SDC_JSON", "LOG", "BINARY", "PROTOBUF"},
       displayPosition = 2,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT"
   )
   @ValueChooserModel(CompressionChooserValues.class)
@@ -126,6 +131,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
           "directory.",
       defaultValue = "*",
       displayPosition = 3,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "compression",
       triggeredByValue = {"ARCHIVE", "COMPRESSED_ARCHIVE"}
@@ -139,6 +145,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       defaultValue = "UTF-8",
       label = "Charset",
       displayPosition = 999,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = {"TEXT", "JSON", "DELIMITED", "XML", "LOG", "DATAGRAM"}
@@ -155,6 +162,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       dependsOn = "dataFormat^",
       triggeredByValue = {"TEXT", "JSON", "DELIMITED", "XML", "LOG", "DATAGRAM"},
       displayPosition = 1000,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT"
   )
   public boolean removeCtrlChars = false;
@@ -168,6 +176,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Max Line Length",
       description = "Longer lines are truncated",
       displayPosition = 340,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "TEXT",
@@ -183,6 +192,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Use Custom Delimiter",
       description = "Use custom delimiters to create records",
       displayPosition = 342,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "TEXT"
@@ -196,6 +206,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Custom Delimiter",
       description = "One or more characters. Leading and trailing spaces are stripped.",
       displayPosition = 344,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "useCustomDelimiter",
       triggeredByValue = "true"
@@ -209,6 +220,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Include Custom Delimiter",
       description = "Include custom delimiters in the data",
       displayPosition = 346,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "useCustomDelimiter",
       triggeredByValue = "true"
@@ -222,6 +234,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "JSON Content",
       description = "",
       displayPosition = 350,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "JSON"
@@ -236,6 +249,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Max Object Length (chars)",
       description = "Larger objects are not processed",
       displayPosition = 360,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "JSON",
@@ -251,6 +265,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Delimiter Format Type",
       description = "",
       displayPosition = 370,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "DELIMITED"
@@ -265,6 +280,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Header Line",
       description = "",
       displayPosition = 380,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "DELIMITED"
@@ -279,6 +295,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Allow Extra Columns",
       description = "When false, rows with more columns than the header are sent to error.",
       displayPosition = 385,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependencies = {
           @Dependency(configName = "dataFormat^", triggeredByValues = "DELIMITED"),
@@ -288,17 +305,18 @@ public class DataParserFormatConfig implements DataFormatConfig {
   public boolean csvAllowExtraColumns = false;
 
   @ConfigDef(
-    required = false,
-    type = ConfigDef.Type.STRING,
-    defaultValue = DelimitedDataConstants.DEFAULT_EXTRA_COLUMN_PREFIX,
-    label = "Extra Column Prefix",
-    description = "Each extra column is labeled with this prefix followed by an integer",
-    displayPosition = 386,
-    group = "DATA_FORMAT",
-    dependencies = {
-        @Dependency(configName = "dataFormat^", triggeredByValues = "DELIMITED"),
-        @Dependency(configName = "csvAllowExtraColumns", triggeredByValues = "true")
-    }
+      required = false,
+      type = ConfigDef.Type.STRING,
+      defaultValue = DelimitedDataConstants.DEFAULT_EXTRA_COLUMN_PREFIX,
+      label = "Extra Column Prefix",
+      description = "Each extra column is labeled with this prefix followed by an integer",
+      displayPosition = 386,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "DATA_FORMAT",
+      dependencies = {
+          @Dependency(configName = "dataFormat^", triggeredByValues = "DELIMITED"),
+          @Dependency(configName = "csvAllowExtraColumns", triggeredByValues = "true")
+      }
   )
   public String csvExtraColumnPrefix = DelimitedDataConstants.DEFAULT_EXTRA_COLUMN_PREFIX;
 
@@ -309,6 +327,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Max Record Length (chars)",
       description = "Larger objects are not processed",
       displayPosition = 390,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "DELIMITED",
@@ -323,6 +342,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       defaultValue = "|",
       label = "Delimiter Character",
       displayPosition = 400,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "csvFileFormat",
       triggeredByValue = "CUSTOM"
@@ -330,14 +350,48 @@ public class DataParserFormatConfig implements DataFormatConfig {
   public char csvCustomDelimiter = '|';
 
   @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.STRING,
+      defaultValue = DelimitedDataConstants.DEFAULT_MULTI_CHARACTER_FIELD_DELIMITER,
+      label = "Multi Character Field Delimiter",
+      description = "Delimiter between fields in multi-character delimited mode.",
+      displayPosition = 405,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT",
+      dependsOn = "csvFileFormat",
+      triggeredByValue = "MULTI_CHARACTER"
+  )
+  public String multiCharacterFieldDelimiter = DelimitedDataConstants.DEFAULT_MULTI_CHARACTER_FIELD_DELIMITER;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.STRING,
+      defaultValue = DelimitedDataConstants.DEFAULT_MULTI_CHARACTER_LINE_DELIMITER_EL,
+      label = "Multi Character Line Delimiter",
+      description = "Delimiter between lines (i.e. different records) in multi-character delimited mode.",
+      displayPosition = 406,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT",
+      dependsOn = "csvFileFormat",
+      triggeredByValue = "MULTI_CHARACTER"
+  )
+  public String multiCharacterLineDelimiter = String.format(
+      "${str:unescapeJava('%s')}",
+      DelimitedDataConstants.DEFAULT_MULTI_CHARACTER_LINE_DELIMITER_EL
+  );
+
+  @ConfigDef(
       required = false,
       type = ConfigDef.Type.CHARACTER,
       defaultValue = "\\",
       label = "Escape Character",
+      description = "Character used to escape quote and delimiter characters. To disable select Other and enter " +
+          "\\u0000 (unicode codepoint for the NULL character).",
       displayPosition = 410,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "csvFileFormat",
-      triggeredByValue = "CUSTOM"
+      triggeredByValue = {"CUSTOM", "MULTI_CHARACTER"}
   )
   public char csvCustomEscape = '\\';
 
@@ -346,10 +400,13 @@ public class DataParserFormatConfig implements DataFormatConfig {
       type = ConfigDef.Type.CHARACTER,
       defaultValue = "\"",
       label = "Quote Character",
+      description = "Character used to quote string fields. To disable select Other and enter" +
+          " \\u0000 (unicode codepoint for the NULL character).",
       displayPosition = 420,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "csvFileFormat",
-      triggeredByValue = "CUSTOM"
+      triggeredByValue = {"CUSTOM", "MULTI_CHARACTER"}
   )
   public char csvCustomQuote = '\"';
 
@@ -359,6 +416,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
     defaultValue = "false",
     label = "Enable comments",
     displayPosition = 425,
+      displayMode = ConfigDef.DisplayMode.BASIC,
     group = "DATA_FORMAT",
     dependsOn = "csvFileFormat",
     triggeredByValue = "CUSTOM"
@@ -366,27 +424,29 @@ public class DataParserFormatConfig implements DataFormatConfig {
   public boolean csvEnableComments = false;
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.CHARACTER,
-    defaultValue = "#",
-    label = "Comment marker",
-    displayPosition = 426,
-    group = "DATA_FORMAT",
-    dependsOn = "csvEnableComments",
-    triggeredByValue = "true"
+      required = true,
+      type = ConfigDef.Type.CHARACTER,
+      defaultValue = "#",
+      label = "Comment marker",
+      displayPosition = 426,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT",
+      dependsOn = "csvEnableComments",
+      triggeredByValue = "true"
   )
   public char csvCommentMarker;
 
   @ConfigDef(
-    required = false,
-    type = ConfigDef.Type.BOOLEAN,
-    defaultValue = "true",
-    label = "Ignore empty lines",
-    displayPosition = 427,
-    group = "DATA_FORMAT",
-    dependencies = {
-      @Dependency(configName = "csvFileFormat", triggeredByValues = {"CUSTOM"})
-    }
+      required = false,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "true",
+      label = "Ignore empty lines",
+      displayPosition = 427,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "DATA_FORMAT",
+      dependencies = {
+        @Dependency(configName = "csvFileFormat", triggeredByValues = {"CUSTOM"})
+      }
   )
   public boolean csvIgnoreEmptyLines = true;
 
@@ -397,6 +457,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Root Field Type",
       description = "",
       displayPosition = 430,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "DELIMITED"
@@ -411,6 +472,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Lines to Skip",
       description = "Number of lines to skip before reading",
       displayPosition = 435,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "DELIMITED",
@@ -425,6 +487,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Parse NULLs",
       description = "When checked, configured string constant will be converted into NULL field.",
       displayPosition = 436,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "DELIMITED"
@@ -438,6 +501,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "NULL constant",
       description = "String constant that should be converted to a NULL rather then passed as it is.",
       displayPosition = 437,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "parseNull",
       triggeredByValue = "true"
@@ -451,11 +515,26 @@ public class DataParserFormatConfig implements DataFormatConfig {
       defaultValue = "",
       description = Constants.XML_RECORD_ELEMENT_DESCRIPTION,
       displayPosition = 440,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "XML"
   )
   public String xmlRecordElement = "";
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.BOOLEAN,
+      label = "Preserve Root Element",
+      defaultValue = "true",
+      description = Constants.XML_PRESERVE_ROOT_ELEMENT,
+      displayPosition = 441,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "DATA_FORMAT",
+      dependsOn = "dataFormat^",
+      triggeredByValue = "XML"
+  )
+  public boolean preserveRootElement = true;
 
   @ConfigDef(
       required = true,
@@ -464,6 +543,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       defaultValue = ""+XmlDataParserFactory.INCLUDE_FIELD_XPATH_ATTRIBUTES_DEFAULT,
       description = Constants.INCLUDE_FIELD_XPATH_ATTRIBUTES_DESCRIPTION,
       displayPosition = 442,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "XML"
@@ -477,6 +557,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       description = Constants.XPATH_NAMESPACE_CONTEXT_DESCRIPTION,
       defaultValue = "{}",
       displayPosition = 445,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "XML"
@@ -490,6 +571,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       description = Constants.OUTPUT_FIELD_ATTRIBUTES_DESCRIPTION,
       defaultValue = ""+XmlDataParserFactory.USE_FIELD_ATTRIBUTES_DEFAULT,
       displayPosition = 448,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "XML"
@@ -503,6 +585,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Max Record Length (chars)",
       description = "Larger records are not processed",
       displayPosition = 450,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "XML",
@@ -520,6 +603,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Log Format",
       description = "",
       displayPosition = 460,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "LOG"
@@ -534,6 +618,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Max Line Length",
       description = "Longer lines are truncated",
       displayPosition = 470,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "LOG",
@@ -549,6 +634,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Retain Original Line",
       description = "Indicates if the original line of log should be retained in the record",
       displayPosition = 480,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "LOG"
@@ -563,6 +649,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Custom Log Format",
       description = "",
       displayPosition = 490,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "logMode",
       triggeredByValue = "APACHE_CUSTOM_LOG_FORMAT"
@@ -578,6 +665,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Regular Expression",
       description = "The regular expression which is used to parse the log line.",
       displayPosition = 500,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "logMode",
       triggeredByValue = "REGEX"
@@ -591,6 +679,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Field Path To RegEx Group Mapping",
       description = "Map groups in the regular expression to field paths",
       displayPosition = 510,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "logMode",
       triggeredByValue = "REGEX"
@@ -607,6 +696,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Grok Pattern Definition",
       description = "Define your own grok patterns which will be used to parse the logs",
       displayPosition = 520,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "logMode",
       triggeredByValue = "GROK",
@@ -621,6 +711,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Grok Pattern",
       description = "The grok pattern which is used to parse the log line",
       displayPosition = 530,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "logMode",
       triggeredByValue = "GROK"
@@ -636,6 +727,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "On Parse Error",
       description = "",
       displayPosition = 540,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "logMode",
       triggeredByValue = "LOG4J"
@@ -651,6 +743,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       description = "Any line that does not match the expected pattern will be treated as a Stack trace as long as it " +
           "is part of the same message. The stack trace will be trimmed to the specified number of lines.",
       displayPosition = 550,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "onParseError",
       triggeredByValue = "INCLUDE_AS_STACK_TRACE",
@@ -666,6 +759,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Use Custom Log Format",
       description = "",
       displayPosition = 560,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "logMode",
       triggeredByValue = "LOG4J"
@@ -680,6 +774,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Custom Log4J Format",
       description = "Specify your own custom log4j format.",
       displayPosition = 570,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "enableLog4jCustomLogFormat",
       triggeredByValue = "true"
@@ -694,6 +789,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Avro Schema Location",
       description = "Where to load the Avro Schema from.",
       displayPosition = 400,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "dataFormat^",
       triggeredByValue = "AVRO",
       group = "DATA_FORMAT"
@@ -708,6 +804,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       description = "Overrides the schema included in the data (if any). Optionally use the runtime:loadResource " +
           "function to use a schema stored in a file.",
       displayPosition = 410,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependencies = {
           @Dependency(configName = "dataFormat^", triggeredByValues = "AVRO"),
@@ -727,10 +824,25 @@ public class DataParserFormatConfig implements DataFormatConfig {
           @Dependency(configName = "avroSchemaSource", triggeredByValues = "REGISTRY")
       },
       displayPosition = 420,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT"
 
   )
   public List<String> schemaRegistryUrls = new ArrayList<>();
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.CREDENTIAL,
+      label = "Basic Auth User Info",
+      dependencies = {
+          @Dependency(configName = "dataFormat^", triggeredByValues = "AVRO"),
+          @Dependency(configName = "avroSchemaSource", triggeredByValues = "REGISTRY")
+      },
+      displayPosition = 421,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT"
+  )
+  public CredentialValue basicAuth = () -> "";
 
   @ConfigDef(
       required = true,
@@ -741,6 +853,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       dependsOn = "avroSchemaSource",
       triggeredByValue = "REGISTRY",
       displayPosition = 430,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT"
   )
   @ValueChooserModel(OriginAvroSchemaLookupModeChooserValues.class)
@@ -756,6 +869,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
           @Dependency(configName = "schemaLookupMode", triggeredByValues = "SUBJECT"),
       },
       displayPosition = 440,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT"
   )
   public String subject;
@@ -771,9 +885,27 @@ public class DataParserFormatConfig implements DataFormatConfig {
           @Dependency(configName = "schemaLookupMode", triggeredByValues = "ID"),
       },
       displayPosition = 450,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT"
   )
   public int schemaId;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      label = "Skip Union Indexes",
+      defaultValue = "false",
+      description = "When checked generated records will not contain header attributes identifying which part of a" +
+        " union was used to read data in. Data Collector does not use the header attributes directly, thus this can" +
+        " be selected safely unless the pipeline explicitly depends on them.",
+      dependencies = {
+          @Dependency(configName = "dataFormat^", triggeredByValues = "AVRO")
+      },
+      displayPosition = 460,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "DATA_FORMAT"
+  )
+  public boolean avroSkipUnionIndex = false;
 
   // PROTOBUF
 
@@ -784,6 +916,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Protobuf Descriptor File",
       description = "Protobuf Descriptor File (.desc) path relative to SDC resources directory",
       displayPosition = 600,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "PROTOBUF"
@@ -797,6 +930,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       description = "Fully Qualified Message Type name. Use format <packageName>.<messageTypeName>",
       label = "Message Type",
       displayPosition = 610,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "PROTOBUF"
@@ -811,6 +945,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       description = "Should be checked when the input data is prepended with the message size. When unchecked " +
           "only a single message can be present in the source file/Kafka message, etc.",
       displayPosition = 620,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "PROTOBUF"
@@ -826,6 +961,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Max Data Size (bytes)",
       description = "Larger objects are not processed",
       displayPosition = 700,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "BINARY",
@@ -843,6 +979,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
     defaultValue = "SYSLOG",
     group = "DATA_FORMAT",
     displayPosition = 800,
+      displayMode = ConfigDef.DisplayMode.BASIC,
     dependsOn = "dataFormat^",
     triggeredByValue = "DATAGRAM"
   )
@@ -850,52 +987,56 @@ public class DataParserFormatConfig implements DataFormatConfig {
   public DatagramMode datagramMode;
 
   @ConfigDef(
-    required = false,
-    type = ConfigDef.Type.STRING,
-    label = "TypesDB File Path",
-    description = "User-specified TypesDB file. Overrides the included version.",
-    displayPosition = 820,
-    group = "DATA_FORMAT",
-    dependsOn = "datagramMode",
-    triggeredByValue = "COLLECTD"
+      required = false,
+      type = ConfigDef.Type.STRING,
+      label = "TypesDB File Path",
+      description = "User-specified TypesDB file. Overrides the included version.",
+      displayPosition = 820,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT",
+      dependsOn = "datagramMode",
+      triggeredByValue = "COLLECTD"
   )
   public String typesDbPath;
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.BOOLEAN,
-    defaultValue = "false",
-    label = "Convert Hi-Res Time & Interval",
-    description = "Converts high resolution time format interval and timestamp to unix time in (ms).",
-    displayPosition = 830,
-    group = "DATA_FORMAT",
-    dependsOn = "datagramMode",
-    triggeredByValue = "COLLECTD"
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "Convert Hi-Res Time & Interval",
+      description = "Converts high resolution time format interval and timestamp to unix time in (ms).",
+      displayPosition = 830,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "DATA_FORMAT",
+      dependsOn = "datagramMode",
+      triggeredByValue = "COLLECTD"
   )
   public boolean convertTime;
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.BOOLEAN,
-    defaultValue = "true",
-    label = "Exclude Interval",
-    description = "Excludes the interval field from output records.",
-    displayPosition = 840,
-    group = "DATA_FORMAT",
-    dependsOn = "datagramMode",
-    triggeredByValue = "COLLECTD"
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "true",
+      label = "Exclude Interval",
+      description = "Excludes the interval field from output records.",
+      displayPosition = 840,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "DATA_FORMAT",
+      dependsOn = "datagramMode",
+      triggeredByValue = "COLLECTD"
   )
   public boolean excludeInterval;
 
   @ConfigDef(
-    required = false,
-    type = ConfigDef.Type.STRING,
-    label = "Auth File",
-    description = "",
-    displayPosition = 850,
-    group = "DATA_FORMAT",
-    dependsOn = "datagramMode",
-    triggeredByValue = "COLLECTD"
+      required = false,
+      type = ConfigDef.Type.STRING,
+      label = "Auth File",
+      description = "",
+      displayPosition = 850,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT",
+      dependsOn = "datagramMode",
+      triggeredByValue = "COLLECTD"
   )
   public String authFilePath;
 
@@ -907,6 +1048,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = NetflowDataParserFactory.OUTPUT_VALUES_MODE_LABEL,
       description = NetflowDataParserFactory.OUTPUT_VALUES_MODE_TOOLTIP,
       displayPosition = 870,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "NETFLOW"
@@ -921,6 +1063,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = NetflowDataParserFactory.MAX_TEMPLATE_CACHE_SIZE_LABEL,
       description = NetflowDataParserFactory.MAX_TEMPLATE_CACHE_SIZE_TOOLTIP,
       displayPosition = 880,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "NETFLOW"
@@ -934,6 +1077,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = NetflowDataParserFactory.TEMPLATE_CACHE_TIMEOUT_MS_LABEL,
       description = NetflowDataParserFactory.TEMPLATE_CACHE_TIMEOUT_MS_TOOLTIP,
       displayPosition = 890,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "NETFLOW"
@@ -949,6 +1093,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = NetflowDataParserFactory.OUTPUT_VALUES_MODE_LABEL,
       description = NetflowDataParserFactory.OUTPUT_VALUES_MODE_TOOLTIP,
       displayPosition = 870,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "datagramMode",
       triggeredByValue = "NETFLOW"
@@ -963,6 +1108,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = NetflowDataParserFactory.MAX_TEMPLATE_CACHE_SIZE_LABEL,
       description = NetflowDataParserFactory.MAX_TEMPLATE_CACHE_SIZE_TOOLTIP,
       displayPosition = 880,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "datagramMode",
       triggeredByValue = "NETFLOW"
@@ -976,6 +1122,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = NetflowDataParserFactory.TEMPLATE_CACHE_TIMEOUT_MS_LABEL,
       description = NetflowDataParserFactory.TEMPLATE_CACHE_TIMEOUT_MS_TOOLTIP,
       displayPosition = 890,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "datagramMode",
       triggeredByValue = "NETFLOW"
@@ -991,6 +1138,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Buffer Size (bytes)",
       description = "Size of the Buffer used to copy the file.",
       displayPosition = 900,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "WHOLE_FILE",
@@ -1008,6 +1156,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
       description = "Rate / sec to manipulate bandwidth requirements for File Transfer." +
           " Use <= 0 to opt out. Default unit is B/sec",
       displayPosition = 920,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "WHOLE_FILE",
@@ -1023,28 +1172,73 @@ public class DataParserFormatConfig implements DataFormatConfig {
       label = "Verify Checksum",
       description = "When checked verifies the checksum of the stream during read.",
       displayPosition = 1000,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT",
       dependsOn = "dataFormat^",
       triggeredByValue = "WHOLE_FILE"
   )
   public boolean verifyChecksum = false;
 
+  // EXCEL
   @ConfigDef(
-          required = true,
-          type = ConfigDef.Type.MODEL,
-          label = "Excel Header Option",
-          description = "Excel headers",
-          displayPosition = 1000,
-          group = "DATA_FORMAT",
-          dependsOn = "dataFormat^",
-          triggeredByValue = "EXCEL"
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      label = "Excel Header Option",
+      description = "Excel headers",
+      displayPosition = 1000,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT",
+      dependsOn = "dataFormat^",
+      triggeredByValue = "EXCEL"
   )
   @ValueChooserModel(ExcelHeaderChooserValues.class)
   public ExcelHeader excelHeader;
 
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "Skip Cells With No Header",
+      description = "If checked, cells that have no associated header value will be skipped.",
+      displayPosition = 1001,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT",
+      dependsOn = "excelHeader",
+      triggeredByValue = "WITH_HEADER"
+  )
+  public boolean excelSkipCellsWithNoHeader = false;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "true",
+      label = "Read All Sheets",
+      description = "Specifies whether all sheets from the document should be read.",
+      displayPosition = 1010,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT",
+      dependsOn = "dataFormat^",
+      triggeredByValue = "EXCEL"
+  )
+  public boolean excelReadAllSheets = true;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.LIST,
+      label = "Import Sheets",
+      description = "Names of the sheets that should be imported. Other sheets will be ignored.",
+      displayPosition = 1020,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "DATA_FORMAT",
+      dependsOn = "excelReadAllSheets",
+      triggeredByValue = "false"
+  )
+  public List<String> excelSheetNames = Collections.emptyList();
+
   // Size of StringBuilder pool maintained by Text and Log Data Parser Factories.
-  // The default value is 1 for regular origins. Multithreaded origins should override this value as required.
-  public int stringBuilderPoolSize = DataFormatConstants.STRING_BUILDER_POOL_SIZE;
+  // It is equal to the max number of runners in multi-threaded pipelines configured in sdc.properties,
+  // with a default value of 50.
+  public int stringBuilderPoolSize;
 
   @Override
   public boolean init(
@@ -1122,6 +1316,10 @@ public class DataParserFormatConfig implements DataFormatConfig {
       ));
       return false;
     }
+    stringBuilderPoolSize = context.getConfiguration().get(
+        DataFormatConstants.MAX_RUNNERS_CONFIG_KEY,
+        DataFormatConstants.DEFAULT_STRING_BUILDER_POOL_SIZE
+    );
     switch (dataFormat) {
       case JSON:
         valid = validateJson(context, configPrefix, issues);
@@ -1370,7 +1568,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
         customLogFormat,
         regex,
         grokPatternDefinition,
-        grokPattern,
+        Arrays.asList(grokPattern),
         enableLog4jCustomLogFormat,
         log4jCustomLogFormat,
         onParseError,
@@ -1421,30 +1619,9 @@ public class DataParserFormatConfig implements DataFormatConfig {
       boolean multiLines,
       List<Stage.ConfigIssue> issues
   ) {
-    boolean valid = true;
-    DataParserFactoryBuilder builder = new DataParserFactoryBuilder(context, dataFormat.getParserFormat());
-    Charset fileCharset;
 
-    try {
-      fileCharset = Charset.forName(charset);
-    } catch (UnsupportedCharsetException ignored) { // NOSONAR
-      // setting it to a valid one so the parser factory can be configured and tested for more errors
-      fileCharset = StandardCharsets.UTF_8;
-      issues.add(
-          context.createConfigIssue(
-              stageGroup,
-              configPrefix + "charset",
-              DataFormatErrors.DATA_FORMAT_05,
-              charset
-          )
-      );
-      valid = false;
-    }
-    builder.setCharset(fileCharset);
-    builder.setOverRunLimit(overrunLimit);
-    builder.setRemoveCtrlChars(removeCtrlChars);
-    builder.setCompression(compression);
-    builder.setFilePatternInArchive(filePatternInArchive);
+    DataParserFactoryBuilder builder = new DataParserFactoryBuilder(context, dataFormat.getParserFormat());
+    boolean valid = isValid(context, stageGroup, configPrefix, overrunLimit, issues, builder);
 
     switch (dataFormat) {
       case TEXT:
@@ -1460,7 +1637,8 @@ public class DataParserFormatConfig implements DataFormatConfig {
         builder.setMaxDataLen(xmlMaxObjectLen).setConfig(XmlDataParserFactory.RECORD_ELEMENT_KEY, xmlRecordElement)
             .setConfig(XmlDataParserFactory.INCLUDE_FIELD_XPATH_ATTRIBUTES_KEY, includeFieldXpathAttributes)
             .setConfig(XmlDataParserFactory.RECORD_ELEMENT_XPATH_NAMESPACES_KEY, xPathNamespaceContext)
-            .setConfig(XmlDataParserFactory.USE_FIELD_ATTRIBUTES, outputFieldAttributes);
+            .setConfig(XmlDataParserFactory.USE_FIELD_ATTRIBUTES, outputFieldAttributes)
+            .setConfig(XmlDataParserFactory.PRESERVE_ROOT_ELEMENT_KEY, preserveRootElement);
         break;
       case SDC_JSON:
         builder.setMaxDataLen(-1);
@@ -1506,12 +1684,46 @@ public class DataParserFormatConfig implements DataFormatConfig {
     return valid;
   }
 
+  protected boolean isValid(
+      ProtoConfigurableEntity.Context context,
+      String stageGroup,
+      String configPrefix,
+      int overrunLimit,
+      List<Stage.ConfigIssue> issues,
+      DataParserFactoryBuilder builder
+  ) {
+    boolean valid = true;
+    Charset fileCharset;
+
+    try {
+      fileCharset = Charset.forName(charset);
+    } catch (UnsupportedCharsetException ignored) { // NOSONAR
+      // setting it to a valid one so the parser factory can be configured and tested for more errors
+      fileCharset = StandardCharsets.UTF_8;
+      issues.add(context.createConfigIssue(
+          stageGroup,
+          configPrefix + "charset",
+          DataFormatErrors.DATA_FORMAT_05,
+          charset)
+      );
+      valid = false;
+    }
+    builder.setCharset(fileCharset);
+    builder.setOverRunLimit(overrunLimit);
+    builder.setRemoveCtrlChars(removeCtrlChars);
+    builder.setCompression(compression);
+    builder.setFilePatternInArchive(filePatternInArchive);
+    return valid;
+  }
+
   private void buildAvroParser(DataParserFactoryBuilder builder) {
     builder
         .setMaxDataLen(-1)
         .setConfig(SCHEMA_KEY, avroSchema)
         .setConfig(SCHEMA_SOURCE_KEY, avroSchemaSource)
-        .setConfig(SCHEMA_REPO_URLS_KEY, schemaRegistryUrls);
+        .setConfig(SCHEMA_REPO_URLS_KEY, schemaRegistryUrls)
+        .setConfig(SCHEMA_SKIP_AVRO_INDEXES, avroSkipUnionIndex)
+        .setConfig(BASIC_AUTH_USER_INFO, basicAuth.get());
     if (schemaLookupMode == AvroSchemaLookupMode.SUBJECT) {
       // Subject used for looking up schema
       builder.setConfig(SUBJECT_KEY, subject);
@@ -1537,7 +1749,13 @@ public class DataParserFormatConfig implements DataFormatConfig {
         .setConfig(DelimitedDataConstants.IGNORE_EMPTY_LINES_CONFIG, csvIgnoreEmptyLines)
         .setConfig(DelimitedDataConstants.ALLOW_EXTRA_COLUMNS, csvAllowExtraColumns)
         .setConfig(DelimitedDataConstants.EXTRA_COLUMN_PREFIX, csvExtraColumnPrefix)
-    ;
+        .setConfig(
+            DelimitedDataConstants.MULTI_CHARACTER_FIELD_DELIMITER_CONFIG,
+            multiCharacterFieldDelimiter
+        ).setConfig(
+            DelimitedDataConstants.MULTI_CHARACTER_LINE_DELIMITER_CONFIG,
+            multiCharacterLineDelimiter
+        );
   }
 
   private void buildProtobufParser(DataParserFactoryBuilder builder) {
@@ -1586,6 +1804,7 @@ public class DataParserFormatConfig implements DataFormatConfig {
 
   private void buildNetflowParser(DataParserFactoryBuilder builder) {
     builder
+        .setMaxDataLen(-1)
         .setConfig(NetflowDataParserFactory.OUTPUT_VALUES_MODE_KEY, netflowOutputValuesMode)
         .setConfig(NetflowDataParserFactory.MAX_TEMPLATE_CACHE_SIZE_KEY, maxTemplateCacheSize)
         .setConfig(NetflowDataParserFactory.TEMPLATE_CACHE_TIMEOUT_MS_KEY, templateCacheTimeoutMs);
@@ -1593,6 +1812,8 @@ public class DataParserFormatConfig implements DataFormatConfig {
 
   private void buildWorkbookParser(DataParserFactoryBuilder builder) {
     builder
+        .setConfig(WorkbookParserConstants.SHEETS, excelReadAllSheets ? Collections.emptyList() : excelSheetNames)
+        .setConfig(WorkbookParserConstants.SKIP_CELLS_WITH_NO_HEADER, excelSkipCellsWithNoHeader)
         .setMode(excelHeader)
         .setMaxDataLen(-1);
   }

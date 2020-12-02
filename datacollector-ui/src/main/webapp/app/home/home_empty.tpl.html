@@ -1,4 +1,4 @@
-<div class="home-empty-container" ng-class="{'show': loaded}" ng-show="totalPipelinesCount == 0">
+<div class="home-empty-container" ng-class="{'show': loaded}" ng-show="(common.isDPMEnabled || common.activationInfo.info.expiration !== 0) && totalPipelinesCount == 0">
   <div class="error-alert-div">
     <ng-include ng-if="common.errors" src="'app/home/alerts/error/errorModal.tpl.html'"></ng-include>
     <ng-include ng-if="common.errors" src="'app/home/alerts/error/errorAlert.tpl.html'"></ng-include>
@@ -56,35 +56,45 @@
 
   <div class="bottom-container">
     <div class="center-container">
-      <ng-include src="'edgeHelpTemplate'"></ng-include>
-      <ng-include src="'microServiceHelpTemplate'"></ng-include>
+      <ng-include src="'introHelpTemplate'"></ng-include>
+      <ng-include src="'samplePipelinesHelpTemplate'"></ng-include>
       <ng-include src="'controlHubHelpTemplate'"></ng-include>
     </div>
   </div>
 
 </div>
 
-<script type="text/ng-template" id="edgeHelpTemplate">
+<script type="text/ng-template" id="introHelpTemplate">
   <div class="help-panel">
     <div class="help-panel-container">
-      <span class="help-panel-title">Edge </span>
-
-      <span class="glyphicon glyphicon-plus-sign pull-right help-panel-title-btn"
-            ng-click="addPipelineConfig('DATA_COLLECTOR_EDGE')"
-            title="Create New Edge Pipeline"></span>
+      <span class="help-panel-title">Introduction </span>
 
       <div class="help-panel-body">
-        <p>Ultralight data ingestion at the edge</p>
-        <ul>
-          <li>Enables at-scale data ingestion and analytics for IoT and cybersecurity edge systems</li>
-          <li>Limited Memory, CPU and Connectivity</li>
-          <li>One Solution Across Platforms and Protocols</li>
-        </ul>
+        <p>Learn how to build a pipeline.</p>
+        <a href="https://streamsets.wistia.com/medias/qfy6qnfnvf" target="_blank" rel="noopener">
+          <img class="intro-video" src="assets/intro-video.png" alt="Watch introduction video" />
+        </a>
       </div>
 
     </div>
-    <div class="bottom-btn" ng-click="common.openEdgeTutorialPage()">
-      <span>Data Collector Edge Tutorial</span>
+    <a class="bottom-btn" href="https://streamsets.wistia.com/medias/qfy6qnfnvf" target="_blank" rel="noopener">
+      <span>Watch the Tutorial</span>
+    </a>
+  </div>
+</script>
+
+<script type="text/ng-template" id="samplePipelinesHelpTemplate">
+  <div class="help-panel">
+    <div class="help-panel-container">
+      <span class="help-panel-title">Sample Pipelines </span>
+
+      <div class="help-panel-body">
+        <p>Try out sample pipelines to see what StreamSets Data Collector can do. Explore simple pipelines designed for
+          new users or advanced pipelines designed for more experienced users.</p>
+      </div>
+    </div>
+    <div class="bottom-btn" ng-click="common.viewSamplePipelines()">
+      <span>Sample Pipelines Library</span>
     </div>
   </div>
 </script>
@@ -97,8 +107,8 @@
             ng-click="addPipelineConfig('MICROSERVICE')"
             title="Create New Microservice Pipeline"></span>
       <div class="help-panel-body">
-        <p>A new type of dataflow pipeline for implementing RESTful web services natively in Data Collector.</p>
-        <p>Microservice pipelines use a REST Service origin, similar to the HTTP Server origin, to listen for requests.</p>
+        <p>A dataflow pipeline for implementing fine-grained services natively in Data Collector.</p>
+        <p>Microservice pipelines use microservice origins, like REST Service or Kafka Consumer, to listen for requests and pass responses from microservice destinations back to the origin system.</p>
       </div>
     </div>
     <div class="bottom-btn" ng-click="common.openMicroserviceTutorialPage()">

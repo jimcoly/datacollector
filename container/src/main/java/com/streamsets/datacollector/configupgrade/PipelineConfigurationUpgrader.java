@@ -25,10 +25,12 @@ import com.streamsets.datacollector.config.StageDefinition;
 import com.streamsets.datacollector.creation.PipelineBeanCreator;
 import com.streamsets.datacollector.creation.PipelineConfigBean;
 import com.streamsets.datacollector.creation.PipelineConfigUpgrader;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.datacollector.store.PipelineStoreTask;
 import com.streamsets.datacollector.util.ContainerError;
 import com.streamsets.datacollector.util.PipelineConfigurationUtil;
+import com.streamsets.datacollector.util.Version;
 import com.streamsets.datacollector.validation.Issue;
 import com.streamsets.datacollector.validation.IssueCreator;
 import com.streamsets.datacollector.validation.PipelineConfigurationValidator;
@@ -37,6 +39,7 @@ import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.StageUpgrader;
 import com.streamsets.pipeline.api.impl.Utils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,12 +72,34 @@ public class PipelineConfigurationUpgrader {
    */
   public PipelineConfiguration upgradeIfNecessary(
       StageLibraryTask library,
+      BuildInfo buildInfo,
       PipelineConfiguration pipelineConf,
       List<Issue> issues
   ) {
     Preconditions.checkArgument(issues.isEmpty(), "Given list of issues must be empty.");
-    boolean upgrade;
 
+    // Check that this pipeline wasn't created by a higher version
+    // SDC version was only added in 3.7.0 to the pipeline bean, so for really ancient pipelines, this field wouldn't
+    // exists. But that is actually fine for purpose of this check - those old pipelines are always created on SDC
+    // version lower then this one.
+    if(!StringUtils.isEmpty(pipelineConf.getInfo().getSdcVersion())) {
+      Version createdVersion = new Version(pipelineConf.getInfo().getSdcVersion());
+      if (createdVersion.isGreaterThan(buildInfo.getVersion())) {
+        LOG.error("Validation failed: {} vs {}", pipelineConf.getInfo().getSdcVersion(), buildInfo.getVersion());
+        IssueCreator issueCreator = IssueCreator.getPipeline();
+        issues.add(issueCreator.create(
+            ValidationError.VALIDATION_0096,
+            pipelineConf.getInfo().getSdcVersion(),
+            buildInfo.getVersion()
+        ));
+
+        // In case that the version is higher then the one we can work with, we don't upgrade the rest (too many
+        // unrelated errors would be displayed in that case).
+        return null;
+      }
+    }
+
+    boolean upgrade;
     // Firstly upgrading schema if needed, then data
     upgrade = needsSchemaUpgrade(pipelineConf, issues);
     if(upgrade && issues.isEmpty()) {
@@ -89,9 +114,15 @@ public class PipelineConfigurationUpgrader {
     // Upgrading data if needed
     upgrade = needsUpgrade(library, pipelineConf, issues);
     if (upgrade && issues.isEmpty()) {
-      //we try to upgrade only if we have all defs for the pipelineConf
+      // we try to upgrade only if we have all defs for the pipelineConf
       pipelineConf = upgrade(library, pipelineConf, issues);
     }
+
+    // And lastly update the SDC version (since the pipeline was just changed)
+    if(issues.isEmpty()) {
+      pipelineConf.getInfo().setSdcVersion(buildInfo.getVersion());
+    }
+
     return (issues.isEmpty()) ? pipelineConf : null;
   }
 
@@ -173,8 +204,12 @@ public class PipelineConfigurationUpgrader {
     // Added new attributes:
     // * statEventStages
     // * stopEventStages
-    pipelineConf.setStartEventStages(Collections.emptyList());
-    pipelineConf.setStopEventStages(Collections.emptyList());
+    if(pipelineConf.getStartEventStages() == null) {
+      pipelineConf.setStartEventStages(Collections.emptyList());
+    }
+    if(pipelineConf.getStopEventStages() == null) {
+      pipelineConf.setStopEventStages(Collections.emptyList());
+    }
   }
 
   private void upgradeSchema4to5(PipelineConfiguration pipelineConf, List<Issue> issues) {
@@ -294,6 +329,23 @@ public class PipelineConfigurationUpgrader {
       upgrade |= needsUpgrade(library, errorStageConf, issues);
     }
 
+    // Pipeline start and stop events
+    if(pipelineConf.getStartEventStages() != null) {
+      for(StageConfiguration conf : pipelineConf.getStartEventStages()) {
+        upgrade |= needsUpgrade(library, conf, issues);
+      }
+    }
+    if(pipelineConf.getStopEventStages() != null) {
+      for(StageConfiguration conf : pipelineConf.getStopEventStages()) {
+        upgrade |= needsUpgrade(library, conf, issues);
+      }
+    }
+
+    // Test origin
+    if(pipelineConf.getTestOriginStage() != null) {
+      upgrade |= needsUpgrade(library, pipelineConf.getTestOriginStage(), issues);
+    }
+
     // pipeline stages confs
     for (StageConfiguration conf : pipelineConf.getStages()) {
       upgrade |= needsUpgrade(library, conf, issues);
@@ -309,11 +361,18 @@ public class PipelineConfigurationUpgrader {
   static boolean needsUpgrade(StageLibraryTask library, StageDefinition def, StageConfiguration conf, List<Issue> issues) {
     boolean upgrade = false;
     if (def == null) {
-      issues.add(IssueCreator.getStage(conf.getInstanceName()).create(
+      if(library.getLegacyStageLibs().contains(conf.getLibrary())) {
+        issues.add(IssueCreator.getStage(conf.getInstanceName()).create(
+          ContainerError.CONTAINER_0905,
+          conf.getLibrary()
+        ));
+      } else {
+        issues.add(IssueCreator.getStage(conf.getInstanceName()).create(
           ContainerError.CONTAINER_0901,
           conf.getLibrary(),
           conf.getStageName()
-      ));
+        ));
+      }
     } else {
       // Go over services first
       for(ServiceConfiguration serviceConf: conf.getServices()) {
@@ -412,6 +471,27 @@ public class PipelineConfigurationUpgrader {
       errorStageConf = upgradeIfNeeded(library, errorStageConf, ownIssues);
     }
 
+    // Pipeline start and stop events
+    List<StageConfiguration> startEventStages = new ArrayList<>();
+    if(pipelineConf.getStartEventStages() != null) {
+      for(StageConfiguration conf : pipelineConf.getStartEventStages()) {
+        StageConfiguration upgradedConf = upgradeIfNeeded(library, conf, ownIssues);
+        startEventStages.add(upgradedConf);
+      }
+    }
+    List<StageConfiguration> stopEventStages = new ArrayList<>();
+    if(pipelineConf.getStopEventStages() != null) {
+      for(StageConfiguration conf : pipelineConf.getStopEventStages()) {
+        StageConfiguration upgradedConf = upgradeIfNeeded(library, conf, ownIssues);
+        stopEventStages.add(upgradedConf);
+      }
+    }
+
+    // Test origin
+    StageConfiguration testOrigin = pipelineConf.getTestOriginStage();
+    if(testOrigin != null) {
+      testOrigin = upgradeIfNeeded(library, testOrigin, ownIssues);
+    }
     // upgrade stages;
     for (StageConfiguration stageConf : pipelineConf.getStages()) {
       stageConf = upgradeIfNeeded(library, stageConf, issues);
@@ -422,17 +502,41 @@ public class PipelineConfigurationUpgrader {
 
     // if ownIssues > 0 we had an issue upgrading, we wont touch the pipelineConf and return null
     if (ownIssues.isEmpty()) {
-      pipelineConf.setConfiguration(pipelineConfs.getConfiguration());
-      pipelineConf.setVersion(pipelineConfs.getStageVersion());
       pipelineConf.setErrorStage(errorStageConf);
       pipelineConf.setStatsAggregatorStage(statsAggregatorStageConf);
+      pipelineConf.setStartEventStages(startEventStages);
+      pipelineConf.setStopEventStages(stopEventStages);
+      pipelineConf.setTestOriginStage(testOrigin);
       pipelineConf.setStages(stageConfs);
+
+      if(errorStageConf != null) {
+        pipelineConfs.addConfig(new Config("badRecordsHandling", stageToUISelect(errorStageConf)));
+      }
+      if(statsAggregatorStageConf != null) {
+        pipelineConfs.addConfig(new Config("statsAggregatorStage", stageToUISelect(statsAggregatorStageConf)));
+      }
+      if(startEventStages.size() == 1) {
+        pipelineConfs.addConfig(new Config("startEventStage", stageToUISelect(startEventStages.get(0))));
+      }
+      if(stopEventStages.size() == 1) {
+        pipelineConfs.addConfig(new Config("stopEventStage", stageToUISelect(stopEventStages.get(0))));
+      }
+      if(testOrigin != null) {
+        pipelineConfs.addConfig(new Config("testOriginStage", stageToUISelect(testOrigin)));
+      }
+
+      pipelineConf.setConfiguration(pipelineConfs.getConfiguration());
+      pipelineConf.setVersion(pipelineConfs.getStageVersion());
     } else {
       issues.addAll(ownIssues);
       pipelineConf = null;
     }
 
     return pipelineConf;
+  }
+
+  static String stageToUISelect(StageConfiguration stageConf) {
+    return stageConf.getLibrary() + "::" + stageConf.getStageName() + "::" + stageConf.getStageVersion();
   }
 
   /**
@@ -561,7 +665,7 @@ public class PipelineConfigurationUpgrader {
     ClassLoader cl = Thread.currentThread().getContextClassLoader();
     try {
       Thread.currentThread().setContextClassLoader(def.getStageClassLoader());
-      LOG.warn("Upgrading stage instance '{}' from version '{}' to version '{}'", conf.getInstanceName(), fromVersion, toVersion);
+      LOG.info("Upgrading stage '{}' instance '{}' from version '{}' to version '{}'", conf.getStageName(), conf.getInstanceName(), fromVersion, toVersion);
 
       UpgradeContext upgradeContext = new UpgradeContext(
           def.getLibrary(),

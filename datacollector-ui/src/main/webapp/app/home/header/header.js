@@ -21,7 +21,7 @@ angular
   .module('dataCollectorApp.home')
   .controller('HeaderController', function (
     $scope, $rootScope, $timeout, _, api, $translate, $location, authService, pipelineService, pipelineConstant,
-    $modal, $q, $route
+    $modal, $q, $route, pipelineTracking, tracking, trackingEvent
   ) {
 
     var pipelineValidationInProgress;
@@ -73,6 +73,7 @@ angular
        * Validate Pipeline
        */
       validatePipeline: function() {
+        pipelineTracking.trackValidationSelected($scope.pipelineConfig);
         $scope.trackEvent(pipelineConstant.BUTTON_CATEGORY, pipelineConstant.CLICK_ACTION, 'Validate Pipeline', 1);
         $scope.$storage.maximizeDetailPane = false;
         $scope.$storage.minimizeDetailPane = false;
@@ -109,12 +110,14 @@ angular
                 $rootScope.common.successList.push({
                   message: pipelineValidationSuccess
                 });
+                pipelineTracking.trackValidationComplete($scope.pipelineConfig, true);
               } else {
                 if (previewData.issues) {
                   $rootScope.common.errors = [previewData.issues];
                 } else if (previewData.message) {
                   $rootScope.common.errors = [previewData.message];
                 }
+                pipelineTracking.trackValidationComplete($scope.pipelineConfig, false, previewData);
               }
             });
 
@@ -135,6 +138,7 @@ angular
        */
       startPipeline: function() {
         $scope.trackEvent(pipelineConstant.BUTTON_CATEGORY, pipelineConstant.CLICK_ACTION, 'Start Pipeline', 1);
+        pipelineTracking.trackRunSelected($scope.pipelineConfig, false);
         if ($rootScope.common.pipelineStatusMap[$scope.activeConfigInfo.pipelineId].status !== 'RUNNING') {
           $scope.$storage.maximizeDetailPane = false;
           $scope.$storage.minimizeDetailPane = false;
@@ -151,6 +155,8 @@ angular
               if (!currentStatus || (res.data && currentStatus.timeStamp < res.data.timeStamp)) {
                 $rootScope.common.pipelineStatusMap[$scope.activeConfigInfo.pipelineId] = res.data;
               }
+              $rootScope.common.previousInputRecordCount[$scope.activeConfigInfo.pipelineId] = 0;
+              $rootScope.common.previousBatchCount[$scope.activeConfigInfo.pipelineId] = 0;
 
               $timeout(function() {
                 $scope.refreshGraph();
@@ -175,6 +181,7 @@ angular
        */
       startPipelineWithParameters: function() {
         $scope.trackEvent(pipelineConstant.BUTTON_CATEGORY, pipelineConstant.CLICK_ACTION, 'Start Pipeline', 1);
+        pipelineTracking.trackRunSelected($scope.pipelineConfig, true);
         if ($rootScope.common.pipelineStatusMap[$scope.activeConfigInfo.pipelineId].status !== 'RUNNING') {
           $scope.$storage.maximizeDetailPane = false;
           $scope.$storage.minimizeDetailPane = false;
@@ -234,23 +241,28 @@ angular
             },
             forceStop: function() {
               return forceStop;
+            },
+            pipelineConfig: function() {
+              return $scope.pipelineConfig;
             }
           }
         });
 
         modalInstance.result.then(function(status) {
+          var pipelineId = $scope.activeConfigInfo.pipelineId;
+
           $scope.clearTabSelectionCache();
           $scope.selectPipelineConfig();
 
-          var currentStatus = $rootScope.common.pipelineStatusMap[$scope.activeConfigInfo.pipelineId];
+          var currentStatus = $rootScope.common.pipelineStatusMap[pipelineId];
           if (!currentStatus || (status && currentStatus.timeStamp < status.timeStamp)) {
-            $rootScope.common.pipelineStatusMap[$scope.activeConfigInfo.pipelineId] = status;
+            $rootScope.common.pipelineStatusMap[pipelineId] = status;
           }
 
-          var alerts = $rootScope.common.alertsMap[$scope.activeConfigInfo.pipelineId];
+          var alerts = $rootScope.common.alertsMap[pipelineId];
 
           if (alerts) {
-            delete $rootScope.common.alertsMap[$scope.activeConfigInfo.pipelineId];
+            delete $rootScope.common.alertsMap[pipelineId];
             $rootScope.common.alertsTotalCount -= alerts.length;
           }
 
@@ -324,6 +336,51 @@ angular
       },
 
       /**
+       * Reset Offset & start pipeline
+       */
+      resetOffsetAndStart: function() {
+        $scope.trackEvent(pipelineConstant.BUTTON_CATEGORY, pipelineConstant.CLICK_ACTION, 'Reset Offset & Start', 1);
+
+        var originStageInstance = $scope.stageInstances[0];
+        var originStageDef = _.find($scope.stageLibraries, function (stageDef) {
+          return stageDef.name === originStageInstance.stageName;
+        });
+
+        var modalInstance = $modal.open({
+          templateUrl: 'app/home/resetOffsetAndStart/resetOffsetAndStart.tpl.html',
+          controller: 'ResetOffsetAndStartModalInstanceController',
+          size: '',
+          backdrop: 'static',
+          resolve: {
+            pipelineInfo: function () {
+              return $scope.activeConfigInfo;
+            },
+            originStageDef: function() {
+              return originStageDef;
+            }
+          }
+        });
+
+        modalInstance.result.then(function(res) {
+          $rootScope.common.errors = [];
+          $scope.clearTabSelectionCache();
+          $scope.selectPipelineConfig();
+
+          var currentStatus = $rootScope.common.pipelineStatusMap[$scope.activeConfigInfo.pipelineId];
+          if (!currentStatus || (res.data && currentStatus.timeStamp < res.data.timeStamp)) {
+            $rootScope.common.pipelineStatusMap[$scope.activeConfigInfo.pipelineId] = res.data;
+          }
+
+          $timeout(function() {
+            $scope.refreshGraph();
+          });
+          $scope.startMonitoring();
+        }, function () {
+
+        });
+      },
+
+      /**
        * Delete Selected Stage Instance/Stream
        */
       deleteSelection: function() {
@@ -373,13 +430,21 @@ angular
        * Duplicate Pipeline Configuration
        */
       duplicatePipelineConfig: function(pipelineInfo, $event) {
-        $scope.trackEvent(pipelineConstant.BUTTON_CATEGORY, pipelineConstant.CLICK_ACTION, 'Duplicate Pipeline', 1);
-        pipelineService.duplicatePipelineConfigCommand(pipelineInfo, $event)
+        if ($scope.isSamplePipeline) {
+          tracking.mixpanel.track(trackingEvent.SAMPLE_PIPELINE_DUPLICATED, {
+            'Sample Pipeline ID': pipelineInfo.pipelineId,
+            'Sample Pipeline Title': pipelineInfo.title
+          });
+        } else {
+          $scope.trackEvent(pipelineConstant.BUTTON_CATEGORY, pipelineConstant.CLICK_ACTION, 'Duplicate Pipeline', 1);
+        }
+
+        pipelineService.duplicatePipelineConfigCommand(pipelineInfo, $event, $scope.isSamplePipeline)
           .then(function(newPipelineConfig) {
             if (!angular.isArray(newPipelineConfig)) {
-              $location.path('/collector/pipeline/' + newPipelineConfig.info.pipelineId);
+              $location.search({}).path('/collector/pipeline/' + newPipelineConfig.info.pipelineId);
             } else {
-              $location.path('/collector/pipeline/' + newPipelineConfig[0].info.pipelineId);
+              $location.search({}).path('/collector/pipeline/' + newPipelineConfig[0].info.pipelineId);
             }
           });
       },
@@ -395,9 +460,9 @@ angular
       /**
        * Export link command handler
        */
-      exportPipelineConfig: function(pipelineInfo, includeDefinitions, $event) {
+      exportPipelineConfig: function(pipelineInfo, includeDefinitions, includePlainTextCredentials, $event) {
         $scope.trackEvent(pipelineConstant.BUTTON_CATEGORY, pipelineConstant.CLICK_ACTION, 'Export Pipeline', 1);
-        api.pipelineAgent.exportPipelineConfig(pipelineInfo.pipelineId, includeDefinitions);
+        api.pipelineAgent.exportPipelineConfig(pipelineInfo.pipelineId, includeDefinitions, includePlainTextCredentials);
       },
 
       publishPipeline: function (pipelineInfo, $event) {

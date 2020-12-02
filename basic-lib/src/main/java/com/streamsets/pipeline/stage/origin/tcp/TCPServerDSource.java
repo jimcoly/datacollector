@@ -26,19 +26,22 @@ import com.streamsets.pipeline.api.base.configurablestage.DPushSource;
 import com.streamsets.pipeline.api.impl.Utils;
 
 @StageDef(
-    version = 3,
+    version = 5,
     label = "TCP Server",
     description = "Listens for TCP messages on one or more ports",
     icon = "ethernet_multithreaded.png",
     execution = ExecutionMode.STANDALONE,
     recordsByRef = true,
     upgrader = TCPServerSourceUpgrader.class,
+    upgraderDef = "upgrader/TCPServerDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_w2y_yb1_4z"
 )
 
 @ConfigGroups(Groups.class)
 @HideConfigs({
+    "conf.tlsConfigBean.useRemoteTrustStore",
     "conf.tlsConfigBean.trustStoreFilePath",
+    "conf.tlsConfigBean.trustedCertificates",
     "conf.tlsConfigBean.trustStoreType",
     "conf.tlsConfigBean.trustStorePassword",
     "conf.tlsConfigBean.trustStoreAlgorithm"

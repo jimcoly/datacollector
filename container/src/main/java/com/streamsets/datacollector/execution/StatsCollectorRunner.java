@@ -17,6 +17,7 @@ package com.streamsets.datacollector.execution;
 
 import com.streamsets.datacollector.callback.CallbackInfo;
 import com.streamsets.datacollector.callback.CallbackObjectType;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.execution.alerts.AlertInfo;
 import com.streamsets.datacollector.execution.runner.common.PipelineRunnerException;
@@ -28,12 +29,16 @@ import com.streamsets.datacollector.util.PipelineException;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.impl.ErrorMessage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 public class StatsCollectorRunner implements Runner {
+  private static final Logger LOG = LoggerFactory.getLogger(StatsCollectorRunner.class);
+
   private final Runner runner;
   private final StatsCollector statsCollector;
 
@@ -57,13 +62,18 @@ public class StatsCollectorRunner implements Runner {
   }
 
   @Override
+  public Map<String, ConnectionConfiguration> getConnections() {
+    return runner.getConnections();
+  }
+
+  @Override
   public String getPipelineTitle() throws PipelineException {
     return runner.getPipelineTitle();
   }
 
   @Override
-  public PipelineConfiguration getPipelineConfiguration() throws PipelineException {
-    return runner.getPipelineConfiguration();
+  public PipelineConfiguration getPipelineConfiguration(String user) throws PipelineException {
+    return runner.getPipelineConfiguration(user);
   }
 
   @Override
@@ -94,25 +104,41 @@ public class StatsCollectorRunner implements Runner {
   @Override
   public void onDataCollectorStart(String user) throws PipelineException, StageException {
     runner.onDataCollectorStart(user);
-    statsCollector.startPipeline(getPipelineConfiguration());
+    try {
+      statsCollector.startPipeline(getPipelineConfiguration(user));
+    } catch (PipelineException e) {
+      LOG.error("Can't start anonymous stats collection for pipeline.");
+    }
   }
 
   @Override
   public void onDataCollectorStop(String user) throws PipelineException {
     runner.onDataCollectorStop(user);
-    statsCollector.stopPipeline(getPipelineConfiguration());
+    try {
+      statsCollector.stopPipeline(getPipelineConfiguration(user));
+    } catch (PipelineException e) {
+      LOG.error("Can't stop anonymous stats collection for pipeline.");
+    }
   }
 
   @Override
   public void stop(String user) throws PipelineException {
     runner.stop(user);
-    statsCollector.stopPipeline(getPipelineConfiguration());
+    try {
+      statsCollector.stopPipeline(getPipelineConfiguration(user));
+    } catch (PipelineException e) {
+      LOG.error("Can't stop anonymous stats collection for pipeline.");
+    }
   }
 
   @Override
   public void forceQuit(String user) throws PipelineException {
     runner.forceQuit(user);
-    statsCollector.stopPipeline(getPipelineConfiguration());
+    try {
+      statsCollector.stopPipeline(getPipelineConfiguration(user));
+    } catch (PipelineException e) {
+      LOG.error("Can't force stop anonymous stats collection for pipeline.");
+    }
   }
 
   @Override
@@ -128,7 +154,11 @@ public class StatsCollectorRunner implements Runner {
   @Override
   public void start(StartPipelineContext context) throws PipelineException, StageException {
     runner.start(context);
-    statsCollector.startPipeline(getPipelineConfiguration());
+    try {
+      statsCollector.startPipeline(getPipelineConfiguration(context.getUser()));
+    } catch (PipelineException e) {
+      LOG.error("Can't start anonymous stats collection for pipeline.");
+    }
   }
 
   @Override
@@ -140,7 +170,11 @@ public class StatsCollectorRunner implements Runner {
       int batchSize
   ) throws PipelineException, StageException {
     runner.startAndCaptureSnapshot(context, snapshotName, snapshotLabel, batches, batchSize);
-    statsCollector.startPipeline(getPipelineConfiguration());
+    try {
+      statsCollector.startPipeline(getPipelineConfiguration(context.getUser()));
+    } catch (PipelineException e) {
+      LOG.error("Can't start anonymous stats collection for pipeline.");
+    }
   }
 
   @Override
@@ -228,13 +262,8 @@ public class StatsCollectorRunner implements Runner {
   }
 
   @Override
-  public void updateSlaveCallbackInfo(CallbackInfo callbackInfo) {
-    runner.updateSlaveCallbackInfo(callbackInfo);
-  }
-
-  @Override
-  public Map getUpdateInfo() {
-    return runner.getUpdateInfo();
+  public Map<String, Object> updateSlaveCallbackInfo(CallbackInfo callbackInfo) {
+    return runner.updateSlaveCallbackInfo(callbackInfo);
   }
 
   @Override

@@ -18,11 +18,14 @@ package com.streamsets.datacollector.http;
 import com.codahale.metrics.MetricRegistry;
 import com.streamsets.datacollector.activation.NopActivation;
 import com.streamsets.datacollector.http.TestWebServerTaskHttpHttps.PingServlet;
-import com.streamsets.datacollector.main.DataCollectorBuildInfo;
+import com.streamsets.datacollector.main.ProductBuildInfo;
 import com.streamsets.datacollector.main.FileUserGroupManager;
 import com.streamsets.datacollector.main.RuntimeModule;
 import com.streamsets.datacollector.main.SlaveRuntimeInfo;
+import com.streamsets.datacollector.security.usermgnt.TrxUsersManager;
+import com.streamsets.datacollector.security.usermgnt.UsersManager;
 import com.streamsets.datacollector.util.Configuration;
+import com.streamsets.pipeline.BootstrapMain;
 import org.apache.commons.io.IOUtils;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
@@ -34,8 +37,10 @@ import org.junit.Test;
 import javax.net.ssl.HttpsURLConnection;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.io.Writer;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Collections;
@@ -67,14 +72,19 @@ public class SlaveWebServerTaskIT {
         context.addServlet(new ServletHolder(new PingServlet()), "/public-rest/v1/ping");
       }
     });
+    File file = new File("target", UUID.randomUUID().toString());
+    try (Writer writer = new FileWriter(file)) {
+    }
+    UsersManager usersManager = new TrxUsersManager(file);
     return new SlaveWebServerTask(
-        new DataCollectorBuildInfo(),
+        ProductBuildInfo.getDefault(),
         runtimeInfo,
         conf,
         new NopActivation(),
         configurators,
         webAppProviders,
-        new FileUserGroupManager()
+        new FileUserGroupManager(usersManager),
+        null
     );
   }
 

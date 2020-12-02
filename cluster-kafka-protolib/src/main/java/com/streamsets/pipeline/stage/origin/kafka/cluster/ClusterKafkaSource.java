@@ -69,6 +69,7 @@ public class ClusterKafkaSource extends BaseKafkaSource implements OffsetCommitt
     for (Map.Entry  messageAndPartition : offsetAndResult.getResult()) {
       messageId = String.format("kafka::%s::%d", conf.topic, offset);
       List<Record> records = processKafkaMessageDefault(
+          messageAndPartition.getKey(),
           new String((byte[]) messageAndPartition.getKey()),
           offset,
           messageId,
@@ -150,10 +151,11 @@ public class ClusterKafkaSource extends BaseKafkaSource implements OffsetCommitt
       ));
 
       // MapR Streams Origin doesn't have broker list and zookeeper connect
-      if (conf.metadataBrokerList != null) {
+      if (conf.connectionConfig.connection.metadataBrokerList != null) {
         configBeanPrefixedMap.put(
             KAFKA_CONFIG_BEAN_PREFIX + BROKER_LIST,
-            conf.metadataBrokerList);
+            conf.connectionConfig.connection.metadataBrokerList
+        );
       }
       if (conf.zookeeperConnect != null) {
         configBeanPrefixedMap.put(

@@ -24,9 +24,12 @@ import com.streamsets.pipeline.lib.parser.DataParserException;
 import com.streamsets.pipeline.lib.parser.RecoverableDataParserException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.ss.usermodel.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -36,12 +39,11 @@ import java.util.Set;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import static com.streamsets.pipeline.config.ExcelHeader.NO_HEADER;
-import static com.streamsets.pipeline.config.ExcelHeader.WITH_HEADER;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
 public class WorkbookParser extends AbstractDataParser {
+  private static Logger LOG = LoggerFactory.getLogger(WorkbookParser.class);
 
   private final WorkbookParserSettings settings;
   private final Context context;
@@ -81,17 +83,29 @@ public class WorkbookParser extends AbstractDataParser {
       for (int s=0; s<workbook.getNumberOfSheets(); s++) {
         sheet = workbook.getSheetAt(s);
         sheetName = sheet.getSheetName();
+
+        if(!settings.getSheets().isEmpty() && !settings.getSheets().contains(sheetName)) {
+          LOG.debug("Skipping sheet '{}'", sheetName);
+          continue;
+        }
+
+        // In case that the given sheet is completely empty, we assume no headers, but continue processing
+        if(!sheet.rowIterator().hasNext()) {
+          headers.put(sheetName, Collections.emptyList());
+          continue;
+        }
+
         hdrRow = sheet.rowIterator().next();
         List<Field> sheetHeaders = new ArrayList<>();
         // if the table happens to have blank columns in front of it, loop through and artificially add those as headers
         // This helps in the matching of headers to data later as the indexes will line up properly.
         for (int columnNum=0; columnNum < hdrRow.getFirstCellNum(); columnNum++) {
-          sheetHeaders.add(Field.create(""));
+          sheetHeaders.add(null);
         }
         for (int columnNum = hdrRow.getFirstCellNum(); columnNum < hdrRow.getLastCellNum(); columnNum++) {
-          Cell cell = hdrRow.getCell(columnNum);
+          Cell cell = hdrRow.getCell(columnNum, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
           try {
-            sheetHeaders.add(Cells.parseCell(cell, this.evaluator));
+            sheetHeaders.add(cell == null ? null : Cells.parseCell(cell, this.evaluator));
           } catch (ExcelUnsupportedCellTypeException e) {
             throw new DataParserException(Errors.EXCEL_PARSER_05, cell.getCellTypeEnum());
           }
@@ -141,7 +155,7 @@ public class WorkbookParser extends AbstractDataParser {
     Row currentRow = rowIterator.next();
 
     // skip over rows that have cells but all cells are of BLANK celltype.
-    while (rowIsBlank(currentRow)) {
+    while (shouldSkipRow(currentRow)) {
       if (rowIterator.hasNext()) {
         currentRow = rowIterator.next();
       }
@@ -157,7 +171,12 @@ public class WorkbookParser extends AbstractDataParser {
       this.currentSheet = currentRow.getSheet().getSheetName();
       // if header is expected, then jump over this row
       if (settings.getHeader() == ExcelHeader.WITH_HEADER || settings.getHeader() == ExcelHeader.IGNORE_HEADER) {
-        currentRow = rowIterator.next();  // move to the next row to parse as data
+        if(rowIterator.hasNext()) {
+          currentRow = rowIterator.next();  // move to the next row to parse as data
+        } else {
+          eof = true;
+          return null;
+        }
       }
     }
 
@@ -178,8 +197,18 @@ public class WorkbookParser extends AbstractDataParser {
     workbook.close();
   }
 
-  private boolean rowIsBlank(Row row) {
-    // returns true if a row has cells but all cells are 'BLANK' type.
+  /**
+   * Return true if the current row should be skipped for any reason.
+   */
+  private boolean shouldSkipRow(Row row) {
+    // If we're running a mode that doesn't read all the sheets, skip all rows from the 'wrong' sheets
+    if(!settings.getSheets().isEmpty()) {
+      if(!settings.getSheets().contains(row.getSheet().getSheetName())) {
+        return true;
+      }
+    }
+
+    // Lastly skip all rows that are completely empty (BLANK cell type is everywhere)
     boolean isBlank = true;
     for (int columnNum = row.getFirstCellNum(); columnNum < row.getLastCellNum(); columnNum++) {
       Cell c = row.getCell(columnNum);
@@ -198,8 +227,13 @@ public class WorkbookParser extends AbstractDataParser {
       if (headers.isEmpty()) {
         columnHeader = String.valueOf(columnNum);
       } else {
-        if (columnNum >= headers.get(sheetName).size()) {
-          columnHeader = String.valueOf(columnNum);   // no header for this column.  mismatch
+        if (columnNum >= headers.get(sheetName).size() || headers.get(sheetName).get(columnNum) == null) {
+          // The current cell doesn't hae any associated header, which we conditionally skip
+          if(settings.shouldSkipCellsWithNoHeader()) {
+            continue;
+          }
+
+          columnHeader = String.valueOf(columnNum);
         } else {
           columnHeader = headers.get(sheetName).get(columnNum).getValueAsString();
         }

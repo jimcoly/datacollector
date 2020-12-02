@@ -19,6 +19,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.RemovalListener;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
+import com.streamsets.datacollector.event.dto.PipelineStartEvent;
 import com.streamsets.datacollector.event.handler.remote.RemoteDataCollector;
 import com.streamsets.datacollector.execution.EventListenerManager;
 import com.streamsets.datacollector.execution.Manager;
@@ -30,6 +32,7 @@ import com.streamsets.datacollector.execution.Previewer;
 import com.streamsets.datacollector.execution.PreviewerListener;
 import com.streamsets.datacollector.execution.Runner;
 import com.streamsets.datacollector.execution.StateEventListener;
+import com.streamsets.datacollector.execution.StatsCollectorPreviewer;
 import com.streamsets.datacollector.execution.StatsCollectorRunner;
 import com.streamsets.datacollector.execution.manager.PipelineManagerException;
 import com.streamsets.datacollector.execution.manager.PreviewerProvider;
@@ -38,6 +41,7 @@ import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.metrics.MetricsCache;
 import com.streamsets.datacollector.metrics.MetricsConfigurator;
 import com.streamsets.datacollector.security.GroupsInScope;
+import com.streamsets.datacollector.security.kafka.KafkaKerberosUtil;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.datacollector.store.PipelineInfo;
 import com.streamsets.datacollector.store.PipelineStoreException;
@@ -59,16 +63,32 @@ import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
 import javax.inject.Named;
+import java.io.IOException;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 public class StandaloneAndClusterPipelineManager extends AbstractTask implements Manager, PreviewerListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(StandaloneAndClusterPipelineManager.class);
   private static final String PIPELINE_MANAGER = "PipelineManager";
+
+  @VisibleForTesting
+  static final Set<PosixFilePermission> GLOBAL_ALL_PERM = PosixFilePermissions.fromString(
+      "rwxrwxrwx"
+  );
+
+  @VisibleForTesting
+  static final Set<PosixFilePermission> USER_ONLY_PERM = PosixFilePermissions.fromString(
+      "rwx------"
+  );
 
   private final ObjectGraph objectGraph;
 
@@ -77,8 +97,6 @@ public class StandaloneAndClusterPipelineManager extends AbstractTask implements
   @Inject PipelineStoreTask pipelineStore;
   @Inject PipelineStateStore pipelineStateStore;
   @Inject StageLibraryTask stageLibrary;
-  @Inject @Named("previewExecutor") SafeScheduledExecutorService previewExecutor;
-  @Inject @Named("runnerExecutor") SafeScheduledExecutorService runnerExecutor;
   @Inject @Named("managerExecutor") SafeScheduledExecutorService managerExecutor;
   @Inject RunnerProvider runnerProvider;
   @Inject PreviewerProvider previewerProvider;
@@ -88,16 +106,19 @@ public class StandaloneAndClusterPipelineManager extends AbstractTask implements
 
   private Cache<String, RunnerInfo> runnerCache;
   private Cache<String, Previewer> previewerCache;
-  static final long DEFAULT_RUNNER_EXPIRY_INTERVAL = 60*60*1000;
+  static final long DEFAULT_RUNNER_EXPIRY_INTERVAL = 5*60*1000;
   static final String RUNNER_EXPIRY_INTERVAL = "runner.expiry.interval";
-  static final long DEFAULT_RUNNER_EXPIRY_INITIAL_DELAY = 30*60*1000;
+  static final long DEFAULT_RUNNER_EXPIRY_INITIAL_DELAY = 5*60*1000;
   static final String RUNNER_EXPIRY_INITIAL_DELAY = "runner.expiry.initial.delay";
   static final boolean DEFAULT_RUNNER_RESTART_PIPELINES = true;
   static final String RUNNER_RESTART_PIPELINES = "runner.boot.pipeline.restart";
   private final long runnerExpiryInterval;
   private final long runnerExpiryInitialDelay;
   private ScheduledFuture<?> runnerExpiryFuture;
+  private ScheduledFuture<?> previewCleanerFuture;
   private static final String NAME_AND_REV_SEPARATOR = "::";
+
+  private final KafkaKerberosUtil kafkaKerberosUtil;
 
   public StandaloneAndClusterPipelineManager(ObjectGraph objectGraph) {
     super(PIPELINE_MANAGER);
@@ -107,6 +128,7 @@ public class StandaloneAndClusterPipelineManager extends AbstractTask implements
     runnerExpiryInitialDelay = configuration.get(RUNNER_EXPIRY_INITIAL_DELAY, DEFAULT_RUNNER_EXPIRY_INITIAL_DELAY);
     eventListenerManager.addStateEventListener(resourceManager);
     MetricsConfigurator.registerJmxMetrics(runtimeInfo.getMetrics());
+    kafkaKerberosUtil = new KafkaKerberosUtil(configuration);
   }
 
   @Override
@@ -115,11 +137,30 @@ public class StandaloneAndClusterPipelineManager extends AbstractTask implements
   }
 
   @Override
-  public Previewer createPreviewer(String user, String name, String rev) throws PipelineException {
+  public Previewer createPreviewer(
+      String user,
+      String name,
+      String rev,
+      List<PipelineStartEvent.InterceptorConfiguration> interceptorConfs,
+      Function<Object, Void> afterActionsFunction,
+      boolean remote,
+      Map<String, ConnectionConfiguration> connections
+  ) throws PipelineException {
     if (!pipelineStore.hasPipeline(name)) {
       throw new PipelineStoreException(ContainerError.CONTAINER_0200, name);
     }
-    Previewer previewer = previewerProvider.createPreviewer(user, name, rev, this, objectGraph);
+    Previewer previewer = previewerProvider.createPreviewer(
+        user,
+        name,
+        rev,
+        this,
+        objectGraph,
+        interceptorConfs,
+        afterActionsFunction,
+        remote,
+        connections
+    );
+    previewer = new StatsCollectorPreviewer(previewer, statsCollector);
     previewerCache.put(previewer.getId(), previewer);
     return previewer;
   }
@@ -183,13 +224,15 @@ public class StandaloneAndClusterPipelineManager extends AbstractTask implements
     for (PipelineInfo pipelineInfo : pipelineInfoList) {
       String name = pipelineInfo.getPipelineId();
       String rev = pipelineInfo.getLastRev();
-      PipelineState pipelineState = pipelineStateStore.getState(name, rev);
-      Utils.checkState(pipelineState != null, Utils.format("State for pipeline: '{}::{}' doesn't exist", name, rev));
-      pipelineStateList.add(pipelineState);
+      try {
+        PipelineState pipelineState = pipelineStateStore.getState(name, rev);
+        pipelineStateList.add(pipelineState);
+      } catch (Exception e) {
+        LOG.error(Utils.format("State file not found for pipeline {}", name), e);
+      }
     }
     return pipelineStateList;
   }
-
 
   @Override
   public PipelineState getPipelineState(String name, String rev) throws PipelineStoreException {
@@ -211,12 +254,33 @@ public class StandaloneAndClusterPipelineManager extends AbstractTask implements
       runtimeInfo.getMetrics(),
       "manager-previewer-cache",
         CacheBuilder.newBuilder()
-          .expireAfterAccess(30, TimeUnit.MINUTES).removalListener((RemovalListener<String, Previewer>) removal -> {
+          .expireAfterAccess(5, TimeUnit.MINUTES).removalListener((RemovalListener<String, Previewer>) removal -> {
             Previewer previewer = removal.getValue();
-            LOG.warn("Evicting idle previewer '{}::{}'::'{}' in status '{}'",
-              previewer.getName(), previewer.getRev(), previewer.getId(), previewer.getStatus());
+            LOG.warn(
+                "Evicting idle previewer '{}::{}'::'{}' in status '{}'",
+                previewer.getName(),
+                previewer.getRev(),
+                previewer.getId(),
+                previewer.getStatus()
+            );
+            try {
+              previewer.stop();
+            } catch (Exception e) {
+              LOG.warn(
+                  "{} attempting to stop evicted previewer: {}",
+                  e.getClass().getSimpleName(),
+                  e.getMessage(),
+                  e
+              );
+            }
           }).build()
     );
+
+    // Create a background thread to cleanup the previewerCache because guava doesn't always want to do it on its own
+    previewCleanerFuture = managerExecutor.scheduleWithFixedDelay(() -> {
+      LOG.debug("Triggering previewer cache cleanup");
+      previewerCache.cleanUp();
+    }, 5, 5, TimeUnit.MINUTES);
 
     runnerCache = new MetricsCache<>(
       runtimeInfo.getMetrics(),
@@ -278,8 +342,24 @@ public class StandaloneAndClusterPipelineManager extends AbstractTask implements
               runner.getState());
             removeRunnerIfNotActive(runner);
           } catch (PipelineStoreException ex) {
-            LOG.warn("Cannot remove runner for pipeline: '{}::{}' due to '{}'", runner.getName(), runner.getRev(),
-              ex.toString(), ex);
+            if (ex.getErrorCode() == ContainerError.CONTAINER_0209) {
+              LOG.debug(
+                  "Pipeline state file for pipeline: '{}::{}' was already deleted; removing runner from cache",
+                  runner.getName(),
+                  runner.getRev(),
+                  ex.toString(),
+                  ex
+              );
+              runnerCache.invalidate(getNameAndRevString(runner.getName(), runner.getRev()));
+            } else {
+              LOG.warn(
+                  "Cannot remove runner for pipeline: '{}::{}' due to '{}'; memory leak is possible",
+                  runner.getName(),
+                  runner.getRev(),
+                  ex.toString(),
+                  ex
+              );
+            }
           }
         }
       }
@@ -306,35 +386,70 @@ public class StandaloneAndClusterPipelineManager extends AbstractTask implements
   }
 
   @Override
+  protected void initTask() {
+    if (RuntimeInfo.SDC_PRODUCT.equals(runtimeInfo.getProductName())) {
+      LOG.debug("Initializing task for Data Collector; attempting to clean any existing Kafka temp keytab directory");
+      cleanUpKafkaKeytabDir();
+    }
+  }
+
+  private void cleanUpKafkaKeytabDir() {
+    try {
+      kafkaKerberosUtil.cleanUpKeytabDirectory();
+    } catch (IOException e) {
+      LOG.error("IOException attempting to clean up temp keytab directory", e);
+    }
+  }
+
+  @Override
   public void stopTask() {
-    for (RunnerInfo runnerInfo : runnerCache.asMap().values()) {
-      Runner runner = runnerInfo.runner;
-      try {
-        runner.close();
-        PipelineState pipelineState = pipelineStateStore.getState(runner.getName(), runner.getRev());
-        runner.onDataCollectorStop(pipelineState.getUser());
-      } catch (Exception e) {
-        LOG.warn("Failed to stop the runner for pipeline: {} and rev: {} due to: {}", runner.getName(),
-          runner.getRev(), e.toString(), e);
+    if(runnerCache != null) {
+      for (RunnerInfo runnerInfo : runnerCache.asMap().values()) {
+        Runner runner = runnerInfo.runner;
+        try {
+          runner.close();
+          PipelineState pipelineState = pipelineStateStore.getState(runner.getName(), runner.getRev());
+          runner.onDataCollectorStop(pipelineState.getUser());
+        } catch (Exception e) {
+          LOG.warn("Failed to stop the runner for pipeline: {} and rev: {} due to: {}", runner.getName(),
+            runner.getRev(), e.toString(), e);
+        }
+      }
+      runnerCache.invalidateAll();
+      for (Previewer previewer : previewerCache.asMap().values()) {
+        try {
+          previewer.stop();
+        } catch (Exception e) {
+          LOG.warn("Failed to stop the previewer: {}::{}::{} due to: {}", previewer.getName(),
+            previewer.getRev(), previewer.getId(), e.toString(), e);
+        }
       }
     }
-    runnerCache.invalidateAll();
-    for (Previewer previewer : previewerCache.asMap().values()) {
-      try {
-        previewer.stop();
-      } catch (Exception e) {
-        LOG.warn("Failed to stop the previewer: {}::{}::{} due to: {}", previewer.getName(),
-          previewer.getRev(), previewer.getId(), e.toString(), e);
-      }
+    if(previewerCache != null) {
+      previewerCache.invalidateAll();
     }
-    previewerCache.invalidateAll();
-    runnerExpiryFuture.cancel(true);
+    if(runnerExpiryFuture != null) {
+      runnerExpiryFuture.cancel(true);
+    }
+    if (previewCleanerFuture != null) {
+      previewCleanerFuture.cancel(true);
+    }
+    if (managerExecutor != null) {
+      managerExecutor.shutdown();
+    }
+    if (RuntimeInfo.SDC_PRODUCT.equals(runtimeInfo.getProductName())) {
+      /**
+       * HACK ALERT: see SDC-15032
+       */
+      cleanUpKafkaKeytabDir();
+    }
     LOG.info("Stopped Production Pipeline Manager");
   }
 
   @Override
   public void statusChange(String id, PreviewStatus status) {
     LOG.debug("Status of previewer with id: '{}' changed to status: '{}'", id, status);
+    statsCollector.previewStatusChanged(status, getPreviewer(id));
   }
 
   @Override

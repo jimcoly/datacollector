@@ -16,41 +16,38 @@
 package com.streamsets.pipeline.lib.jms.config;
 
 import com.streamsets.pipeline.api.ConfigDef;
+import com.streamsets.pipeline.api.ConfigDefBean;
+import com.streamsets.pipeline.api.ConnectionDef;
+import com.streamsets.pipeline.api.Dependency;
 import com.streamsets.pipeline.api.ValueChooserModel;
+import com.streamsets.pipeline.lib.jms.config.connection.JmsConnection;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public class BaseJmsConfig {
-  @ConfigDef(
-      required = true,
-      type = ConfigDef.Type.STRING,
-      label = "JMS Initial Context Factory",
-      description = "ActiveMQ example: org.apache.activemq.jndi.ActiveMQInitialContextFactory",
-      displayPosition = 10,
-      group = "JMS"
-  )
-  public String initialContextFactory;
 
   @ConfigDef(
       required = true,
-      type = ConfigDef.Type.STRING,
-      label = "JNDI Connection Factory",
-      description = "ActiveMQ example: ConnectionFactory",
-      displayPosition = 20,
-      group = "JMS"
+      type = ConfigDef.Type.MODEL,
+      connectionType = JmsConnection.TYPE,
+      defaultValue = ConnectionDef.Constants.CONNECTION_SELECT_MANUAL,
+      label = "Connection",
+      group = "JMS",
+      displayPosition = -500
   )
-  public String connectionFactory;
+  @ValueChooserModel(ConnectionDef.Constants.ConnectionChooserValues.class)
+  public String connectionSelection = ConnectionDef.Constants.CONNECTION_SELECT_MANUAL;
 
-  @ConfigDef(
-      required = true,
-      type = ConfigDef.Type.STRING,
-      label = "JMS Provider URL",
-      description = "ActiveMQ example: tcp://mqserver:61616",
-      displayPosition = 30,
-      group = "JMS"
+  @ConfigDefBean(
+      dependencies = {
+          @Dependency(
+              configName = "connectionSelection",
+              triggeredByValues = ConnectionDef.Constants.CONNECTION_SELECT_MANUAL
+          )
+      }
   )
-  public String providerURL;
+  public JmsConnection connection;
 
   @ConfigDef(
       required = false,
@@ -59,10 +56,36 @@ public class BaseJmsConfig {
       label = "JMS Destination Type",
       description = "Specify the JMS destination type when validation fails with NamingException, destination not found",
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "JMS"
   )
   @ValueChooserModel(DestinationTypeChooserValues.class)
   public DestinationType destinationType = DestinationType.UNKNOWN; // NOTE: same as above
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "Use ClientID",
+      description = "Check to specify a clientID for this JMS connection. e.g. Required for Durable Topic Subscriptions",
+      displayPosition = 75,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "JMS"
+)
+  public Boolean useClientID = false;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.STRING,
+      label = "Client ID",
+      description = "If specified, must be a unique string used by a single JMS connection instance. Required for Durable Topic Subscriptions",
+      displayPosition = 77,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "JMS",
+      dependsOn = "useClientID",
+      triggeredByValue = "true"
+  )
+  public String clientID = null;
 
   @ConfigDef(
       required = false,
@@ -71,6 +94,7 @@ public class BaseJmsConfig {
       label = "Additional JMS Configuration Properties",
       description = "Additional properties to pass to the underlying JMS context.",
       displayPosition = 999,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "JMS"
   )
   public Map<String, String> contextProperties = new HashMap<>();

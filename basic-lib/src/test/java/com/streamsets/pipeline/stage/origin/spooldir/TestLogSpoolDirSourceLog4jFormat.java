@@ -175,7 +175,7 @@ public class TestLogSpoolDirSourceLog4jFormat {
     conf.overrunLimit = 100;
     conf.spoolDir = createTestDir();
     conf.batchSize = 10;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].log";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -255,6 +255,7 @@ public class TestLogSpoolDirSourceLog4jFormat {
         record.get("/" + Constants.MESSAGE).getValueAsString());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -326,6 +327,7 @@ public class TestLogSpoolDirSourceLog4jFormat {
       Assert.assertEquals(0, records.size());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -339,7 +341,7 @@ public class TestLogSpoolDirSourceLog4jFormat {
     conf.overrunLimit = 100;
     conf.spoolDir = createTestDir();
     conf.batchSize = 10;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].log";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -419,6 +421,7 @@ public class TestLogSpoolDirSourceLog4jFormat {
         record.get("/" + Constants.MESSAGE).getValueAsString());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -495,6 +498,7 @@ public class TestLogSpoolDirSourceLog4jFormat {
         record.get("/" + Constants.MESSAGE).getValueAsString());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -594,6 +598,7 @@ public class TestLogSpoolDirSourceLog4jFormat {
         record.get("/" + Constants.MESSAGE).getValueAsString());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -608,6 +613,7 @@ public class TestLogSpoolDirSourceLog4jFormat {
       SpoolDirRunnable runnable = source.getSpoolDirRunnable(threadNumber, batchSize, lastSourceOffset);
       runnable.generateBatch(createLogFileWithStackTrace(), "0", 10, batchMaker);
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }

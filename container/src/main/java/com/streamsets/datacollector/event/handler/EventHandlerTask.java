@@ -15,8 +15,34 @@
  */
 package com.streamsets.datacollector.event.handler;
 
+import com.streamsets.datacollector.config.ConnectionConfiguration;
+import com.streamsets.datacollector.event.dto.Event;
+import com.streamsets.datacollector.event.dto.EventType;
+import com.streamsets.datacollector.event.handler.remote.RemoteDataCollectorResult;
 import com.streamsets.datacollector.task.Task;
+
+import java.util.Map;
 
 public interface EventHandlerTask extends Task {
 
+  /**
+   * Handles a locally originating event (i.e. from the Data Collector itself).  The current use case is for dynamic
+   * preview.  It is expected there is a local caller that will make use of the result.
+   *
+   * @param event the event to handle
+   * @param eventType the type of the event
+   * @param connections the connection definitions for the pipeline
+   * @return an {@link RemoteDataCollectorResult} encapsulating the results of handling the event
+   */
+  RemoteDataCollectorResult handleLocalEvent(Event event, EventType eventType, Map<String, ConnectionConfiguration> connections);
+
+  /**
+   * Handles a remotely originating event (i.e. from the messaging app).
+   *
+   * @param event the event to handle
+   * @param eventType the type of the event
+   * @param connections the connection definitions for the pipeline
+   * @return an {@link RemoteDataCollectorResult} encapsulating the results of handling the event
+   */
+  RemoteDataCollectorResult handleRemoteEvent(Event event, EventType eventType, Map<String, ConnectionConfiguration> connections);
 }

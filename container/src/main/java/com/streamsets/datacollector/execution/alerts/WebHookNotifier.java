@@ -25,8 +25,8 @@ import com.streamsets.datacollector.execution.StateEventListener;
 import com.streamsets.datacollector.json.ObjectMapperFactory;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.metrics.MetricsConfigurator;
-import com.streamsets.datacollector.restapi.bean.MeterJson;
-import com.streamsets.datacollector.restapi.bean.MetricRegistryJson;
+import com.streamsets.datacollector.event.json.MeterJson;
+import com.streamsets.datacollector.event.json.MetricRegistryJson;
 import com.streamsets.datacollector.runner.PipelineRuntimeException;
 import com.streamsets.dc.execution.manager.standalone.ThreadUsage;
 import com.streamsets.pipeline.api.ExecutionMode;
@@ -53,6 +53,8 @@ import java.util.Set;
 public class WebHookNotifier implements StateEventListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(WebHookNotifier.class);
+  private static final String APPLICATION_JSON = "application/json";
+
   private final String pipelineId;
   private final String pipelineTitle;
   private final String rev;
@@ -107,17 +109,21 @@ public class WebHookNotifier implements StateEventListener {
             try {
               DateFormat dateTimeFormat = new SimpleDateFormat(EmailConstants.DATE_MASK, Locale.ENGLISH);
               String payload = webhookConfig.payload
-                  .replace(WebhookConstants.PIPELINE_TITLE_KEY, Strings.nullToEmpty(pipelineTitle))
-                  .replace(WebhookConstants.PIPELINE_URL_KEY, Strings.nullToEmpty(runtimeInfo.getBaseHttpUrl() +
-                      EmailConstants.PIPELINE_URL + toState.getPipelineId().replaceAll(" ", "%20")))
-                  .replace(WebhookConstants.PIPELINE_STATE_KEY, Strings.nullToEmpty(toState.getStatus().toString()))
-                  .replace(WebhookConstants.TIME_KEY, dateTimeFormat.format(new Date(toState.getTimeStamp())))
-                  .replace(WebhookConstants.PIPELINE_STATE_MESSAGE_KEY, Strings.nullToEmpty(toState.getMessage()))
+                  .replace(WebhookConstants.PIPELINE_TITLE_KEY,
+                          escapeValue(Strings.nullToEmpty(pipelineTitle), webhookConfig.contentType))
+                  .replace(WebhookConstants.PIPELINE_URL_KEY,
+                          escapeValue(Strings.nullToEmpty(
+                                  runtimeInfo.getBaseHttpUrl() + EmailConstants.PIPELINE_URL + toState.getPipelineId().replaceAll(" ", "%20")), webhookConfig.contentType))
+                  .replace(WebhookConstants.PIPELINE_STATE_KEY,
+                          escapeValue(Strings.nullToEmpty(toState.getStatus().toString()), webhookConfig.contentType))
+                  .replace(WebhookConstants.TIME_KEY,
+                          escapeValue(dateTimeFormat.format(new Date(toState.getTimeStamp())), webhookConfig.contentType))
+                  .replace(WebhookConstants.PIPELINE_STATE_MESSAGE_KEY,
+                          escapeValue(Strings.nullToEmpty(toState.getMessage()), webhookConfig.contentType))
                   .replace(WebhookConstants.PIPELINE_RUNTIME_PARAMETERS_KEY, Strings.nullToEmpty(
                       StringEscapeUtils.escapeJson(ObjectMapperFactory.get().writeValueAsString(runtimeParameters))))
                   .replace(WebhookConstants.PIPELINE_METRICS_KEY, Strings.nullToEmpty(
-                      StringEscapeUtils.escapeJson(toState.getMetrics())));
-
+                          StringEscapeUtils.escapeJson(toState.getMetrics())));
 
               if (payload.contains(WebhookConstants.PIPELINE_INPUT_RECORDS_COUNT_KEY) ||
                   payload.contains(WebhookConstants.PIPELINE_OUTPUT_RECORDS_COUNT_KEY) ||
@@ -174,15 +180,18 @@ public class WebHookNotifier implements StateEventListener {
               }
               response = builder.post(Entity.entity(payload, webhookConfig.contentType));
 
-              if (response.getStatus() != Response.Status.OK.getStatusCode()) {
+              LOG.info("Received status code '{}' ", response.getStatus());
+
+              if (response.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL) {
                 LOG.error(
                     "Error calling Webhook URL, status code '{}': {}",
                     response.getStatus(),
                     response.readEntity(String.class)
                 );
               }
+
             } catch (Exception e) {
-              LOG.error("Error calling Webhook URL : {}", e.toString(), e);
+              LOG.error("Error calling Webhook URL '{}' on state {}: {}", webhookConfig.webhookUrl, toState.getStatus().name(), e.toString(), e);
             } finally {
               if (response != null) {
                 response.close();
@@ -212,5 +221,12 @@ public class WebHookNotifier implements StateEventListener {
           HttpAuthenticationFeature.universal(webhookConfig.username.get(), webhookConfig.password.get())
       );
     }
+  }
+
+  private String escapeValue(String value, String contentType) {
+    if (APPLICATION_JSON.equals(contentType)) {
+      return StringEscapeUtils.escapeJson(value);
+    }
+    return value;
   }
 }

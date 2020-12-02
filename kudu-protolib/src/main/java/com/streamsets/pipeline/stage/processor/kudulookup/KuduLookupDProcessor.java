@@ -24,20 +24,18 @@ import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.base.configurablestage.DProcessor;
 
 @StageDef(
-    version = 3,
+    version = 5,
     label = "Kudu Lookup",
     description = "Performs KV lookups to enrich records",
     icon = "kudu.png",
     privateClassLoader = true,
     upgrader = KuduProcessorUpgrader.class,
+    upgraderDef = "upgrader/KuduLookupDProcessor.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_b5b_dyl_p1b"
 )
 
 @ConfigGroups(Groups.class)
 @GenerateResourceBundle
-@HideConfigs(
-  "conf.cache.retryOnCacheMiss"
-)
 public class KuduLookupDProcessor extends DProcessor {
   @ConfigDefBean(groups = {"LOOKUP", "KUDU"})
   public KuduLookupConfig conf;

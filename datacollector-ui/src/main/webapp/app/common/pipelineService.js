@@ -16,7 +16,7 @@
 
 // Service for providing access to the Pipeline utility functions.
 angular.module('dataCollectorApp.common')
-  .service('pipelineService', function(pipelineConstant, api, $q, $translate, $modal, $location, $route, _, $window) {
+  .service('pipelineService', function(authService, pipelineConstant, api, $q, $translate, $modal, $location, $route, _) {
 
     var self = this;
     var translations = {};
@@ -31,10 +31,7 @@ angular.module('dataCollectorApp.common')
       autoCloseBrackets: {
         pairs: '(){}\'\'""'
       },
-      cursorHeight: 1,
-      extraKeys: {
-        'Ctrl-Space': 'autocomplete'
-      }
+      cursorHeight: 1
     };
     var fragmentGroupStages = [
       'com_streamsets_pipeline_stage_origin_fragment_FragmentSource',
@@ -51,109 +48,205 @@ angular.module('dataCollectorApp.common')
       if (!self.initializeDefer || (force && self.initializeDefer.promise.$$state.status !== 0)) {
         self.initializeDefer = $q.defer();
 
-        $q.all([
-          api.pipelineAgent.getDefinitions()
-        ])
-          .then(function (results) {
-            var definitions = results[0].data;
-            var rulesElMetadata = definitions.rulesElMetadata;
-            var elFunctionDefinitions = [];
-            var elConstantDefinitions = [];
+        authService.init().then(function () {
+          var apiCallList = [
+            api.pipelineAgent.getDefinitions(),
+            api.pipelineAgent.getStageAssetIcons()
+          ];
+          if (authService.isUserAdmin()) {
+            apiCallList.push(api.pipelineAgent.getLibraries(null, false));
+          }
+          $q.all(apiCallList)
+            .then(function (results) {
+              var definitions = results[0].data;
+              var stageAssetIcons = results[1].data;
+              var rulesElMetadata = definitions.rulesElMetadata;
+              var elFunctionDefinitions = [];
+              var elConstantDefinitions = [];
 
-            // Definitions
-            self.pipelineConfigDefinition = definitions.pipeline[0];
-            self.pipelineRulesConfigDefinition = definitions.pipelineRules[0];
-            self.stageDefinitions = definitions.stages;
-            self.serviceDefinitions = definitions.services;
-            self.elCatalog = definitions.elCatalog;
-
-            self.betaStages = {};
-            angular.forEach(self.stageDefinitions, function (stageDefinition) {
-              if (stageDefinition.beta) {
-                self.betaStages[stageDefinition.name] = true;
+              // Process not installed stage libraries
+              var stageNameToLibraryListMap = {};
+              if (authService.isUserAdmin()) {
+                var repositoryManifestList = results[2].data;
+                angular.forEach(repositoryManifestList, function (value) {
+                  if (value.stageLibraries && value.stageLibraries.length) {
+                    angular.forEach(value.stageLibraries, function (stageLibrary) {
+                      if (stageLibrary.stageLibraryManifest && stageLibrary.stageLibraryManifest.stages &&
+                        stageLibrary.stageLibraryManifest.stages.length) {
+                        angular.forEach(stageLibrary.stageLibraryManifest.stages, function(stage) {
+                          if (!stageNameToLibraryListMap[stage.name]) {
+                            stageNameToLibraryListMap[stage.name] = {
+                              definition: stage,
+                              libraryList: [],
+                              available: false
+                            };
+                          }
+                          stageNameToLibraryListMap[stage.name].libraryList.push({
+                            libraryId: stageLibrary.stageLibraryManifest.stageLibId,
+                            libraryLabel: stageLibrary.stageLibraryManifest.stageLibLabel,
+                            installed: stageLibrary.stageLibraryManifest.installed
+                          });
+                          if (stageLibrary.stageLibraryManifest.installed) {
+                            stageNameToLibraryListMap[stage.name].available = true;
+                          }
+                        });
+                      }
+                    });
+                  }
+                });
               }
+              self.stageNameToLibraryListMap = stageNameToLibraryListMap;
+
+              if (stageAssetIcons) {
+                self.stageAssetIconsMap = {};
+                angular.forEach(stageAssetIcons, function(icon) {
+                  self.stageAssetIconsMap[icon] = true;
+                });
+              }
+
+              // Definitions
+              self.pipelineConfigDefinition = definitions.pipeline[0];
+
+              // remove not used execution modes
+              angular.forEach(self.pipelineConfigDefinition.configDefinitions, function (configDefinition) {
+                if (configDefinition.name === 'executionMode') {
+                  configDefinition.model.values = _.filter(configDefinition.model.values, function (value) {
+                    return value !== 'BATCH' && value !== 'STREAMING';
+                  });
+
+                  configDefinition.model.labels = _.filter(configDefinition.model.labels, function (value) {
+                    return value !== 'Batch' && value !== 'Streaming';
+                  });
+
+                  // Set executionMode displayMode to ADVANCED because it is different is SDC and Transformer
+                  configDefinition.displayMode = pipelineConstant.DISPLAY_MODE_ADVANCED;
+                }
+              });
+
+              self.pipelineRulesConfigDefinition = definitions.pipelineRules[0];
+              self.stageDefinitions = definitions.stages;
+              self.serviceDefinitions = definitions.services;
+              self.elCatalog = definitions.elCatalog;
+              self.legacyStageLibs = definitions.legacyStageLibs;
+              self.eventDefinitions = definitions.eventDefinitions;
+
+              self.betaStages = {};
+              angular.forEach(self.stageDefinitions, function (stageDefinition) {
+                if (stageDefinition.beta) {
+                  self.betaStages[stageDefinition.name] = true;
+                }
+
+                // process event definitions
+                if (stageDefinition.eventDefs && stageDefinition.eventDefs.length > 0) {
+                  stageDefinition.events = [];
+                  angular.forEach(stageDefinition.eventDefs, function (eventDefn) {
+                    if (definitions.eventDefinitions[eventDefn]) {
+                      stageDefinition.events.push(definitions.eventDefinitions[eventDefn]);
+                    }
+                  });
+                }
+
+              });
+
+              // merge not installed stages
+              angular.forEach(stageNameToLibraryListMap, function (d, stageName) {
+                if (!d.available) {
+                  d.definition.notInstalled = true;
+                  d.definition.hideStage = [];
+                  d.definition.executionModes = [
+                    "STANDALONE",
+                    "CLUSTER_BATCH",
+                    "CLUSTER_YARN_STREAMING",
+                    "CLUSTER_MESOS_STREAMING",
+                    "EMR_BATCH"
+                  ];
+                  self.stageDefinitions.push(d.definition);
+                }
+              });
+
+              self.serviceDefinitionsMap = {};
+              angular.forEach(self.serviceDefinitions, function (serviceDefinition) {
+                self.serviceDefinitionsMap[serviceDefinition.provides] = serviceDefinition;
+              });
+
+              // General Rules
+              angular.forEach(rulesElMetadata.general.elFunctionDefinitions, function(idx) {
+                elFunctionDefinitions.push(self.elCatalog.elFunctionDefinitions[parseInt(idx)]);
+              });
+
+              angular.forEach(rulesElMetadata.general.elConstantDefinitions, function(idx) {
+                elConstantDefinitions.push(self.elCatalog.elConstantDefinitions[parseInt(idx)]);
+              });
+
+              self.generalRulesElMetadata = {
+                elFunctionDefinitions: elFunctionDefinitions,
+                elConstantDefinitions: elConstantDefinitions,
+                regex: 'wordColonSlash'
+              };
+
+              // Drift Rules
+              elFunctionDefinitions = [];
+              elConstantDefinitions = [];
+
+              angular.forEach(rulesElMetadata.drift.elFunctionDefinitions, function(idx) {
+                elFunctionDefinitions.push(self.elCatalog.elFunctionDefinitions[parseInt(idx)]);
+              });
+
+              angular.forEach(rulesElMetadata.drift.elConstantDefinitions, function(idx) {
+                elConstantDefinitions.push(self.elCatalog.elConstantDefinitions[parseInt(idx)]);
+              });
+
+              self.driftRulesElMetadata = {
+                elFunctionDefinitions: elFunctionDefinitions,
+                elConstantDefinitions: elConstantDefinitions,
+                regex: 'wordColonSlash'
+              };
+
+              // Alert Text Rules
+              elFunctionDefinitions = [];
+              elConstantDefinitions = [];
+
+              angular.forEach(rulesElMetadata.alert.elFunctionDefinitions, function(idx) {
+                elFunctionDefinitions.push(self.elCatalog.elFunctionDefinitions[parseInt(idx)]);
+              });
+
+              angular.forEach(rulesElMetadata.alert.elConstantDefinitions, function(idx) {
+                elConstantDefinitions.push(self.elCatalog.elConstantDefinitions[parseInt(idx)]);
+              });
+
+              self.alertTextElMetadata = {
+                elFunctionDefinitions: elFunctionDefinitions,
+                elConstantDefinitions: elConstantDefinitions,
+                regex: 'wordColonSlash'
+              };
+
+              // Metric Rules
+              self.metricRulesELMetadata = angular.copy(self.generalRulesElMetadata);
+              self.metricRulesELMetadata.elFunctionDefinitions.push({
+                name: "value",
+                description: "Returns the value of the metric in context",
+                group: "",
+                returnType: "long",
+                elFunctionArgumentDefinition: []
+              });
+
+              self.metricRulesELMetadata.elFunctionDefinitions.push({
+                name: "time:now",
+                description: "Returns the current time in milliseconds.",
+                group: "",
+                returnType: "long",
+                elFunctionArgumentDefinition: []
+              });
+
+              self.runtimeConfigs = definitions.runtimeConfigs;
+
+              self.initializeDefer.resolve();
+            }, function(data) {
+              self.initializeDefer.reject(data);
             });
+        });
 
-            self.serviceDefinitionsMap = {};
-            angular.forEach(self.serviceDefinitions, function (serviceDefinition) {
-              self.serviceDefinitionsMap[serviceDefinition.provides] = serviceDefinition;
-            });
 
-            // General Rules
-            angular.forEach(rulesElMetadata.general.elFunctionDefinitions, function(idx) {
-              elFunctionDefinitions.push(self.elCatalog.elFunctionDefinitions[parseInt(idx)]);
-            });
-
-            angular.forEach(rulesElMetadata.general.elConstantDefinitions, function(idx) {
-              elConstantDefinitions.push(self.elCatalog.elConstantDefinitions[parseInt(idx)]);
-            });
-
-            self.generalRulesElMetadata = {
-              elFunctionDefinitions: elFunctionDefinitions,
-              elConstantDefinitions: elConstantDefinitions,
-              regex: 'wordColonSlash'
-            };
-
-            // Drift Rules
-            elFunctionDefinitions = [];
-            elConstantDefinitions = [];
-
-            angular.forEach(rulesElMetadata.drift.elFunctionDefinitions, function(idx) {
-              elFunctionDefinitions.push(self.elCatalog.elFunctionDefinitions[parseInt(idx)]);
-            });
-
-            angular.forEach(rulesElMetadata.drift.elConstantDefinitions, function(idx) {
-              elConstantDefinitions.push(self.elCatalog.elConstantDefinitions[parseInt(idx)]);
-            });
-
-            self.driftRulesElMetadata = {
-              elFunctionDefinitions: elFunctionDefinitions,
-              elConstantDefinitions: elConstantDefinitions,
-              regex: 'wordColonSlash'
-            };
-
-            // Alert Text Rules
-            elFunctionDefinitions = [];
-            elConstantDefinitions = [];
-
-            angular.forEach(rulesElMetadata.alert.elFunctionDefinitions, function(idx) {
-              elFunctionDefinitions.push(self.elCatalog.elFunctionDefinitions[parseInt(idx)]);
-            });
-
-            angular.forEach(rulesElMetadata.alert.elConstantDefinitions, function(idx) {
-              elConstantDefinitions.push(self.elCatalog.elConstantDefinitions[parseInt(idx)]);
-            });
-
-            self.alertTextElMetadata = {
-              elFunctionDefinitions: elFunctionDefinitions,
-              elConstantDefinitions: elConstantDefinitions,
-              regex: 'wordColonSlash'
-            };
-
-            // Metric Rules
-            self.metricRulesELMetadata = angular.copy(self.generalRulesElMetadata);
-            self.metricRulesELMetadata.elFunctionDefinitions.push({
-              name: "value",
-              description: "Returns the value of the metric in context",
-              group: "",
-              returnType: "long",
-              elFunctionArgumentDefinition: []
-            });
-
-            self.metricRulesELMetadata.elFunctionDefinitions.push({
-              name: "time:now",
-              description: "Returns the current time in milliseconds.",
-              group: "",
-              returnType: "long",
-              elFunctionArgumentDefinition: []
-            });
-
-            self.runtimeConfigs = definitions.runtimeConfigs;
-
-            self.initializeDefer.resolve();
-          }, function(data) {
-            self.initializeDefer.reject(data);
-          });
       }
 
       return self.initializeDefer.promise;
@@ -195,6 +288,13 @@ angular.module('dataCollectorApp.common')
      */
     this.getStageDefinitions = function() {
       return self.stageDefinitions;
+    };
+
+    /**
+     * Returns names of legacy stage libraries
+     */
+    this.getLegacyStageLibs = function() {
+      return self.legacyStageLibs;
     };
 
     /**
@@ -423,7 +523,7 @@ angular.module('dataCollectorApp.common')
     /**
      * Duplicate Pipeline Configuration Command Handler
      */
-    this.duplicatePipelineConfigCommand = function(pipelineInfo, $event) {
+    this.duplicatePipelineConfigCommand = function(pipelineInfo, $event, isSamplePipeline) {
       var defer = $q.defer();
       var modalInstance = $modal.open({
         templateUrl: 'app/home/library/duplicate/duplicate.tpl.html',
@@ -433,6 +533,9 @@ angular.module('dataCollectorApp.common')
         resolve: {
           pipelineInfo: function () {
             return pipelineInfo;
+          },
+          isSamplePipeline: function () {
+            return isSamplePipeline;
           }
         }
       });
@@ -698,7 +801,8 @@ angular.module('dataCollectorApp.common')
           description: '',
           xPos: xPos,
           yPos: yPos,
-          stageType: stage.type
+          stageType: stage.type,
+          icon: stage.icon
         },
         services: [],
         inputLanes: [],
@@ -726,7 +830,9 @@ angular.module('dataCollectorApp.common')
       if (options.insertBetweenEdge && (stage.outputStreams > 0 || stage.variableOutputStreams)) {
         //Insert stage instance in the middle of edge
         var edge = options.insertBetweenEdge;
-        var targetInstance = edge.target;
+        var targetInstance = _.find(pipelineConfig.stages, function (stageInstance) {
+          return stageInstance.instanceName === edge.target.instanceName;
+        });
         var laneIndex;
         var lane = edge.outputLane;
 
@@ -749,6 +855,7 @@ angular.module('dataCollectorApp.common')
         stageInstance.uiInfo.xPos = targetInstance.uiInfo.xPos - 20;
         stageInstance.uiInfo.yPos = targetInstance.uiInfo.yPos + 50;
         targetInstance.uiInfo.xPos += 200;
+        edge.target = targetInstance;
       }
 
       angular.forEach(stage.configDefinitions, function (configDefinition) {
@@ -854,7 +961,7 @@ angular.module('dataCollectorApp.common')
      * @returns {*}
      */
     this.getStageInstanceName = function(stage, pipelineConfig, options) {
-      var stageName = stage.label.replace(/ /g, '').replace(/\//g, '');
+      var stageName = stage.label.replace(/[^0-9A-Za-z_]/g, '');
 
       if (options.errorStage) {
         return stageName + '_ErrorStage';
@@ -917,7 +1024,7 @@ angular.module('dataCollectorApp.common')
             outputLane: stageInstance.outputLanes[0],
             predicate: 'default'
           }];
-        } else if (configDefinition.model.modelType === 'LIST_BEAN') {
+        } else if (configDefinition.model.modelType === 'LIST_BEAN' && !config.value) {
           var complexFieldObj = {};
           angular.forEach(configDefinition.model.configDefinitions, function (complexFiledConfigDefinition) {
             var complexFieldConfig = self.setDefaultValueForConfig(stage, complexFiledConfigDefinition, stageInstance);
@@ -933,7 +1040,7 @@ angular.module('dataCollectorApp.common')
       } else if (configDefinition.type === 'BOOLEAN' && config.value === undefined) {
         config.value = false;
       } else if (configDefinition.type === 'LIST' && !config.value) {
-        config.value = [];
+        config.value = [''];
       } else if (configDefinition.type === 'MAP' && !config.value) {
         config.value = [];
       }
@@ -949,7 +1056,17 @@ angular.module('dataCollectorApp.common')
      */
     this.getStageIconURL = function(stage) {
       if (stage.icon) {
-        return 'rest/' + api.apiVersion + '/definitions/stages/' + stage.library + '/' + stage.name + '/icon';
+        if (stage.notInstalled) {
+          if (this.stageAssetIconsMap[stage.icon]) {
+            return 'assets/stage/' + stage.icon;
+          } else {
+            console.warn('Statge Icon is missing in assets folder - ', stage.icon);
+            return 'assets/stage/sdcipc.png';
+          }
+        } else {
+          return 'rest/' + api.apiVersion + '/definitions/stages/' + stage.library + '/' + stage.name + '/icon';
+        }
+
       } else {
         switch(stage.type) {
           case pipelineConstant.SOURCE_STAGE_TYPE:
@@ -2043,6 +2160,7 @@ angular.module('dataCollectorApp.common')
             return;
           }
           if (s.type === type && !s.errorStage && !s.statsAggregatorStage &&
+            !s.notInstalled &&
             s.hideStage.length === 0 &&
             s.name.indexOf('_fragment_') === -1 &&
             s.library !== 'streamsets-datacollector-stats-lib' &&
@@ -2064,4 +2182,44 @@ angular.module('dataCollectorApp.common')
       return this.betaStages[stageName];
     };
 
+    this.getAllLibraryList = function(stageName) {
+      if (this.stageNameToLibraryListMap[stageName]) {
+        return this.stageNameToLibraryListMap[stageName];
+      }
+    };
+
+
+    /**
+     * Inject tutorial link, origins, and destinations field for the list of sample pipeline info list.
+     */
+    this.processSamplePipelines = function (pipelineInfoList) {
+      // populate tutorial, origin and destinations column data
+      angular.forEach(pipelineInfoList, function (pipelineInfo) {
+        if (pipelineInfo.description) {
+          var tutorialLink = pipelineInfo.description
+            .split('\n', 1)[0]
+            .replace('Tutorial - ', '')
+            .trim();
+          if (tutorialLink && tutorialLink.startsWith('http')) {
+            pipelineInfo.tutorialLink = tutorialLink;
+          }
+        }
+
+        if (pipelineInfo.metadata && pipelineInfo.metadata.labels && pipelineInfo.metadata.labels.length) {
+          var origins = [];
+          var destinations = [];
+          angular.forEach(pipelineInfo.metadata.labels, function (label) {
+            if (label && label.startsWith('origin:')) {
+              origins.push(label.replace('origin:', ''));
+            }
+            if (label && label.startsWith('destination:')) {
+              destinations.push(label.replace('destination:', ''));
+            }
+          });
+
+          pipelineInfo.origins = _(origins).uniq().sort().join(', ');
+          pipelineInfo.destinations = _(destinations).uniq().sort().join(', ');
+        }
+      });
+    };
   });

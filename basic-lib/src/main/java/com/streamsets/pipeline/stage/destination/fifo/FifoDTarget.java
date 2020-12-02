@@ -33,6 +33,7 @@ import com.streamsets.pipeline.stage.destination.lib.DataGeneratorFormatConfig;
     label = "Named Pipe",
     description = "Sends records to a Named Pipe",
     icon="fifo.png",
+    upgraderDef = "upgrader/FifoDTarget.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_pdv_vdg_gcb"
 )
 
@@ -44,6 +45,7 @@ public class FifoDTarget extends DTarget {
       label = "Named Pipe",
       description = "Full path of the Named Pipe",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "NAMED_PIPE"
   )
   public String namedPipe;

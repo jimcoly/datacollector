@@ -24,10 +24,12 @@ import com.streamsets.datacollector.task.TaskWrapper;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.pipeline.api.impl.Utils;
 import dagger.ObjectGraph;
+import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.crypto.Cipher;
+import java.lang.management.ManagementFactory;
 import java.net.Authenticator;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivilegedExceptionAction;
@@ -35,15 +37,19 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class Main {
+  private final String PROPERTY_USE_SDC_SECURITY_MANAGER = "security_manager.sdc_manager.enable";
+  private final boolean DEFAULT_USE_SDC_SECURITY_MANAGER = false;
+
   private final ObjectGraph dagger;
   private final Task task;
   private final Callable<Boolean> taskStopCondition;
 
   @VisibleForTesting
-  protected Main(Class moduleClass, Callable<Boolean> taskStopCondition) {
-    this(ObjectGraph.create(moduleClass), null, taskStopCondition);
+  protected Main(Object module, Callable<Boolean> taskStopCondition) {
+    this(ObjectGraph.create(module), null, taskStopCondition);
   }
 
   @VisibleForTesting
@@ -74,10 +80,19 @@ public class Main {
       RuntimeInfo runtimeInfo = dagger.get(RuntimeInfo.class);
       runtimeInfo.log(log);
       log.info("-----------------------------------------------------------------");
+      log.info("Process and Machine Info");
+      log.info("  Available Cores: {}", Runtime.getRuntime().availableProcessors());
+      log.info("  Total RAM: {}", FileUtils.byteCountToDisplaySize(((com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean()).getTotalPhysicalMemorySize()));
+      log.info("  Non-SDC JVM Args: {}", String.join(" ", ManagementFactory.getRuntimeMXBean().getInputArguments().stream().filter(i -> !i.startsWith("-Dsdc")).collect(Collectors.toList())));
+      log.debug("  Full JVM Args: {}", String.join(" ", ManagementFactory.getRuntimeMXBean().getInputArguments()));
+      log.info("-----------------------------------------------------------------");
+      Configuration configuration = dagger.get(Configuration.class);
       if (System.getSecurityManager() != null) {
-        // Replace security manager with our own to protect some special folders that can never be accessed or altered
-        System.setSecurityManager(new SdcSecurityManager(runtimeInfo));
-        log.info("  Security Manager : ENABLED, policy file: {}", System.getProperty("java.security.policy"));
+        if(configuration.get(PROPERTY_USE_SDC_SECURITY_MANAGER, DEFAULT_USE_SDC_SECURITY_MANAGER)) {
+          System.setSecurityManager(new SdcSecurityManager(runtimeInfo, configuration));
+        }
+
+        log.info("  Security Manager : ENABLED, policy file: {}, implementation: {}", System.getProperty("java.security.policy"), System.getSecurityManager().getClass().getName());
       } else {
         log.warn("  Security Manager : DISABLED");
       }
@@ -87,7 +102,7 @@ public class Main {
       // Use proxy authenticator that supports username and password
       Authenticator.setDefault(new UserPasswordAuthenticator());
 
-      securityContext = new SecurityContext(dagger.get(RuntimeInfo.class), dagger.get(Configuration.class));
+      securityContext = new SecurityContext(dagger.get(RuntimeInfo.class), configuration);
       securityContext.login();
 
       log.info("-----------------------------------------------------------------");
@@ -103,6 +118,11 @@ public class Main {
         log.info("  Unlimited cryptography check: algorithm RC5 not found." );
       }
       log.info("-----------------------------------------------------------------");
+
+      if(configuration.get("monitor.memory", false)) {
+        log.warn("Memory monitoring (monitor.memory=true) is no longer supported.");
+      }
+
       log.info("Starting ...");
 
       final Logger finalLog = log;

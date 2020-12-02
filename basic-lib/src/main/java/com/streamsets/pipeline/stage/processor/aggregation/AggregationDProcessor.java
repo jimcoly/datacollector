@@ -25,13 +25,14 @@ import com.streamsets.pipeline.api.base.configurablestage.DProcessor;
 
 @StageDef(
     version=2,
-    label="Aggregator",
+    label="Windowing Aggregator",
     description = "Aggregates data that arrives within a window of time",
     icon="aggregation.png",
     producesEvents = true,
     onlineHelpRefUrl ="index.html?contextID=task_bd3_vvm_5bb",
     flags = StageBehaviorFlags.PASSTHROUGH,
-    upgrader = AggregationProcessorUpgrader.class
+    upgrader = AggregationProcessorUpgrader.class,
+    upgraderDef = "upgrader/AggregationDProcessor.yaml"
 )
 @ConfigGroups(Groups.class)
 @GenerateResourceBundle

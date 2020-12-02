@@ -46,8 +46,9 @@ import java.util.Map;
 
 @ServiceDef(
   provides = DataFormatParserService.class,
-  version = 1,
+  version = 2,
   upgrader = ParserUpgrader.class,
+  upgraderDef = "upgrader/DataFormatParserUpgrader.yaml",
   label = "DataFormat Parser"
 )
 @ConfigGroups(Groups.class)
@@ -127,11 +128,13 @@ public class DataParserServiceImpl extends BaseService implements DataFormatPars
   }
 
   @Override
+  @Deprecated
   public void setStringBuilderPoolSize(int poolSize) {
     this.dataFormatConfig.stringBuilderPoolSize = poolSize;
   }
 
   @Override
+  @Deprecated
   public int getStringBuilderPoolSize() {
     return this.dataFormatConfig.stringBuilderPoolSize;
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 StreamSets Inc.
+ * Copyright 2020 StreamSets Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,9 @@
  */
 
 angular.module('dataCollectorApp.common')
-  .service('contextHelpService', function($rootScope, $q, configuration, api, pipelineConstant, pipelineService) {
-
+  .service('contextHelpService', function($rootScope, $q, configuration, api, pipelineConstant, pipelineService,
+    tracking, trackingEvent
+  ) {
     // pre-populate with some static configurations
     var helpIds = {
         "pipeline-configuration": "index.html#datacollector/UserGuide/Pipeline_Configuration/PipelineConfiguration_title.html#task_xlv_jdw_kq",
@@ -52,9 +53,11 @@ angular.module('dataCollectorApp.common')
           relativeURL = helpIds[stagename];
 
         uiHelpBaseURL = getHelpBaseUrl();
-
         helpURL = uiHelpBaseURL + '/' + (relativeURL || 'index.html');
-
+        tracking.mixpanel.track(trackingEvent.HELP_CLICKED, {
+          'Current Page': window.location.pathname,
+          'Help Topic': relativeURL || 'index.html'
+        });
         if(typeof(helpWindow) == 'undefined' || helpWindow.closed) {
           helpWindow = window.open(helpURL);
         } else {
@@ -71,13 +74,16 @@ angular.module('dataCollectorApp.common')
         uiHelpBaseURL = getHelpBaseUrl();
         helpURL = uiHelpBaseURL + '/index.html';
 
+        tracking.mixpanel.track(trackingEvent.HELP_CLICKED, {
+          'Current Page': window.location.pathname,
+          'Help Topic': 'index.html'
+        });
         if(typeof(helpWindow) == 'undefined' || helpWindow.closed) {
           helpWindow = window.open(helpURL);
         } else {
           helpWindow.location.href = helpURL;
           helpWindow.focus();
         }
-
       });
     };
 
@@ -85,7 +91,8 @@ angular.module('dataCollectorApp.common')
       var uiHelpBaseURL;
       if ($rootScope.$storage.helpLocation === pipelineConstant.HOSTED_HELP && navigator && navigator.onLine) {
         if (buildInfo.version.indexOf('-SNAPSHOT') === -1) {
-          uiHelpBaseURL = 'https://www.streamsets.com/documentation/datacollector/' + buildInfo.version + '/help';
+          var version = buildInfo.version.split('.').slice(0, 2).join('.');
+          uiHelpBaseURL = 'https://www.streamsets.com/documentation/datacollector/' + version + '.x/help';
         } else {
           uiHelpBaseURL = 'https://streamsets.com/documentation/datacollector/latest/help/';
         }

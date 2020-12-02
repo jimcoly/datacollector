@@ -131,6 +131,12 @@
       <outputDirectory>/data</outputDirectory>
     </fileSet>
 
+    <!-- sample pipelines dir -->
+    <fileSet>
+      <directory>${basedir}/src/main/samplePipelines</directory>
+      <outputDirectory>/samplePipelines</outputDirectory>
+    </fileSet>
+
     <!-- data collector static web -->
     <fileSet>
       <directory>${sdc.ui.dist-dir}</directory>
@@ -159,6 +165,12 @@
       <outputDirectory>/docs/api</outputDirectory>
     </fileSet>
 
+    <!--aster-client-lib -->
+    <fileSet>
+      <directory>${basedir}/../aster-client/target/dist/</directory>
+      <outputDirectory></outputDirectory>
+    </fileSet>
+
     <!-- common-lib dir -->
     <fileSet>
       <directory>${basedir}/src/main/emptydir</directory>
@@ -183,13 +195,13 @@
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
-    <!-- DataFormants libs -->
+    <!-- Data Formats libs -->
     <fileSet>
       <directory>${basedir}/../dataformats-lib/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
-<!-- crypto-lib -->
+    <!-- crypto-lib -->
     <fileSet>
       <directory>${basedir}/../crypto-lib/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
@@ -231,6 +243,12 @@
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
+    <!-- orchestrator-lib -->
+    <fileSet>
+      <directory>${basedir}/../orchestrator-lib/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+
     <!-- rabbitmq-lib -->
     <fileSet>
       <directory>${basedir}/../rabbitmq-lib/target/streamsets-libs/</directory>
@@ -245,22 +263,6 @@
 
     <!-- CDH libs -->
     <fileSet>
-      <directory>${basedir}/../${cdh_5_10-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../${cdh_5_11-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../${cdh_5_12-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../${cdh_5_13-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
       <directory>${basedir}/../${cdh_5_14-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
@@ -269,15 +271,31 @@
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
     <fileSet>
+      <directory>${basedir}/../${cdh_5_16-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
       <directory>${basedir}/../${cdh_6_0-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${cdh_6_1-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${cdh_6_2-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${cdh_6_3-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${cdp_7_1-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
     <!-- CDH Spark Kafka lib -->
-    <fileSet>
-      <directory>${basedir}/../${cdh-spark_2_1-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
     <fileSet>
       <directory>${basedir}/../${cdh-spark_2_2-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
@@ -286,34 +304,22 @@
       <directory>${basedir}/../${cdh-spark_2_3-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${cdh-spark_2_3_r3-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${cdh-spark_2_3_r4-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
 
     <!-- HDP Libs -->
     <fileSet>
-      <directory>${basedir}/../${hdp_2_6-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../${hdp_2_6_1-hive1-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../${hdp_2_6_2-hive1-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../${hdp_2_6-hive2-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../${hdp_2_6-flume-lib}/target/streamsets-libs/</directory>
+      <directory>${basedir}/../${hdp_3_1-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
     <!-- MapR Libs -->
-    <fileSet>
-      <directory>${basedir}/../${mapr_5_2-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
     <fileSet>
       <directory>${basedir}/../${mapr_6_0-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
@@ -326,6 +332,15 @@
       <directory>${basedir}/../${mapr_6_0-mep5-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${mapr_6_1-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${mapr_6_1-mep6-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+
     <!-- Apache Kudu libs -->
     <fileSet>
       <directory>${basedir}/../${apache-kudu_1_3-lib}/target/streamsets-libs/</directory>
@@ -350,10 +365,6 @@
 
     <!-- Apache Kafka libs -->
     <fileSet>
-      <directory>${basedir}/../${apache-kafka_0_11-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
       <directory>${basedir}/../${apache-kafka_1_0-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
@@ -363,6 +374,30 @@
     </fileSet>
     <fileSet>
       <directory>${basedir}/../${apache-kafka_2_0-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${apache-kafka_2_1-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${apache-kafka_2_2-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${apache-kafka_2_3-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${apache-kafka_2_4-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${apache-kafka_2_5-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${apache-kafka_2_6-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
@@ -379,6 +414,10 @@
     </fileSet>
     <fileSet>
       <directory>${basedir}/../kinesis-lib/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../aws-secrets-manager-credentialstore-lib/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
@@ -414,11 +453,7 @@
 
     <!-- CDH5 Kafka libs -->
     <fileSet>
-      <directory>${basedir}/../${cdh_kafka_2_1-lib}/target/streamsets-libs/</directory>
-      <outputDirectory>/streamsets-libs/</outputDirectory>
-    </fileSet>
-    <fileSet>
-      <directory>${basedir}/../${cdh_kafka_3_0-lib}/target/streamsets-libs/</directory>
+      <directory>${basedir}/../${cdh_kafka_4_1-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
     <fileSet>
@@ -474,10 +509,27 @@
       <directory>${basedir}/../${kinetica_6_1-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${kinetica_6_2-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${kinetica_7_0-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+
 
     <!-- Elasticsearch libs -->
     <fileSet>
       <directory>${basedir}/../${elasticsearch_5-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${elasticsearch_6-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${elasticsearch_7-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
@@ -490,6 +542,10 @@
     <!-- Mongo libs -->
     <fileSet>
       <directory>${basedir}/../${mongodb_3-lib}/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${basedir}/../${mongodb_4-lib}/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
@@ -508,6 +564,12 @@
     <!-- Salesforce -->
     <fileSet>
       <directory>${basedir}/../salesforce-lib/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+
+    <!-- SAP HANA -->
+    <fileSet>
+      <directory>${basedir}/../sap_hana-lib/target/streamsets-libs/</directory>
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
@@ -566,6 +628,12 @@
       <outputDirectory>/streamsets-libs/</outputDirectory>
     </fileSet>
 
+    <!-- thycotic-credentialstore-lib -->
+    <fileSet>
+      <directory>${basedir}/../thycotic-credentialstore-lib/target/streamsets-libs/</directory>
+      <outputDirectory>/streamsets-libs/</outputDirectory>
+    </fileSet>
+
   </fileSets>
 
   <dependencySets>
@@ -590,7 +658,12 @@
       <scope>compile</scope>
       <includes>
         <include>com.streamsets:streamsets-datacollector-api</include>
+        <include>org.slf4j:slf4j-log4j12</include>
+        <include>log4j:log4j</include>
         <include>org.slf4j:jul-to-slf4j</include>
+        <include>org.bouncycastle:bcprov-jdk15on</include>
+        <include>org.bouncycastle:bcpg-jdk15on</include>
+        <include>org.bouncycastle:bcpkix-jdk15on</include>
       </includes>
     </dependencySet>
 
@@ -616,6 +689,26 @@
       <scope>compile</scope>
       <includes>
         <include>com.streamsets:streamsets-datacollector-container</include>
+        <include>com.streamsets:streamsets-datacollector-metadata-generator</include>
+        <!--
+          !! HACK ALERT !!
+          Including these dependencies explicitly here is the fix for SDC-12541.  The problem is that these particular
+          dependencies (which, at some level, are compile scoped transitive dependencies of container), are
+          being excluded by the assembly plugin. This may be caused by MASSEMBLY-894, or some other issue.
+
+          In any event, the maven-assembly-plugi doesn't provide detailed enough debug output to understand why
+          these artifacts are being excluded. Therefore, we are declaring them explicitly here so they are selected
+          for inclusion by the plugin to fix the problem.
+        -->
+        <include>org.glassfish.jersey.core:jersey-server</include>
+        <include>org.glassfish.jersey.core:jersey-client</include>
+        <include>org.glassfish.jersey.core:jersey-common</include>
+        <include>org.glassfish.jersey.bundles.repackaged:jersey-guava</include>
+        <include>org.glassfish.jersey.media:jersey-media-json-jackson</include>
+        <include>org.glassfish.jersey.ext:jersey-entity-filtering</include>
+        <include>com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider</include>
+        <include>com.fasterxml.jackson.jaxrs:jackson-jaxrs-base</include>
+        <include>io.swagger:swagger-annotations</include>
       </includes>
       <excludes>
         <exclude>com.streamsets:streamsets-datacollector-api</exclude>
@@ -645,6 +738,8 @@
       <unpack>false</unpack>
       <scope>compile</scope>
       <includes>
+        <include>javax.xml.bind:jaxb-api</include>
+        <include>javax.activation:javax.activation-api</include>
         <include>org.xerial.snappy:snappy-java</include>
       </includes>
     </dependencySet>

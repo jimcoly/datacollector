@@ -16,8 +16,44 @@
 package com.streamsets.pipeline.lib.salesforce;
 
 import com.streamsets.pipeline.api.ConfigDef;
+import com.streamsets.pipeline.api.ConfigDefBean;
+import com.streamsets.pipeline.api.Dependency;
+import com.streamsets.pipeline.api.ValueChooserModel;
 
+/**
+ Common to origin and lookup processor
+ */
 public class ForceInputConfigBean extends ForceConfigBean {
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "true",
+      label = "Query Existing Data",
+      description = "If enabled, existing data will be read from Force.com.",
+      displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "FORCE"
+  )
+  public boolean queryExistingData;
+
+  @ConfigDefBean(groups = {"QUERY"})
+  public ForceBulkConfigBean bulkConfig = new ForceBulkConfigBean();
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      label = "Include Deleted Records",
+      description = "When enabled, the processor will additionally retrieve deleted records from the Recycle Bin",
+      defaultValue = "false",
+      displayPosition = 82,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      dependencies = {
+          @Dependency(configName = "queryExistingData", triggeredByValues = "true"),
+      },
+      group = "QUERY"
+  )
+  public boolean queryAll = false;
+
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.BOOLEAN,
@@ -25,6 +61,7 @@ public class ForceInputConfigBean extends ForceConfigBean {
       description = "Generates record header and field attributes that provide additional details about source data, such as the source object and original data type.",
       defaultValue = "true",
       displayPosition = 130,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED"
   )
   public boolean createSalesforceNsHeaders = true;
@@ -36,9 +73,23 @@ public class ForceInputConfigBean extends ForceConfigBean {
       description = "Prefix for the header and field attributes, used as follows: <prefix>.<type of information>. For example: salesforce.precision and salesforce.scale",
       defaultValue = "salesforce.",
       displayPosition = 140,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED",
       dependsOn = "createSalesforceNsHeaders",
       triggeredByValue = "true"
   )
   public String salesforceNsHeaderPrefix = "salesforce.";
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      label = "Mismatched Types Behavior",
+      description = "How to handle fields with types that do not match the schema.",
+      defaultValue = "PRESERVE_DATA",
+      displayPosition = 310,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "ADVANCED"
+  )
+  @ValueChooserModel(MismatchedTypesOptionChooserValues.class)
+  public MismatchedTypesOption mismatchedTypesOption = MismatchedTypesOption.PRESERVE_DATA;
 }

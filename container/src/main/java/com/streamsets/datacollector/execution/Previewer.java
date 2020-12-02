@@ -15,12 +15,16 @@
  */
 package com.streamsets.datacollector.execution;
 
+import com.streamsets.datacollector.callback.CallbackInfo;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
+import com.streamsets.datacollector.event.dto.PipelineStartEvent;
 import com.streamsets.datacollector.runner.StageOutput;
 import com.streamsets.datacollector.util.PipelineException;
 
 import javax.ws.rs.core.MultivaluedMap;
-
+import java.util.EventListener;
 import java.util.List;
+import java.util.Map;
 
 public interface Previewer {
 
@@ -38,6 +42,10 @@ public interface Previewer {
   String getName();
 
   String getRev();
+
+  Map<String, ConnectionConfiguration> getConnections();
+
+  List<PipelineStartEvent.InterceptorConfiguration> getInterceptorConfs();
 
   void validateConfigs(long timeoutMillis) throws PipelineException;
 
@@ -64,5 +72,23 @@ public interface Previewer {
   PreviewStatus getStatus();
 
   PreviewOutput getOutput();
+
+  default Map<String, Object> getAttributes() {
+    return null;
+  }
+
+  default Map<String, Object> updateCallbackInfo(CallbackInfo callbackInfo) {
+    return null;
+  }
+
+  default void addStateEventListener(StateEventListener listener) {
+
+  }
+
+  interface StateEventListener extends EventListener {
+
+    void onPreviewerStateChange(PreviewStatus fromState, PreviewStatus toState);
+
+  }
 
 }

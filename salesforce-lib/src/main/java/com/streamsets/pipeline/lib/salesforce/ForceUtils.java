@@ -16,7 +16,9 @@
 package com.streamsets.pipeline.lib.salesforce;
 
 import com.sforce.async.AsyncApiException;
+import com.sforce.async.AsyncExceptionCode;
 import com.sforce.async.BulkConnection;
+import com.sforce.soap.partner.SessionHeader_element;
 import com.sforce.soap.partner.fault.ApiFault;
 import com.sforce.ws.ConnectionException;
 import com.sforce.ws.ConnectorConfig;
@@ -26,9 +28,9 @@ import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.base.OnRecordErrorException;
 import com.streamsets.pipeline.lib.operation.OperationType;
 import com.streamsets.pipeline.lib.operation.UnsupportedOperationAction;
-import com.streamsets.pipeline.lib.salesforce.mutualauth.ClientSSLTransportFactory;
-import com.streamsets.pipeline.lib.salesforce.mutualauth.MutualAuthConfigBean;
-import com.streamsets.pipeline.lib.salesforce.mutualauth.MutualAuthConnectorConfig;
+import com.streamsets.pipeline.lib.salesforce.connection.mutualauth.ClientSSLTransportFactory;
+import com.streamsets.pipeline.lib.salesforce.connection.mutualauth.MutualAuthConfigBean;
+import com.streamsets.pipeline.lib.salesforce.connection.mutualauth.MutualAuthConnectorConfig;
 import org.antlr.v4.runtime.ANTLRInputStream;
 import org.antlr.v4.runtime.BailErrorStrategy;
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -48,6 +50,12 @@ import java.util.List;
 public class ForceUtils {
   private static final Logger LOG = LoggerFactory.getLogger(ForceUtils.class);
   private static final int MUTUAL_AUTHENTICATION_PORT = 8443;
+  public static final String RECORD_ID_OFFSET_PREFIX = "recordId:";
+  public static final String EVENT_ID_OFFSET_PREFIX = "eventId:";
+  public static final long EVENT_ID_FROM_NOW = -1;
+  private static final long EVENT_ID_FROM_START = -2;
+  public static final String READ_EVENTS_FROM_START = EVENT_ID_OFFSET_PREFIX + EVENT_ID_FROM_START;
+  public static final String READ_EVENTS_FROM_NOW = ForceUtils.EVENT_ID_OFFSET_PREFIX + ForceUtils.EVENT_ID_FROM_NOW;
 
   public static String getExceptionCode(Throwable th) {
     return (th instanceof ApiFault) ? ((ApiFault) th).getExceptionCode().name() : "";
@@ -58,11 +66,11 @@ public class ForceUtils {
   }
 
   private static void setProxyConfig(ForceConfigBean conf, ConnectorConfig config) throws StageException {
-    if (conf.useProxy) {
-      config.setProxy(conf.proxyHostname, conf.proxyPort);
-      if (conf.useProxyCredentials) {
-        config.setProxyUsername(conf.proxyUsername.get());
-        config.setProxyPassword(conf.proxyPassword.get());
+    if (conf.connection.useProxy) {
+      config.setProxy(conf.connection.proxyHostname, conf.connection.proxyPort);
+      if (conf.connection.useProxyCredentials) {
+        config.setProxyUsername(conf.connection.proxyUsername.get());
+        config.setProxyPassword(conf.connection.proxyPassword.get());
       }
     }
   }
@@ -70,9 +78,9 @@ public class ForceUtils {
   public static ConnectorConfig getPartnerConfig(ForceConfigBean conf, SessionRenewer sessionRenewer) throws StageException {
     ConnectorConfig config = new ConnectorConfig();
 
-    config.setUsername(conf.username.get());
-    config.setPassword(conf.password.get());
-    config.setAuthEndpoint("https://"+conf.authEndpoint+"/services/Soap/u/"+conf.apiVersion);
+    config.setUsername(conf.connection.username.get());
+    config.setPassword(conf.connection.password.get());
+    config.setAuthEndpoint("https://"+conf.connection.authEndpoint+"/services/Soap/u/"+conf.connection.apiVersion);
     config.setCompression(conf.useCompression);
     config.setTraceMessage(conf.showTrace);
     config.setSessionRenewer(sessionRenewer);
@@ -90,8 +98,8 @@ public class ForceUtils {
     // executed and, if successful,
     // a valid session is stored in the ConnectorConfig instance.
     // Use this key to initialize a BulkConnection:
-    ConnectorConfig config = conf.mutualAuth.useMutualAuth
-        ? new MutualAuthConnectorConfig(conf.mutualAuth.getUnderlyingConfig().getSslContext())
+    ConnectorConfig config = conf.connection.mutualAuth.useMutualAuth
+        ? new MutualAuthConnectorConfig(conf.connection.mutualAuth.getUnderlyingConfig().getSslContext())
         : new ConnectorConfig();
     config.setSessionId(partnerConfig.getSessionId());
 
@@ -99,7 +107,7 @@ public class ForceUtils {
     // SOAP uri until the /Soap/ part. From here it's '/async/versionNumber'
     String soapEndpoint = partnerConfig.getServiceEndpoint();
     String restEndpoint = soapEndpoint.substring(0, soapEndpoint.indexOf("Soap/"))
-        + "async/" + conf.apiVersion;
+        + "async/" + conf.connection.apiVersion;
     config.setRestEndpoint(restEndpoint);
     config.setCompression(conf.useCompression);
     config.setTraceMessage(conf.showTrace);
@@ -109,8 +117,8 @@ public class ForceUtils {
 
     BulkConnection bulkConnection = new BulkConnection(config);
 
-    if (conf.mutualAuth.useMutualAuth) {
-      setupMutualAuthBulk(config, conf.mutualAuth);
+    if (conf.connection.mutualAuth.useMutualAuth) {
+      setupMutualAuthBulk(config, conf.connection.mutualAuth);
     }
 
     return bulkConnection;
@@ -174,21 +182,21 @@ public class ForceUtils {
 
   public static void setProxy(HttpClient httpClient, ForceConfigBean conf) throws URISyntaxException, StageException {
     httpClient.getProxyConfiguration().getProxies().add(
-        new HttpProxy(conf.proxyHostname, conf.proxyPort));
-    if (conf.useProxyCredentials) {
+        new HttpProxy(conf.connection.proxyHostname, conf.connection.proxyPort));
+    if (conf.connection.useProxyCredentials) {
       URI proxyURI = new URI("http",
           null,
-          conf.proxyHostname,
-          conf.proxyPort,
+          conf.connection.proxyHostname,
+          conf.connection.proxyPort,
           null,
           null,
           null
       );
       httpClient.getAuthenticationStore().addAuthentication(new BasicAuthentication(
           proxyURI,
-          conf.proxyRealm.get(),
-          conf.proxyUsername.get(),
-          conf.proxyPassword.get()
+          conf.connection.proxyRealm.get(),
+          conf.connection.proxyUsername.get(),
+          conf.connection.proxyPassword.get()
       ));
     }
   }
@@ -226,11 +234,25 @@ public class ForceUtils {
 
   public static SslContextFactory makeSslContextFactory(ForceConfigBean conf) throws StageException {
     SslContextFactory sslContextFactory = new SslContextFactory();
-    if (conf.mutualAuth.useMutualAuth) {
-      sslContextFactory.setKeyStore(conf.mutualAuth.getUnderlyingConfig().getKeyStore());
+    if (conf.connection.mutualAuth.useMutualAuth) {
+      sslContextFactory.setKeyStore(conf.connection.mutualAuth.getUnderlyingConfig().getKeyStore());
       // Need to set password in the SSLContextFactory even though it's set in the KeyStore
-      sslContextFactory.setKeyStorePassword(conf.mutualAuth.getUnderlyingConfig().keyStorePassword.get());
+      sslContextFactory.setKeyStorePassword(conf.connection.mutualAuth.getUnderlyingConfig().keyStorePassword.get());
     }
     return sslContextFactory;
+  }
+
+  public static void renewSession(BulkConnection connection, AsyncApiException e) throws AsyncApiException {
+    if (AsyncExceptionCode.InvalidSessionId.equals(e.getExceptionCode())) {
+      ConnectorConfig config = connection.getConfig();
+      try {
+        SessionRenewer.SessionRenewalHeader sessionHeader = config.getSessionRenewer().renewSession(config);
+        config.setSessionId(((SessionHeader_element)sessionHeader.headerElement).getSessionId());
+      } catch (ConnectionException e1) {
+        // Can't renew the session - log an error and throw the original AsyncApiException
+        LOG.error("Exception renewing session", e1);
+        throw e;
+      }
+    }
   }
 }

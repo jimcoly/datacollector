@@ -26,6 +26,7 @@ import com.streamsets.pipeline.api.Target;
 import com.streamsets.pipeline.api.base.OnRecordErrorException;
 import com.streamsets.pipeline.api.service.dataformats.DataFormatGeneratorService;
 import com.streamsets.pipeline.api.service.dataformats.DataGenerator;
+import com.streamsets.pipeline.api.service.dataformats.SdcRecordGeneratorService;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -41,23 +42,30 @@ final class DefaultFileHelper extends FileHelper {
   private static final String DOT = ".";
 
   private int fileCount = 0;
+  private final boolean isErrorStage;
 
-  DefaultFileHelper(Target.Context context, S3TargetConfigBean s3TargetConfigBean, TransferManager transferManager) {
+  DefaultFileHelper(
+      Target.Context context,
+      S3TargetConfigBean s3TargetConfigBean,
+      TransferManager transferManager,
+      boolean isErrorStage
+  ) {
     super(context, s3TargetConfigBean, transferManager);
+    this.isErrorStage = isErrorStage;
   }
 
   private String getUniqueDateWithIncrementalFileName(String keyPrefix) {
     fileCount++;
     StringBuilder fileName = new StringBuilder();
-    fileName = fileName.append(keyPrefix).append(fileCount);
+    fileName.append(keyPrefix).append(fileCount);
 
     if (!StringUtils.isNullOrEmpty(s3TargetConfigBean.fileNameSuffix)) {
       fileName.append(DOT);
-      fileName = fileName.append(s3TargetConfigBean.fileNameSuffix);
+      fileName.append(s3TargetConfigBean.fileNameSuffix);
     }
 
     if (s3TargetConfigBean.compress) {
-      fileName = fileName.append(GZIP_EXTENSION);
+      fileName.append(GZIP_EXTENSION);
     }
     return fileName.toString();
   }
@@ -74,7 +82,13 @@ final class DefaultFileHelper extends FileHelper {
     // wrap with gzip compression output stream if required
     OutputStream out = (s3TargetConfigBean.compress)? new GZIPOutputStream(bOut) : bOut;
 
-    DataGenerator generator = context.getService(DataFormatGeneratorService.class).getGenerator(out);
+    DataGenerator generator;
+    if (isErrorStage) {
+      generator = context.getService(SdcRecordGeneratorService.class).getGenerator(out);
+    }
+    else {
+      generator = context.getService(DataFormatGeneratorService.class).getGenerator(out);
+    }
     Record currentRecord;
 
     while (recordIterator.hasNext()) {

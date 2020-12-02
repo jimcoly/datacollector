@@ -20,7 +20,7 @@
 angular
   .module('dataCollectorApp.home')
 
-  .controller('BadRecordsController', function ($scope, $rootScope, _, api, pipelineConstant, $filter, $timeout) {
+  .controller('BadRecordsController', function ($scope, $rootScope, _, api, pipelineConstant, $filter, $timeout, $modal) {
 
     var formatValue = function(d){
       return $filter('abbreviateNumber')(d);
@@ -137,6 +137,31 @@ angular
 
       },
 
+      /**
+       * Display stack trace in modal dialog.
+       *
+       * @param errorMessage
+       */
+      showStackTrace: function (errorMessage) {
+        $modal.open({
+          templateUrl: 'errorModalContent.html',
+          controller: 'ErrorModalInstanceController',
+          size: 'lg',
+          backdrop: true,
+          resolve: {
+            errorObj: function () {
+              return {
+                RemoteException: {
+                  antennaDoctorMessages: errorMessage.antennaDoctorMessages,
+                  localizedMessage: errorMessage.localized,
+                  stackTrace: errorMessage.errorStackTrace
+                }
+              };
+            }
+          }
+        });
+      },
+
       getYAxisLabel: function() {
         return function() {
           return '';
@@ -156,66 +181,70 @@ angular
 
     var updateBadRecordsData = function(currentSelection) {
       $scope.showBadRecordsLoading = true;
-      api.pipelineAgent.getErrorRecords($scope.pipelineConfig.info.pipelineId, 0, currentSelection.instanceName)
-        .then(function(response) {
-          var res = response.data;
-          $scope.showBadRecordsLoading = false;
-          if(res && res.length) {
-            $scope.stageBadRecords = res.reverse();
-          } else {
-            $scope.showBadRecordsLoading = [];
-          }
-        })
-        .catch(function(res) {
-          $scope.showBadRecordsLoading = false;
-          $rootScope.common.errors = [res.data];
-        });
+      api.pipelineAgent.getErrorRecords(
+        $scope.pipelineConfig.info.pipelineId,
+        0,
+        currentSelection.instanceName,
+        $scope.edgeHttpUrl
+      ).then(function(response) {
+        var res = response.data;
+        $scope.showBadRecordsLoading = false;
+        if (res && res.length) {
+          $scope.stageBadRecords = res.reverse();
+        } else {
+          $scope.showBadRecordsLoading = [];
+        }
+      }).catch(function(res) {
+        $scope.showBadRecordsLoading = false;
+        $rootScope.common.errors = [res.data];
+      });
     };
 
     var updateErrorMessagesData = function(currentSelection) {
       $scope.showErrorMessagesLoading = true;
-      api.pipelineAgent.getErrorMessages($scope.pipelineConfig.info.pipelineId, 0, currentSelection.instanceName)
-        .then(function(response) {
-          var res = response.data;
-          $scope.showErrorMessagesLoading = false;
-          if(res && res.length) {
-            $scope.errorMessages = res.reverse();
-          } else {
-            $scope.errorMessages = [];
-          }
-        })
-        .catch(function(res) {
-          $scope.showErrorMessagesLoading = false;
-          $rootScope.common.errors = [res.data];
-        });
+      api.pipelineAgent.getErrorMessages(
+        $scope.pipelineConfig.info.pipelineId,
+        0,
+        currentSelection.instanceName,
+        $scope.edgeHttpUrl
+      ).then(function(response) {
+        var res = response.data;
+        $scope.showErrorMessagesLoading = false;
+        if (res && res.length) {
+          $scope.errorMessages = res.reverse();
+        } else {
+          $scope.errorMessages = [];
+        }
+      }).catch(function(res) {
+        $scope.showErrorMessagesLoading = false;
+        $rootScope.common.errors = [res.data];
+      });
     };
 
     var updateErrorsTabData = function(options) {
-      var type = options.type,
-        pipelineMetrics = $rootScope.common.pipelineMetrics,
-        currentSelection = $scope.detailPaneConfig;
-      if($scope.isPipelineRunning && pipelineMetrics && pipelineMetrics.meters) {
-
-        if(type === pipelineConstant.STAGE_INSTANCE) {  //Stage Instance
+      var type = options.type;
+      var pipelineMetrics = $scope.detailPaneMetrics;
+      var currentSelection = $scope.detailPaneConfig;
+      if (pipelineMetrics && pipelineMetrics.meters) {
+        if (type === pipelineConstant.STAGE_INSTANCE) {  //Stage Instance
           //Bad Records
           var errorRecordsCount = $scope.errorRecordsCount = pipelineMetrics.meters['stage.' + currentSelection.instanceName + '.errorRecords.meter'];
           $scope.stageBadRecords = [];
-          if(errorRecordsCount && parseInt(errorRecordsCount.count) > 0) {
+          if (errorRecordsCount && parseInt(errorRecordsCount.count) > 0) {
             updateBadRecordsData(currentSelection);
           }
 
           //Error Messages
           var errorMessagesCount = $scope.errorMessagesCount = pipelineMetrics.meters['stage.' + currentSelection.instanceName + '.stageErrors.meter'];
           $scope.errorMessages = [];
-          if(errorMessagesCount && parseInt(errorMessagesCount.count) > 0) {
+          if (errorMessagesCount && parseInt(errorMessagesCount.count) > 0) {
             updateErrorMessagesData(currentSelection);
           }
-
 
           $scope.errorRecordsHistogram = pipelineMetrics.histograms['stage.' + currentSelection.instanceName + '.errorRecords.histogramM5'];
           $scope.errorsHistogram = pipelineMetrics.histograms['stage.' + currentSelection.instanceName + '.stageErrors.histogramM5'];
 
-        } else if(type === pipelineConstant.PIPELINE){  //Pipeline
+        } else if (type === pipelineConstant.PIPELINE){  //Pipeline
           $scope.errorRecordsCount = pipelineMetrics.meters['pipeline.batchErrorRecords.meter'];
           $scope.stageBadRecords = [];
 
@@ -225,7 +254,7 @@ angular
       }
     };
 
-    if($scope.selectedType) {
+    if ($scope.selectedType) {
       updateErrorsTabData({
         type: $scope.selectedType
       });
@@ -236,21 +265,21 @@ angular
     });
 
 
-    $rootScope.$watch('common.pipelineMetrics', function() {
-      if(!$scope.pipelineConfig) {
+    $scope.$watch('detailPaneMetrics', function() {
+      if (!$scope.pipelineConfig) {
         return;
       }
 
-      var pipelineMetrics = $rootScope.common.pipelineMetrics,
-        currentSelection = $scope.detailPaneConfig,
-        stages = $scope.stageInstances,
-        badRecordsArr = [],
-        errorMessagesArr = [],
-        errorRecordsHistogram,
-        errorsHistogram;
+      var pipelineMetrics = $scope.detailPaneMetrics;
+      var currentSelection = $scope.detailPaneConfig;
+      var stages = $scope.stageInstances;
+      var badRecordsArr = [];
+      var errorMessagesArr = [];
+      var errorRecordsHistogram;
+      var errorsHistogram;
 
-      if($scope.isPipelineRunning && pipelineMetrics && pipelineMetrics.meters) {
-        if(currentSelection.instanceName) {
+      if (pipelineMetrics && pipelineMetrics.meters) {
+        if (currentSelection.instanceName) {
           errorRecordsHistogram = $scope.errorRecordsHistogram = pipelineMetrics.histograms['stage.' + currentSelection.instanceName + '.errorRecords.histogramM5'];
           errorsHistogram = $scope.errorsHistogram = pipelineMetrics.histograms['stage.' + currentSelection.instanceName + '.stageErrors.histogramM5'];
 
@@ -262,7 +291,7 @@ angular
             var errorRecordsMeter = pipelineMetrics.meters['stage.' + stage.instanceName + '.errorRecords.meter'],
               stageErrorsMeter = pipelineMetrics.meters['stage.' + stage.instanceName + '.stageErrors.meter'];
 
-            if(errorRecordsMeter && stageErrorsMeter) {
+            if (errorRecordsMeter && stageErrorsMeter) {
               badRecordsArr.push([stage.uiInfo.label,
                 errorRecordsMeter.count
               ]);
@@ -280,7 +309,7 @@ angular
           errorsHistogram = pipelineMetrics.histograms['pipeline.errorsPerBatch.histogramM5'];
         }
 
-        if(errorRecordsHistogram) {
+        if (errorRecordsHistogram) {
           $scope.errorRecordsPercentilesData[0].values = [
                 ["Mean" , errorRecordsHistogram.mean ],
                 ["Std Dev" , errorRecordsHistogram.stddev ],
@@ -294,7 +323,7 @@ angular
         }
 
 
-        if(errorsHistogram) {
+        if (errorsHistogram) {
           $scope.errorsPercentilesData[0].values = [
                 ["Mean" , errorsHistogram.mean ],
                 ["Std Dev" , errorsHistogram.stddev ],

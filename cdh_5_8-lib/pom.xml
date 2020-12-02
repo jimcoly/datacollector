@@ -23,12 +23,12 @@
     <parent>
         <groupId>com.streamsets</groupId>
         <artifactId>streamsets-datacollector-stage-lib-parent</artifactId>
-        <version>3.7.0-SNAPSHOT</version>
+        <version>3.21.0-SNAPSHOT</version>
         <relativePath>../stage-lib-parent</relativePath>
     </parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-cdh_5_8-lib</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <description>StreamSets Data Collector CDH 5.8.5 Lib</description>
     <name>StreamSets Data Collector CDH 5.8.5 Lib</name>
     <packaging>jar</packaging>
@@ -48,6 +48,20 @@
     </properties>
 
     <dependencies>
+
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-common</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>compile</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>javax.servlet</groupId>
+                    <artifactId>servlet-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <!--Dependency for Solr Unit Tests to override SDC Jetty Artifacts -->
         <dependency>
             <groupId>org.eclipse.jetty</groupId>
@@ -158,13 +172,32 @@
             <version>${project.version}</version>
             <scope>compile</scope>
         </dependency>
+        <dependency>
+            <groupId>com.streamsets</groupId>
+            <artifactId>streamsets-datacollector-spark-processor-protolib</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
 
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-scala_2.11</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
 
         <dependency>
           <groupId>com.streamsets</groupId>
           <artifactId>streamsets-datacollector-spark-executor-protolib</artifactId>
           <version>${project.version}</version>
           <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.streamsets</groupId>
+            <artifactId>streamsets-datacollector-spark-executor-protolib</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -179,6 +212,19 @@
                 <exclusion>
                     <groupId>com.fasterxml.jackson.core</groupId>
                     <artifactId>jackson-annotations</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_2.11</artifactId>
+            <version>${spark.version}</version>
+            <exclusions>
+                <!-- exclude the com.twitter (Parquet) dependencies here, because hive-serde already
+                     depends on and includes parquet-hadoop-bundle, which has all of these classes together -->
+                <exclusion>
+                    <groupId>com.twitter</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -279,10 +325,6 @@
                     <groupId>org.apache.hbase</groupId>
                     <artifactId>hbase-client</artifactId>
                 </exclusion>
-                <exclusion>
-                    <groupId>org.apache.hadoop</groupId>
-                    <artifactId>hadoop-common</artifactId>
-                </exclusion>
             </exclusions>
         </dependency>
 
@@ -333,7 +375,7 @@
                 <exclusion>
                     <groupId>org.mockito</groupId>
                     <artifactId>mockito-all</artifactId>
-                </exclusion>                  
+                </exclusion>
             </exclusions>
         </dependency>
 
@@ -434,6 +476,10 @@
                     <groupId>javax.servlet</groupId>
                     <artifactId>servlet-api</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
 
@@ -451,6 +497,10 @@
                     <groupId>com.github.stephenc.findbugs</groupId>
                     <artifactId>findbugs-annotations</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>jdk.tools</groupId>
+                    <artifactId>jdk.tools</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
 
@@ -463,6 +513,10 @@
                 <exclusion>
                     <groupId>javax.servlet</groupId>
                     <artifactId>servlet-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>jdk.tools</groupId>
+                    <artifactId>jdk.tools</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -686,6 +740,18 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.streamsets</groupId>
+            <artifactId>streamsets-datacollector-hdfs-protolib</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.streamsets</groupId>
+            <artifactId>streamsets-datacollector-cluster-hdfs-protolib</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
 
     </dependencies>
 
@@ -703,14 +769,10 @@
                         </goals>
                         <configuration>
                             <sources>
-                                <source>${basedir}/../hdfs-protolib/src/test/java</source>
                                 <source>${basedir}/../mapreduce-protolib/src/test/java</source>
                                 <source>${basedir}/../hive-protolib/src/test/java</source>
                                 <source>${basedir}/../hbase-protolib/src/test/java</source>
                                 <source>${basedir}/../flume-protolib/src/test/java</source>
-                                <source>${basedir}/../cluster-hdfs-protolib/src/test/java</source>
-                                <source>${basedir}/../spark-processor-protolib/src/test/java</source>
-                                <source>${basedir}/../spark-executor-protolib/src/test/java</source>
                             </sources>
                         </configuration>
                     </execution>
@@ -722,9 +784,6 @@
                         </goals>
                         <configuration>
                             <resources>
-                                <resource>
-                                    <directory>${basedir}/../hdfs-protolib/src/test/resources</directory>
-                                </resource>
                                 <resource>
                                     <directory>${basedir}/../mapreduce-protolib/src/test/resources</directory>
                                 </resource>
@@ -739,15 +798,6 @@
                                 </resource>
                                 <resource>
                                     <directory>${basedir}/../flume-protolib/src/test/resources</directory>
-                                </resource>
-                                <resource>
-                                    <directory>${basedir}/../cluster-hdfs-protolib/src/test/resources</directory>
-                                </resource>
-                                <resource>
-                                    <directory>${basedir}/../spark-processor-protolib/src/test/resources</directory>
-                                </resource>
-                                <resource>
-                                    <directory>${basedir}/../spark-executor-protolib/src/test/resources</directory>
                                 </resource>
                             </resources>
                         </configuration>
@@ -766,7 +816,13 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Xmx1g</argLine>
+                    <dependenciesToScan>
+                        <dependency>com.streamsets:streamsets-datacollector-dir-spooler-protolib</dependency>
+                        <dependency>com.streamsets:streamsets-datacollector-hdfs-protolib</dependency>
+                        <dependency>com.streamsets:streamsets-datacollector-cluster-hdfs-protolib</dependency>
+                        <dependency>com.streamsets:streamsets-datacollector-spark-processor-protolib</dependency>
+                        <dependency>com.streamsets:streamsets-datacollector-spark-executor-protolib</dependency>
+                    </dependenciesToScan>
                 </configuration>
             </plugin>
         </plugins>

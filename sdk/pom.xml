@@ -23,12 +23,12 @@
   <parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-root</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <relativePath>../root</relativePath>
   </parent>
   <groupId>com.streamsets</groupId>
   <artifactId>streamsets-datacollector-sdk</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector SDK</description>
   <name>StreamSets Data Collector SDK</name>
   <packaging>jar</packaging>
@@ -38,6 +38,11 @@
       <groupId>com.streamsets</groupId>
       <artifactId>streamsets-datacollector-api</artifactId>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.streamsets</groupId>
+      <artifactId>streamsets-datacollector-upgrader</artifactId>
+      <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>log4j</groupId>
@@ -166,7 +171,6 @@
     <dependency>
       <groupId>org.hamcrest</groupId>
       <artifactId>hamcrest-core</artifactId>
-      <version>${hamcrest.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -181,7 +185,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
-        <version>2.10.1</version>
+        <version>3.2.0</version>
         <executions>
           <execution>
             <id>javadoc</id>
@@ -195,7 +199,7 @@
               <quiet>true</quiet>
               <verbose>false</verbose>
               <charset>UTF-8</charset>
-
+              <detectJavaApiLink>false</detectJavaApiLink>
               <groups>
                 <group>
                   <title>Pipeline SDK</title>
@@ -211,13 +215,16 @@
             <goals>
               <goal>jar</goal>
             </goals>
+            <configuration>
+              <detectJavaApiLink>false</detectJavaApiLink>
+            </configuration>
           </execution>
         </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-source-plugin</artifactId>
-        <version>2.4</version>
+        <version>3.2.0</version>
         <executions>
           <execution>
             <id>attach-sources</id>
@@ -281,6 +288,7 @@
                     <exclude>com.streamsets.pipeline.api.service.dataformats.*</exclude>
                     <exclude>com.streamsets.pipeline.sdk.*</exclude>
                     <exclude>com.streamsets.pipeline.sdk.service.*</exclude>
+                    <exclude>com.streamsets.pipeline.upgrader.*</exclude>
                   </excludes>
                 </relocation>
               </relocations>

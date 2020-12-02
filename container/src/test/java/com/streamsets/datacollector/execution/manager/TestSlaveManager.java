@@ -27,6 +27,7 @@ import com.streamsets.datacollector.execution.runner.common.Constants;
 import com.streamsets.datacollector.execution.runner.provider.SlaveRunnerProviderImpl;
 import com.streamsets.datacollector.execution.store.FilePipelineStateStore;
 import com.streamsets.datacollector.execution.store.SlavePipelineStateStore;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.RuntimeModule;
 import com.streamsets.datacollector.main.SlaveRuntimeInfo;
@@ -53,6 +54,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import javax.annotation.Nullable;
 import javax.inject.Named;
 import javax.inject.Singleton;
 
@@ -92,6 +94,14 @@ public class TestSlaveManager {
 
     @Provides
     @Singleton
+    public BuildInfo providesBuildInfo() {
+      BuildInfo buildInfo = Mockito.mock(BuildInfo.class);
+      Mockito.when(buildInfo.getVersion()).thenReturn("3.17.0");
+      return buildInfo;
+    }
+
+    @Provides
+    @Singleton
     public Configuration provideConfiguration() {
       Configuration configuration = new Configuration();
       configuration.set(Constants.PIPELINE_CLUSTER_TOKEN_KEY, "sdcClusterToken");
@@ -101,12 +111,29 @@ public class TestSlaveManager {
 
     @Provides
     @Singleton
-    public PipelineStoreTask providePipelineStoreTask(RuntimeInfo runtimeInfo, StageLibraryTask stageLibraryTask,
-      PipelineStateStore pipelineStateStore) {
-      PipelineStoreTask pipelineStoreTask =
-        new SlavePipelineStoreTask(new TestUtil.TestPipelineStoreModuleNew().providePipelineStore(runtimeInfo,
-          stageLibraryTask, new FilePipelineStateStore(runtimeInfo, provideConfiguration())));
-      return pipelineStoreTask;
+    public EventListenerManager provideEventListenerManager() {
+      return Mockito.spy(new EventListenerManager());
+    }
+
+    @Provides
+    @Singleton
+    public PipelineStoreTask providePipelineStoreTask(
+        BuildInfo buildInfo,
+        Configuration configuration,
+        RuntimeInfo runtimeInfo,
+        StageLibraryTask stageLibraryTask,
+        EventListenerManager eventListenerManager,
+        PipelineStateStore pipelineStateStore
+    ) {
+      return new SlavePipelineStoreTask(
+            new TestUtil.TestPipelineStoreModuleNew().providePipelineStore(
+                buildInfo,
+                configuration,
+                runtimeInfo,
+                stageLibraryTask,
+                eventListenerManager,
+                new FilePipelineStateStore(runtimeInfo, provideConfiguration()))
+        );
     }
 
     @Provides
@@ -171,12 +198,6 @@ public class TestSlaveManager {
     public SnapshotStore provideSnapshotStore() {
       return Mockito.mock(SnapshotStore.class);
     }
-
-    @Provides @Singleton
-    public EventListenerManager provideEventListenerManager() {
-      return new EventListenerManager();
-    }
-
   }
 
   private void setUpManager() {

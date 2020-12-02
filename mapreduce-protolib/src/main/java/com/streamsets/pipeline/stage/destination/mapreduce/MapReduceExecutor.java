@@ -153,6 +153,7 @@ public class MapReduceExecutor extends BaseExecutor {
             jobConfiguration.setInt(AvroParquetConstants.DICTIONARY_PAGE_SIZE, jobConfig.avroParquetConfig.dictionaryPageSize);
             jobConfiguration.setInt(AvroParquetConstants.MAX_PADDING_SIZE, jobConfig.avroParquetConfig.maxPaddingSize);
             jobConfiguration.setBoolean(AvroConversionCommonConstants.OVERWRITE_TMP_FILE, jobConfig.avroConversionCommonConfig.overwriteTmpFile);
+            jobConfiguration.set(AvroParquetConstants.TIMEZONE, jobConfig.avroParquetConfig.timeZoneID);
             break;
           case AVRO_ORC:
             jobConfiguration.set(AvroConversionCommonConstants.INPUT_FILE, eval.evaluateToString("inputFile", jobConfig.avroConversionCommonConfig.inputFile, true));
@@ -187,7 +188,10 @@ public class MapReduceExecutor extends BaseExecutor {
     return mapReduceConfig.getUGI().doAs((PrivilegedExceptionAction<Job>) () -> {
       // Create new mapreduce job object
       Callable<Job> jobCreator = ReflectionUtils.newInstance(jobConfig.getJobCreator(), configuration);
+
       Job job = jobCreator.call();
+
+      job.setJobName(jobConfig.jobName);
 
       // In trace mode, dump all the configuration that we're using for the job
       if(LOG.isTraceEnabled()) {

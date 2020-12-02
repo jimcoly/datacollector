@@ -61,11 +61,16 @@ if [[ $DEBUG = "true" ]]; then
 fi
 
 function update_users {
-  IFS=';' read -r -a array <<< "$CONFIGURED_USERS"
-  for element in "${array[@]}"; do
-    echo "$element" >> "$CONF_DIR"/"$FILE_AUTH_TYPE"-realm.properties
-  done
-  chmod 600 "$CONF_DIR"/"$FILE_AUTH_TYPE"-realm.properties
+   IFS=';' read -r -a array <<< "$CONFIGURED_USERS"
+  # If the auth type is aster, we don't do anything
+  if [[ "$FILE_AUTH_TYPE" == "aster" ]]; then
+    log "Skip update_users for aster"
+  else
+    for element in "${array[@]}"; do
+      echo "$element" >> "$CONF_DIR"/"$FILE_AUTH_TYPE"-realm.properties
+    done
+    chmod 600 "$CONF_DIR"/"$FILE_AUTH_TYPE"-realm.properties
+  fi
 }
 
 function generate_ldap_configs {
@@ -208,7 +213,7 @@ function sch_enable {
   sch_verify_config
 
   # Finally enable SCH
-  touch $DM_TOKEN_FILE
+  touch $DPM_TOKEN_FILE
   exec $SDC_DIST/bin/streamsets sch register -l $DPM_BASE_URL -u $DPM_USER -p $DPM_PASSWORD --token-file-path $DPM_TOKEN_FILE --skip-config-update
 }
 
@@ -290,7 +295,7 @@ case $CMD in
     ;;
 
   sch_disable)
-    sch_disable 
+    sch_disable
     exit 0
     ;;
 esac

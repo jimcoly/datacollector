@@ -21,19 +21,23 @@ import com.streamsets.pipeline.api.GenerateResourceBundle;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.Target;
 import com.streamsets.pipeline.api.base.configurablestage.DTarget;
+import com.streamsets.pipeline.lib.event.WholeFileProcessedEvent;
 
 @StageDef(
     version = 1,
-    label = "Azure Data Lake Store",
-    description = "Writes data to Azure Data Lake Store",
-    icon = "data-lake-store.png",
+    label = "Azure Data Lake Storage (Legacy)",
+    description = "Writes data to Azure Data Lake Storage (Legacy)",
+    icon = "data-lake-store-gen1.png",
     producesEvents = true,
-    onlineHelpRefUrl ="index.html?contextID=task_jfl_nf4_zx"
+    eventDefs = {WholeFileProcessedEvent.class},
+    upgraderDef = "upgrader/DataLakeDTargetLegacy.yaml",
+    onlineHelpRefUrl = "index.html?contextID=task_jfl_nf4_zx"
 )
-
 @ConfigGroups(value = Groups.class)
 @GenerateResourceBundle
+@Deprecated
 public class DataLakeDTarget extends DTarget {
+
   @ConfigDefBean(groups = {"DATALAKE", "DATA_FORMAT"})
   public DataLakeConfigBean dataLakeConfig;
 

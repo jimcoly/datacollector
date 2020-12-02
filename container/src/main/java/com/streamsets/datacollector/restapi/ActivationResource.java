@@ -15,7 +15,9 @@
  */
 package com.streamsets.datacollector.restapi;
 
+import com.google.common.collect.ImmutableSet;
 import com.streamsets.datacollector.activation.Activation;
+import com.streamsets.datacollector.usagestats.StatsCollector;
 import com.streamsets.datacollector.util.AuthzRole;
 import com.streamsets.datacollector.util.PipelineException;
 import io.swagger.annotations.Api;
@@ -34,7 +36,10 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 @Path("/v1/activation")
 @Api(value = "activation")
@@ -42,11 +47,16 @@ import java.util.Map;
 @RequiresCredentialsDeployed
 public class ActivationResource {
 
+  static final String LICENSE_TYPE = "licenseType";
+  static final Set<String> AUTO_OPT_IN_TYPES = ImmutableSet.of("TRIAL", "REGISTRATION");
+
   private final Activation activation;
+  private final StatsCollector statsCollector;
 
   @Inject
-  public ActivationResource(Activation activation) {
+  public ActivationResource(Activation activation, StatsCollector statsCollector) {
     this.activation = activation;
+    this.statsCollector = statsCollector;
   }
 
   @GET
@@ -65,6 +75,13 @@ public class ActivationResource {
   public Response updateActivation(String activationKey) throws PipelineException, IOException {
     if (activation.isEnabled()) {
       activation.setActivationKey(activationKey);
+      Map<String, Object> additionalInfo = Optional.ofNullable(activation.getInfo())
+          .map(Activation.Info::getAdditionalInfo).orElse(Collections.emptyMap());
+      Object licenseType = additionalInfo.get(LICENSE_TYPE);
+      boolean canOptIn = licenseType == null || AUTO_OPT_IN_TYPES.contains(licenseType);
+      if (!statsCollector.isOpted() && canOptIn) {
+        statsCollector.setActive(true);
+      }
       return Response.status(Response.Status.OK).entity(activation).build();
     } else {
       return Response.status(Response.Status.NOT_IMPLEMENTED).build();

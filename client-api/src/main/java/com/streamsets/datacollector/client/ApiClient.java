@@ -24,6 +24,7 @@ import org.glassfish.jersey.client.ClientProperties;
 import org.glassfish.jersey.client.filter.CsrfProtectionFilter;
 import org.glassfish.jersey.logging.LoggingFeature;
 
+import javax.net.ssl.SSLContext;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
@@ -55,6 +56,7 @@ public class ApiClient {
   private boolean debugging = false;
   private String basePath = "https://localhost/rest";
   private JSON json = new JSON();
+  private SSLContext sslContext = null;
 
   private final Authentication authentication;
 
@@ -121,7 +123,7 @@ public class ApiClient {
    * Helper method to set username for the first HTTP basic authentication.
    */
   public ApiClient setUsername(String username) {
-    if(authentication != null) {
+    if (authentication != null) {
       authentication.setUsername(username);
     }
     return this;
@@ -131,7 +133,7 @@ public class ApiClient {
    * Helper method to set password for the first HTTP basic authentication.
    */
   public ApiClient setPassword(String password) {
-    if(authentication != null) {
+    if (authentication != null) {
       authentication.setPassword(password);
     }
     return this;
@@ -141,7 +143,7 @@ public class ApiClient {
    * Helper method to set dpmBaseURL for the first HTTP DPM authentication.
    */
   public ApiClient setDPMBaseURL(String dpmBaseURL) {
-    if(dpmBaseURL != null && authentication != null) {
+    if (dpmBaseURL != null && authentication != null) {
       authentication.setDPMBaseURL(dpmBaseURL);
     }
     return this;
@@ -227,7 +229,7 @@ public class ApiClient {
     } else if (param instanceof Collection) {
       StringBuilder b = new StringBuilder();
       for(Object o : (Collection)param) {
-        if(b.length() > 0) {
+        if (b.length() > 0) {
           b.append(",");
         }
         b.append(String.valueOf(o));
@@ -379,82 +381,93 @@ public class ApiClient {
     }
   }
 
-  private Response getAPIResponse(String path, String method, List<Pair> queryParams, Object body, byte[] binaryBody,
-                                  Map<String, String> headerParams, Map<String, Object> formParams, String accept,
-                                  String contentType, String[] authNames) throws ApiException {
+  private Response getAPIResponse(
+      String path,
+      String method,
+      List<Pair> queryParams,
+      Object body,
+      byte[] binaryBody,
+      Map<String, String> headerParams,
+      Map<String, Object> formParams,
+      String accept,
+      String contentType,
+      String[] authNames
+  ) throws ApiException {
+    String userAuthToken = null;
+    try {
+      if (body != null && binaryBody != null){
+        throw new ApiException(500, "either body or binaryBody must be null");
+      }
 
-    if (body != null && binaryBody != null){
-      throw new ApiException(500, "either body or binaryBody must be null");
-    }
+      Client client = getClient();
+      Response response = null;
 
-    Client client = getClient();
-    Response response = null;
-
-    StringBuilder b = new StringBuilder();
-    b.append("?");
-    if (queryParams != null){
-      for (Pair queryParam : queryParams){
-        if (!queryParam.getName().isEmpty()) {
-          b.append(escapeString(queryParam.getName()));
-          b.append("=");
-          b.append(escapeString(queryParam.getValue()));
-          b.append("&");
+      StringBuilder b = new StringBuilder();
+      b.append("?");
+      if (queryParams != null){
+        for (Pair queryParam : queryParams){
+          if (!queryParam.getName().isEmpty()) {
+            b.append(escapeString(queryParam.getName()));
+            b.append("=");
+            b.append(escapeString(queryParam.getValue()));
+            b.append("&");
+          }
         }
       }
-    }
 
-    String querystring = b.substring(0, b.length() - 1);
+      String querystring = b.substring(0, b.length() - 1);
 
-    WebTarget target = client.target(basePath + path + querystring);
+      WebTarget target = client.target(basePath + path + querystring);
 
-    if (debugging) {
-      Logger logger = Logger.getLogger(getClass().getName());
-      Feature loggingFeature = new LoggingFeature(logger, Level.INFO, null, null);
-      target.register(loggingFeature);
-    }
+      if (debugging) {
+        Logger logger = Logger.getLogger(getClass().getName());
+        Feature loggingFeature = new LoggingFeature(logger, Level.INFO, null, null);
+        target.register(loggingFeature);
+      }
 
-    if(authentication != null) {
-      authentication.login();
-      authentication.setFilter(target);
-    }
+      if (authentication != null) {
+        userAuthToken = authentication.login();
+        authentication.setFilter(target);
+      }
 
-    Invocation.Builder builder;
-    if (accept != null) {
-      builder = target.request(accept);
-    } else {
-      builder = target.request();
-    }
+      Invocation.Builder builder;
+      if (accept != null) {
+        builder = target.request(accept);
+      } else {
+        builder = target.request();
+      }
 
-    for (Map.Entry<String, String> entry : headerParams.entrySet()) {
-      builder = builder.header(entry.getKey(), entry.getValue());
-    }
-    for (Map.Entry<String, String> entry : defaultHeaderMap.entrySet()) {
-      if (!headerParams.containsKey(entry.getKey())) {
+      for (Map.Entry<String, String> entry : headerParams.entrySet()) {
         builder = builder.header(entry.getKey(), entry.getValue());
       }
-    }
+      for (Map.Entry<String, String> entry : defaultHeaderMap.entrySet()) {
+        if (!headerParams.containsKey(entry.getKey())) {
+          builder = builder.header(entry.getKey(), entry.getValue());
+        }
+      }
 
-    if(authentication != null) {
-      authentication.setHeader(builder);
-    }
+      if (authentication != null) {
+        authentication.setHeader(builder, userAuthToken);
+      }
 
-    if ("GET".equals(method)) {
-      response = builder.get();
-    } else if ("POST".equals(method)) {
-      response = builder.post(Entity.entity(body, contentType));
-    } else if ("PUT".equals(method)) {
-      response = builder.put(Entity.entity(body, contentType));
-    } else if ("DELETE".equals(method)) {
-      response = builder.delete();
-    } else {
-      throw new ApiException(500, "unknown method type " + method);
-    }
+      if ("GET".equals(method)) {
+        response = builder.get();
+      } else if ("POST".equals(method)) {
+        response = builder.post(Entity.entity(body, contentType));
+      } else if ("PUT".equals(method)) {
+        response = builder.put(Entity.entity(body, contentType));
+      } else if ("DELETE".equals(method)) {
+        response = builder.delete();
+      } else {
+        throw new ApiException(500, "unknown method type " + method);
+      }
 
-    if(authentication != null) {
-      authentication.logout();
+      return response;
+    } finally {
+      if (authentication != null && userAuthToken != null) {
+        authentication.logout(userAuthToken);
+      }
     }
-
-    return response;
   }
 
   /**
@@ -482,13 +495,13 @@ public class ApiClient {
     statusCode = response.getStatusInfo().getStatusCode();
     responseHeaders = response.getHeaders();
 
-    if(statusCode == 401) {
+    if (statusCode == 401) {
       throw new ApiException(
           response.getStatusInfo().getStatusCode(),
           "HTTP Error 401 - Unauthorized: Access is denied due to invalid credentials.",
           response.getHeaders(),
           null);
-    } else if(response.getStatusInfo() == Response.Status.NO_CONTENT) {
+    } else if (response.getStatusInfo() == Response.Status.NO_CONTENT) {
       return null;
     } else if (response.getStatusInfo().getFamily() == Family.SUCCESSFUL) {
       if (returnType == null)
@@ -541,14 +554,23 @@ public class ApiClient {
     return encodedFormParams;
   }
 
+  public void setSslContext(SSLContext sslContext) {
+    this.sslContext = sslContext;
+  }
+
   /**
    * Get an existing client or create a new client to handle HTTP request.
    */
   private Client getClient() {
-    if(!hostMap.containsKey(basePath)) {
+    if (!hostMap.containsKey(basePath)) {
       ClientConfig config = new ClientConfig();
       config.property(ClientProperties.SUPPRESS_HTTP_COMPLIANCE_VALIDATION, true);
-      Client client = ClientBuilder.newClient(config);
+      Client client;
+      if (sslContext != null) {
+        client = ClientBuilder.newBuilder().sslContext(sslContext).withConfig(config).build();
+      } else {
+        client = ClientBuilder.newClient(config);
+      }
       client.register(new CsrfProtectionFilter("CSRF"));
       hostMap.put(basePath, client);
     }

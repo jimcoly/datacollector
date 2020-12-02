@@ -23,12 +23,12 @@
   <parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-root-lib</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <relativePath>../root-lib</relativePath>
   </parent>
   <groupId>com.streamsets</groupId>
   <artifactId>streamsets-datacollector-sdc-kafka-09-mapr51</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector SDC Kafka 09 MapR51</description>
   <name>StreamSets Data Collector SDC kafka 09 MapR51</name>
   <packaging>jar</packaging>
@@ -48,9 +48,13 @@
   <repositories>
     <repository>
       <id>mapr-releases</id>
-      <url>http://repository.mapr.com/nexus/content/repositories/releases</url>
-      <snapshots><enabled>true</enabled></snapshots>
-      <releases><enabled>true</enabled></releases>
+      <url>https://repository.mapr.com/maven/</url>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
     </repository>
   </repositories>
 
@@ -149,7 +153,6 @@
           as some kerberos settings are read only on startup and cached -->
           <forkCount>1</forkCount>
           <reuseForks>false</reuseForks>
-          <argLine>-Xmx1g</argLine>
         </configuration>
       </plugin>
     </plugins>

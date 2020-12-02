@@ -82,7 +82,7 @@ public class TestLogSpoolDirSourceGrokFormat {
     conf.spoolDir = createTestDir();
     conf.batchSize = 10;
     conf.overrunLimit = 100;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].log";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -160,6 +160,7 @@ public class TestLogSpoolDirSourceGrokFormat {
         record.get("/message").getValueAsString());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -232,6 +233,7 @@ public class TestLogSpoolDirSourceGrokFormat {
       Assert.assertEquals(0, records.size());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }

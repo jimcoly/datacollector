@@ -23,7 +23,8 @@ import com.streamsets.pipeline.api.BatchMaker;
 import com.streamsets.pipeline.api.Field;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.StageException;
-import com.streamsets.pipeline.lib.event.CommonEvents;
+import com.streamsets.pipeline.api.impl.Utils;
+import com.streamsets.pipeline.lib.event.NoMoreDataEvent;
 import com.streamsets.pipeline.lib.util.ThreadUtil;
 import com.streamsets.pipeline.stage.common.mongodb.Errors;
 import com.streamsets.pipeline.stage.common.mongodb.Groups;
@@ -52,6 +53,8 @@ public class MongoDBSource extends AbstractMongoDBSource {
   private long recordsSinceLastNMREvent = 0;
   private long errorRecordsSinceLastNMREvent = 0;
   private final SimpleDateFormat dateFormatter = new SimpleDateFormat(TIMESTAMP_FORMAT);
+
+  private boolean checkBatchSize = true;
 
   public MongoDBSource(MongoSourceConfigBean configBean) {
     super(configBean);
@@ -104,7 +107,13 @@ public class MongoDBSource extends AbstractMongoDBSource {
     long batchWaitTime = System.currentTimeMillis() + (configBean.maxBatchWaitTime * 1000);
 
     try {
-      while (numRecords < Math.min(configBean.batchSize, maxBatchSize) && System.currentTimeMillis() < batchWaitTime) {
+      int batchSize = Math.min(configBean.batchSize, maxBatchSize);
+      if (!getContext().isPreview() && checkBatchSize && configBean.batchSize > maxBatchSize) {
+        getContext().reportError(Errors.MONGODB_43, maxBatchSize);
+        checkBatchSize = false;
+      }
+
+      while (numRecords < batchSize && System.currentTimeMillis() < batchWaitTime) {
         LOG.trace("Trying to get next doc from cursor");
         Document doc = cursor.tryNext();
         if (null == doc) {
@@ -127,7 +136,12 @@ public class MongoDBSource extends AbstractMongoDBSource {
         }
 
         // validate the date type of offset field is ObjectId or Date
-        Object offsetFieldObject = doc.get(configBean.offsetField);
+        Object offsetFieldObject;
+        if (configBean.offsetField.indexOf('.') == -1) {
+          offsetFieldObject = doc.get(configBean.offsetField);
+        } else {
+          offsetFieldObject = getNestedFieldObject(doc);
+        }
         if (offsetFieldObject == null
             || (configBean.offsetType == OffsetFieldType.OBJECTID && !(offsetFieldObject instanceof ObjectId))
             || (configBean.offsetType == OffsetFieldType.STRING && !(offsetFieldObject instanceof String))
@@ -142,6 +156,7 @@ public class MongoDBSource extends AbstractMongoDBSource {
         try {
           fields = MongoDBUtil.createFieldFromDocument(doc);
         } catch (IOException e) {
+          LOG.debug(Utils.format(Errors.MONGODB_10.name(), e.toString()), e);
           errorRecordHandler.onError(Errors.MONGODB_10, e.toString(), e);
           ++errorRecordsSinceLastNMREvent;
           continue;
@@ -176,6 +191,25 @@ public class MongoDBSource extends AbstractMongoDBSource {
 
     return nextSourceOffset;
   }
+
+  private Object getNestedFieldObject(Document doc) throws StageException {
+    String[] keys = configBean.offsetField.split("\\.");
+    return getNestedFieldObject(doc, keys, 0);
+  }
+
+  private Object getNestedFieldObject(Document doc, String[] keys, int i) throws StageException {
+    if (keys.length-1 == i) {
+      return doc.get(keys[i]);
+    }
+
+    if (!doc.containsKey(keys[i])) {
+      errorRecordHandler.onError(Errors.MONGODB_11, configBean.offsetField, doc.toString());
+      ++errorRecordsSinceLastNMREvent;
+    }
+
+    return getNestedFieldObject((Document)doc.get(keys[i]), keys, i+1);
+  }
+
 
   private String getNextSourceOffset(Document doc) throws StageException {
     String[] keys = configBean.offsetField.split("\\.");
@@ -235,8 +269,7 @@ public class MongoDBSource extends AbstractMongoDBSource {
 
       if (configBean.isCapped) {
         cursor = mongoCollection
-            .find()
-            .filter(Filters.gt(
+            .find(Filters.gt(
                 offsetField,
                 configBean.offsetType ==  OffsetFieldType.STRING ? stringOffset : configBean.offsetType == OffsetFieldType.OBJECTID ? objectIdOffset : dateOffset
             ))
@@ -245,8 +278,7 @@ public class MongoDBSource extends AbstractMongoDBSource {
             .iterator();
       } else {
         cursor = mongoCollection
-            .find()
-            .filter(Filters.gt(
+            .find(Filters.gt(
                 offsetField,
                 configBean.offsetType ==  OffsetFieldType.STRING ? stringOffset : configBean.offsetType == OffsetFieldType.OBJECTID ? objectIdOffset : dateOffset
             ))
@@ -260,9 +292,9 @@ public class MongoDBSource extends AbstractMongoDBSource {
 
   private void conditionallyGenerateNoMoreDataEvent() {
     if(recordsSinceLastNMREvent != 0 || errorRecordsSinceLastNMREvent != 0) {
-      CommonEvents.NO_MORE_DATA.create(getContext())
-          .with("record-count", recordsSinceLastNMREvent)
-          .with("error-count", errorRecordsSinceLastNMREvent)
+      NoMoreDataEvent.EVENT_CREATOR.create(getContext())
+          .with(NoMoreDataEvent.RECORD_COUNT, recordsSinceLastNMREvent)
+          .with(NoMoreDataEvent.ERROR_COUNT, errorRecordsSinceLastNMREvent)
           .createAndSend();
       recordsSinceLastNMREvent = 0;
       errorRecordsSinceLastNMREvent = 0;

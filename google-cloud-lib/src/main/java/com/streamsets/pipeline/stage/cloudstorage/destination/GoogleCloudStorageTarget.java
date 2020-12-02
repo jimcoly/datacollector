@@ -40,14 +40,17 @@ import com.streamsets.pipeline.lib.el.ELUtils;
 import com.streamsets.pipeline.lib.el.RecordEL;
 import com.streamsets.pipeline.lib.el.TimeEL;
 import com.streamsets.pipeline.lib.el.TimeNowEL;
+import com.streamsets.pipeline.lib.event.WholeFileProcessedEvent;
 import com.streamsets.pipeline.lib.generator.DataGenerator;
 import com.streamsets.pipeline.lib.generator.DataGeneratorException;
+import com.streamsets.pipeline.lib.googlecloud.GoogleCloudCredentialsConfig;
 import com.streamsets.pipeline.lib.io.fileref.FileRefStreamCloseEventHandler;
 import com.streamsets.pipeline.lib.io.fileref.FileRefUtil;
 import com.streamsets.pipeline.stage.cloudstorage.lib.Errors;
 import com.streamsets.pipeline.stage.cloudstorage.lib.GCSEvents;
 import com.streamsets.pipeline.stage.cloudstorage.lib.GcsUtil;
-import com.streamsets.pipeline.stage.lib.GoogleCloudCredentialsConfig;
+import com.streamsets.pipeline.stage.common.DefaultErrorRecordHandler;
+import com.streamsets.pipeline.stage.common.ErrorRecordHandler;
 import com.streamsets.pipeline.stage.pubsub.lib.Groups;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -82,6 +85,7 @@ public class GoogleCloudStorageTarget extends BaseTarget {
   private ELEval timeDriverElEval;
   private CredentialsProvider credentialsProvider;
   private Calendar calendar;
+  private ErrorRecordHandler errorRecordHandler;
 
   public GoogleCloudStorageTarget(GCSTargetConfig gcsTargetConfig) {
     this.gcsTargetConfig = gcsTargetConfig;
@@ -100,7 +104,7 @@ public class GoogleCloudStorageTarget extends BaseTarget {
 
     try {
       storage = StorageOptions.newBuilder().setCredentials(credentialsProvider.getCredentials()).build().getService();
-    } catch (IOException e) {
+    } catch (IOException | NullPointerException e) {
       issues.add(getContext().createConfigIssue(
           Groups.CREDENTIALS.name(),
           GoogleCloudCredentialsConfig.CONF_CREDENTIALS_CREDENTIALS_PROVIDER,
@@ -112,6 +116,8 @@ public class GoogleCloudStorageTarget extends BaseTarget {
     if (gcsTargetConfig.dataFormat == DataFormat.WHOLE_FILE) {
       fileNameEval = getContext().createELEval("fileNameEL");
     }
+    errorRecordHandler = new DefaultErrorRecordHandler(getContext());
+
     return issues;
   }
 
@@ -164,12 +170,19 @@ public class GoogleCloudStorageTarget extends BaseTarget {
                 recordsWithoutErrors.incrementAndGet();
               } catch (DataGeneratorException | IOException e) {
                 LOG.error("Error writing record {}. Reason {}", record.getHeader().getSourceId(), e);
-                getContext().toError(record, Errors.GCS_02, record.getHeader().getSourceId(), e);
+                errorRecordHandler.onError(new OnRecordErrorException(
+                        record,
+                        Errors.GCS_02,
+                        record.getHeader().getSourceId(),
+                        e));
               }
             });
           } catch (IOException e) {
-            LOG.error("Error happened when creating Output stream. Reason {}", e);
-            records.forEach(record -> getContext().toError(record, e));
+            LOG.error("Error happened when creating Output stream", e);
+            records.forEach(record -> errorRecordHandler.onError(new OnRecordErrorException(
+                    record,
+                    Errors.GCS_08,
+                    e)));
           }
 
           try {
@@ -182,12 +195,18 @@ public class GoogleCloudStorageTarget extends BaseTarget {
                   .createAndSend();
             }
           } catch (StorageException e) {
-            LOG.error("Error happened when writing to Output stream. Reason {}", e);
-            records.forEach(record -> getContext().toError(record, e));
+            LOG.error("Error happened when writing to Output stream", e);
+            records.forEach(record -> errorRecordHandler.onError(new OnRecordErrorException(
+                    record,
+                    Errors.GCS_09,
+                    e)));
           }
         } catch (IOException e) {
-          LOG.error("Error happened when creating Output stream. Reason {}", e);
-          records.forEach(record -> getContext().toError(record, e));
+          LOG.error("Error happened when creating Output stream", e);
+          records.forEach(record -> errorRecordHandler.onError(new OnRecordErrorException(
+                  record,
+                  Errors.GCS_08,
+                  e)));
         }
       });
     }
@@ -211,14 +230,14 @@ public class GoogleCloudStorageTarget extends BaseTarget {
             gcsTargetConfig.dataGeneratorFormatConfig.wholeFileExistsAction
                 == WholeFileExistsAction.TO_ERROR) {
           //File already exists and error action is to Error
-          getContext().toError(record, Errors.GCS_03, filePath);
+          errorRecordHandler.onError(new OnRecordErrorException(record, Errors.GCS_03, filePath));
           return;
         } //else overwrite
 
-        EventRecord eventRecord = GCSEvents.FILE_TRANSFER_COMPLETE_EVENT.create(getContext())
-            .with(FileRefUtil.WHOLE_FILE_SOURCE_FILE_INFO, record.get(FileRefUtil.FILE_INFO_FIELD_PATH).getValueAsMap())
+        EventRecord eventRecord = WholeFileProcessedEvent.FILE_TRANSFER_COMPLETE_EVENT.create(getContext())
+            .with(WholeFileProcessedEvent.SOURCE_FILE_INFO, record.get(FileRefUtil.FILE_INFO_FIELD_PATH).getValueAsMap())
             .withStringMap(
-                FileRefUtil.WHOLE_FILE_TARGET_FILE_INFO,
+                WholeFileProcessedEvent.TARGET_FILE_INFO,
                 ImmutableMap.of(
                     GCSEvents.BUCKET, blobId.getBucket(),
                     GCSEvents.OBJECT_KEY, blobId.getName()
@@ -239,8 +258,11 @@ public class GoogleCloudStorageTarget extends BaseTarget {
         ) {
           dg.write(record);
         } catch (IOException | DataGeneratorException e) {
-          LOG.error("Error happened when Writing to Output stream. Reason {}", e);
-          getContext().toError(record, Errors.GCS_02, e);
+          LOG.error("Error happened when Writing to Output stream", e);
+          errorRecordHandler.onError(new OnRecordErrorException(
+                  record,Errors.GCS_02,
+                  record.getHeader().getSourceId(),
+                  e));
           errorHappened = true;
         }
         if (!errorHappened){
@@ -248,11 +270,11 @@ public class GoogleCloudStorageTarget extends BaseTarget {
           getContext().toEvent(eventRecord);
         }
       } catch (ELEvalException e) {
-        LOG.error("Error happened when evaluating Expressions. Reason {}", e);
-        getContext().toError(record, Errors.GCS_04, e);
+        LOG.error("Error happened when evaluating Expressions", e);
+        errorRecordHandler.onError(new OnRecordErrorException(record, Errors.GCS_04, e));
       } catch (OnRecordErrorException e) {
-        LOG.error("Error happened when evaluating Expressions. Reason {}", e);
-        getContext().toError(e.getRecord(), e.getErrorCode(), e.getParams());
+        LOG.error("Error happened when evaluating Expressions", e);
+        errorRecordHandler.onError(e);
       }
     });
   }

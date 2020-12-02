@@ -20,22 +20,27 @@ import com.sforce.soap.partner.DescribeSObjectResult;
 import com.sforce.soap.partner.Field;
 import com.sforce.soap.partner.PartnerConnection;
 import com.sforce.ws.ConnectionException;
+import com.sforce.ws.bind.XmlObject;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.lib.util.JsonUtil;
 import org.apache.commons.lang3.tuple.Pair;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soql.SOQLParser;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -50,7 +55,6 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
   private static final Logger LOG = LoggerFactory.getLogger(SobjectRecordCreator.class);
 
   private static final int MAX_METADATA_TYPES = 100;
-  private static final String UNEXPECTED_TYPE = "Unexpected type: ";
 
   private static final String WILDCARD_SELECT_QUERY = "^SELECT\\s*\\*\\s*FROM\\s*.*";
   private static final Pattern WILDCARD_SELECT_PATTERN = Pattern.compile(WILDCARD_SELECT_QUERY, Pattern.DOTALL);
@@ -74,6 +78,9 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
       "time",
       "url"
   );
+
+  protected static final String UNEXPECTED_TYPE = "Unexpected type: ";
+
   public static final List<String> DECIMAL_TYPES = Arrays.asList(
       "currency",
       "double",
@@ -90,6 +97,9 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
   protected static final String RECORD_ID_OFFSET_PREFIX = "recordId:";
 
   private static final TimeZone TZ = TimeZone.getTimeZone("GMT");
+  private static final String NAME = "Name";
+  private static final String COUNT = "count()";
+  private static final String ERROR_PARSING_DATA = "Error parsing data";
 
   private final SimpleDateFormat datetimeFormat = new SimpleDateFormat("yyyy-MM-dd\'T\'HH:mm:ss");
   private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
@@ -99,6 +109,34 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
 
   Map<String, ObjectMetadata> metadataCache;
   final Stage.Context context;
+  private boolean countQuery = false;
+
+  @NotNull
+  protected com.streamsets.pipeline.api.Field getField(SoapRecordCreator.XmlType xmlType, Object val, DataType userSpecifiedType) throws StageException {
+    if (userSpecifiedType != DataType.USE_SALESFORCE_TYPE) {
+      return com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.valueOf(userSpecifiedType.getLabel()), val);
+    }
+
+    com.streamsets.pipeline.api.Field field;
+    if (xmlType == null) {  // String data does not contain an XML type!
+      field = com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.STRING, (val == null) ? null : val.toString());
+    } else {
+      switch (xmlType) {
+        case DATE_TIME:
+          field = com.streamsets.pipeline.api.Field.create(xmlType.getFieldType(), (val == null) ? null : ((GregorianCalendar)val).getTime());
+          break;
+        case DATE:
+        case INT:
+        case DOUBLE:
+          field = com.streamsets.pipeline.api.Field.create(xmlType.getFieldType(), val);
+          break;
+        default:
+          throw new StageException(Errors.FORCE_04, UNEXPECTED_TYPE + xmlType);
+      }
+    }
+
+    return field;
+  }
 
   class ObjectMetadata {
     Map<String, Field> nameToField;
@@ -174,10 +212,17 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
     if (query != null) {
       SOQLParser.StatementContext statementContext = ForceUtils.getStatementContext(query);
 
+      // Old-style COUNT() query
+      countQuery = COUNT.equalsIgnoreCase(statementContext.fieldList(0).getText());
+
       for (SOQLParser.FieldListContext flc : statementContext.fieldList()) {
         getReferencesFromFieldList(partnerConnection, metadataCache, sobjectType, references, flc);
       }
     }
+  }
+
+  public boolean isCountQuery() {
+    return countQuery;
   }
 
   private void getReferencesFromFieldList(
@@ -187,8 +232,12 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
       List<List<Pair<String, String>>> references,
       SOQLParser.FieldListContext flc
   ) throws StageException {
+    List<String> objectTypes = new ArrayList<>();
+
+    objectTypes.add(objectType);
     for (SOQLParser.FieldElementContext fec : flc.fieldElement()) {
       SOQLParser.SubqueryContext subquery = fec.subquery();
+      SOQLParser.TypeOfClauseContext typeofClause = fec.typeOfClause();
       if (subquery != null) {
         // Recurse into subqueries
         getReferencesFromFieldList(partnerConnection,
@@ -196,6 +245,16 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
             metadataMap.get(objectType).getChildSObjectType(subquery.objectList().getText()),
             references,
             subquery.fieldList());
+      } else if (typeofClause != null) {
+        for (SOQLParser.WhenThenClauseContext whenThen : typeofClause.whenThenClause()) {
+          String whenObjectType = whenThen.whenObjectType().getText();
+          objectTypes.add(whenObjectType);
+          for (SOQLParser.FieldNameContext fieldName : whenThen.whenFieldList().fieldName()) {
+            String[] pathElements = fieldName.getText().split("\\.");
+            // Handle references
+            extractReferences(whenObjectType, references, pathElements);
+          }
+        }
       } else {
         String fieldName = fec.getText();
         String[] pathElements = fieldName.split("\\.");
@@ -205,7 +264,7 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
     }
 
     try {
-      getAllReferences(partnerConnection, metadataMap, references, new String[]{objectType}, METADATA_DEPTH);
+      getAllReferences(partnerConnection, metadataMap, references, objectTypes.toArray(new String[0]), METADATA_DEPTH);
     } catch (ConnectionException e) {
       throw new StageException(Errors.FORCE_21, sobjectType, e);
     }
@@ -297,22 +356,28 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
         }
       }
 
-      for (List<Pair<String, String>> path : references) {
-        // Top field name in the path should be in the metadata now
-        if (!path.isEmpty()) {
-          Pair<String, String> top = path.get(0);
-          Field field = metadataMap.get(top.getLeft()).getFieldFromRelationship(top.getRight());
-          Set<String> sobjectNames = metadataMap.keySet();
-          for (String ref : field.getReferenceTo()) {
-            ref = ref.toLowerCase();
-            if (!sobjectNames.contains(ref) && !next.contains(ref)) {
-              next.add(ref);
+      if (references != null) {
+        for (List<Pair<String, String>> path : references) {
+          // Top field name in the path should be in the metadata now
+          if (!path.isEmpty()) {
+            Pair<String, String> top = path.get(0);
+            Field field = metadataMap.get(top.getLeft()).getFieldFromRelationship(top.getRight());
+            Set<String> sobjectNames = metadataMap.keySet();
+            for (String ref : field.getReferenceTo()) {
+              ref = ref.toLowerCase();
+              if (!sobjectNames.contains(ref) && !next.contains(ref)) {
+                next.add(ref);
+              }
+              if (path.size() > 1) {
+                path.set(1, Pair.of(ref, path.get(1).getRight()));
+              }
             }
-            if (path.size() > 1) {
-              path.set(1, Pair.of(ref, path.get(1).getRight()));
+            // SDC-10422 Polymorphic references have an implicit reference to the Name object type
+            if (field.isPolymorphicForeignKey()) {
+              next.add(NAME);
             }
+            path.remove(0);
           }
-          path.remove(0);
         }
       }
     }
@@ -351,10 +416,11 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
 
   com.streamsets.pipeline.api.Field createField(Object val, Field sfdcField) throws
       StageException {
-    return createField(val, DataType.USE_SALESFORCE_TYPE, sfdcField);
+    return createField(null, val, DataType.USE_SALESFORCE_TYPE, sfdcField);
   }
 
   com.streamsets.pipeline.api.Field createField(
+      SoapRecordCreator.XmlType xmlType,
       Object val,
       DataType userSpecifiedType,
       Field sfdcField
@@ -363,19 +429,45 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
     if (userSpecifiedType != DataType.USE_SALESFORCE_TYPE) {
       return com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.valueOf(userSpecifiedType.getLabel()), val);
     } else {
-      if(val instanceof Map || ANYTYPE.equals(sfdcType)) {
+      if (val instanceof Map) {
         // Fields like Fiscal on Opportunity show up as Maps from Streaming API
-        // anyType can be String, boolean etc
         try {
           return JsonUtil.jsonToField(val);
         } catch (IOException e) {
-          throw new StageException(Errors.FORCE_04, "Error parsing data", e);
+          throw new StageException(Errors.FORCE_04, ERROR_PARSING_DATA, e);
+        }
+      } else if (ANYTYPE.equals(sfdcType)) {
+        // anyType can be String, boolean etc
+        try {
+          // xmlType gives us a hint, if it is present
+          if (xmlType != null) {
+            return getField(xmlType, val, userSpecifiedType);
+          } else {
+            return JsonUtil.jsonToField(val);
+          }
+        } catch (IOException e) {
+          throw new StageException(Errors.FORCE_04, ERROR_PARSING_DATA, e);
         }
       } else if (BOOLEAN_TYPES.contains(sfdcType)) {
         return com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.BOOLEAN, val);
       } else if (BYTE_TYPES.contains(sfdcType)) {
         return  com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.BYTE, val);
       } else if (INT_TYPES.contains(sfdcType)) {
+        if (val != null && val.toString().contains(".")) {
+          // SDC-12343 - schema says int, but Salesforce can give you a float!
+          switch (conf.mismatchedTypesOption) {
+            case PRESERVE_DATA:
+              // Keep the data, coerce the type to decimal
+              return com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.DECIMAL, val);
+            case TRUNCATE_DATA:
+              // Simply chop the data in half at the decimal point
+              val = val.toString().split("\\.")[0];
+              break;
+            case ROUND_DATA:
+              val = (new BigDecimal(val.toString())).setScale(sfdcField.getScale(), RoundingMode.HALF_UP).intValueExact();
+              break;
+          }
+        }
         return  com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.INTEGER, val);
       } else if (DECIMAL_TYPES.contains(sfdcType)) {
         // Salesforce can return a string value with greater scale than that defined in the schema - see SDC-10152
@@ -387,7 +479,8 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
       } else if (STRING_TYPES.contains(sfdcType)) {
         return  com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.STRING, val);
       } else if (BINARY_TYPES.contains(sfdcType)) {
-        return  com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.BYTE_ARRAY, val);
+        return  com.streamsets.pipeline.api.Field.create(com.streamsets.pipeline.api.Field.Type.BYTE_ARRAY,
+            Base64.getDecoder().decode((String)val));
       } else if (DATETIME_TYPES.contains(sfdcType)) {
         if (val != null && !(val instanceof String)) {
           throw new StageException(
@@ -453,7 +546,18 @@ public abstract class SobjectRecordCreator extends ForceRecordCreatorImpl {
   }
 
   public com.sforce.soap.partner.Field getFieldMetadata(String objectType, String fieldName) {
-    return metadataCache.get(objectType).getFieldFromName(fieldName);
+    return metadataCache.get(objectType.toLowerCase()).getFieldFromName(fieldName.toLowerCase());
+  }
+
+  public boolean objectTypeIsCached(String objectType) {
+    return (metadataCache != null && metadataCache.get(objectType.toLowerCase()) != null);
+  }
+
+  public void addObjectTypeToCache(PartnerConnection partnerConnection, String objectType) throws ConnectionException {
+    if (metadataCache == null) {
+      metadataCache = new LinkedHashMap<>();
+    }
+    getAllReferences(partnerConnection, metadataCache, null, new String[]{objectType}, 1);
   }
 
   // SDC-9731 will remove the duplicate method from ForceSource

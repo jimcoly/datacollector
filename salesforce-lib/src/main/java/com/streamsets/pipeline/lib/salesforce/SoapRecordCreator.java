@@ -15,20 +15,56 @@
  */
 package com.streamsets.pipeline.lib.salesforce;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.sforce.soap.partner.sobject.SObject;
 import com.sforce.ws.bind.XmlObject;
 import com.streamsets.pipeline.api.Field;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageException;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.GregorianCalendar;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public class SoapRecordCreator extends SobjectRecordCreator {
+  enum XmlType {
+    DATE_TIME("dateTime", Field.Type.DATETIME),
+    DATE("date", Field.Type.DATE),
+    INT("int", Field.Type.INTEGER),
+    DOUBLE("double", Field.Type.DOUBLE);
+
+    private final String xmlType;
+    private final Field.Type fieldType;
+
+    XmlType(String xmlType, Field.Type fieldType) {
+      this.xmlType = xmlType;
+      this.fieldType = fieldType;
+    }
+
+    public String getXmlType() {
+      return xmlType;
+    }
+
+    public Field.Type getFieldType() {
+      return fieldType;
+    }
+
+    private static ImmutableMap<String, XmlType> reverseLookup =
+        Maps.uniqueIndex(Arrays.asList(XmlType.values()), XmlType::getXmlType);
+
+    public static XmlType fromString(final String xmlType) {
+      return reverseLookup.get(xmlType);
+    }
+  }
+
+  private static final String AGGREGATE_RESULT = "aggregateresult";
   private static final String QUERY_RESULT = "QueryResult";
   private static final String RECORDS = "records";
 
@@ -92,17 +128,29 @@ public class SoapRecordCreator extends SobjectRecordCreator {
                   ". Specify component fields of compound fields, e.g. Location__Latitude__s or BillingStreet"
           );
         }
-        com.sforce.soap.partner.Field sfdcField = getFieldMetadata(type, key);
-        Field field;
-        if (sfdcField == null) {
-          // null relationship
-          field = Field.createListMap(new LinkedHashMap<>());
-        } else {
-          DataType dataType = (columnsToTypes != null) ? columnsToTypes.get(key.toLowerCase()) : null;
-          field = createField(val, (dataType == null ? DataType.USE_SALESFORCE_TYPE : dataType), sfdcField);
+
+        DataType dataType = (columnsToTypes != null)
+            ? columnsToTypes.get(key.toLowerCase())
+            : DataType.USE_SALESFORCE_TYPE;
+        if (dataType == null) {
+          dataType = DataType.USE_SALESFORCE_TYPE;
         }
-        if (conf.createSalesforceNsHeaders) {
-          setHeadersOnField(field, sfdcField);
+
+        Field field;
+        XmlType xmlType = obj.getXmlType() != null ? XmlType.fromString(obj.getXmlType().getLocalPart()) : null;
+        if (AGGREGATE_RESULT.equals(type)) {
+          field = getField(xmlType, val, dataType);
+        } else {
+          com.sforce.soap.partner.Field sfdcField = getFieldMetadata(type, key);
+          if (sfdcField == null) {
+            // null relationship
+            field = Field.createListMap(new LinkedHashMap<>());
+          } else {
+            field = createField(xmlType, val, dataType, sfdcField);
+          }
+          if (conf.createSalesforceNsHeaders) {
+            setHeadersOnField(field, sfdcField);
+          }
         }
         map.put(key, field);
       }

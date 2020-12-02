@@ -20,10 +20,13 @@ import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.lib.kafka.KafkaAutoOffsetReset;
 import com.streamsets.pipeline.stage.origin.multikafka.MultiSdcKafkaConsumer;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.TopicPartition;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 /**
@@ -36,7 +39,7 @@ public class MockKafkaConsumerLoader extends KafkaConsumerLoader {
   /**
    * Set this in the test to list of consumers that should be used in the origin.
    */
-  public static Iterator<KafkaConsumer> consumers;
+  public static Iterator<Consumer> consumers;
 
   @Override
   protected void validateConsumerConfiguration(
@@ -62,9 +65,9 @@ public class MockKafkaConsumerLoader extends KafkaConsumerLoader {
    */
   private class WrapperKafkaConsumer implements MultiSdcKafkaConsumer {
 
-    private KafkaConsumer delegate;
+    private Consumer delegate;
 
-    public WrapperKafkaConsumer(KafkaConsumer consumer) {
+    public WrapperKafkaConsumer(Consumer consumer) {
       this.delegate = consumer;
     }
 
@@ -87,5 +90,8 @@ public class MockKafkaConsumerLoader extends KafkaConsumerLoader {
     public void close() {
       delegate.close();
     }
+
+    @Override
+    public void commitSync(Map offsetsMap) { delegate.commitSync(offsetsMap); }
   }
 }

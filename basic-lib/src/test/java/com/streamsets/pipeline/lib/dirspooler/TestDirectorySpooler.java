@@ -27,12 +27,14 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.powermock.reflect.Whitebox;
 
 import java.io.File;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
@@ -50,6 +52,9 @@ import static org.junit.Assert.assertTrue;
 
 @RunWith(PowerMockRunner.class)
 @PrepareForTest(DirectorySpooler.class)
+@PowerMockIgnore({
+    "jdk.internal.reflect.*"
+})
 public class TestDirectorySpooler {
   private File spoolDir;
   private File archiveDir;
@@ -70,8 +75,8 @@ public class TestDirectorySpooler {
     contextInPreview = (PushSource.Context) ContextInfoCreator.createSourceContext("s", true, OnRecordError.TO_ERROR, ImmutableList.of("a"));
   }
 
-  private DirectorySpooler.Builder initializeAndGetBuilder() {
-    return DirectorySpooler.builder()
+  private DirectorySpooler.Builder initializeAndGetBuilder() throws IOException {
+    return new DirectorySpooler.Builder()
         .setContext(context)
         .setWrappedFileSystem(new LocalFileSystem("x[0-9]*.log", GLOB))
         .setDir(spoolDir.getAbsolutePath())
@@ -79,7 +84,7 @@ public class TestDirectorySpooler {
   }
 
   @Test(expected = IllegalStateException.class)
-  public void testNoSpoolDirWithoutWaiting() {
+  public void testNoSpoolDirWithoutWaiting() throws IOException {
     DirectorySpooler.Builder builder = initializeAndGetBuilder()
         .setMaxSpoolFiles(1);
     DirectorySpooler spooler = builder.build();
@@ -118,6 +123,7 @@ public class TestDirectorySpooler {
       test_passed = test_status.get(10000, TimeUnit.MILLISECONDS);
 
     } finally {
+      spooler.destroy();
       schedService.shutdownNow();
     }
     assertTrue("Test did not pass, Spooler did not find files", test_passed);
@@ -363,13 +369,14 @@ public class TestDirectorySpooler {
     assertTrue(logFile3.exists());
 
     spooler.init("x2.log");
-    Assert.assertEquals(2, spoolDir.list().length);
-    assertFalse(logFile1.exists());
+    Assert.assertEquals(3, spoolDir.list().length);
+    assertTrue(logFile1.exists());
     assertTrue(logFile2.exists());
     assertTrue(logFile3.exists());
 
     Assert.assertEquals(logFile2.getAbsolutePath(), spooler.poolForFile(intervalMillis, TimeUnit.MILLISECONDS).getAbsolutePath());
-    Assert.assertEquals(2, spoolDir.list().length);
+    Assert.assertEquals(3, spoolDir.list().length);
+    assertTrue(logFile1.exists());
     assertTrue(logFile2.exists());
     assertTrue(logFile3.exists());
 
@@ -377,12 +384,17 @@ public class TestDirectorySpooler {
 
     Assert.assertEquals(logFile3.getAbsolutePath(), spooler.poolForFile(intervalMillis, TimeUnit.MILLISECONDS).getAbsolutePath());
     spooler.doPostProcessing(fs.getFile(logFile2.toPath().toString()));
-    Assert.assertEquals(1, spoolDir.list().length);
+    Assert.assertEquals(2, spoolDir.list().length);
+    assertTrue(logFile1.exists());
+    assertFalse(logFile2.exists());
     assertTrue(logFile3.exists());
 
     Assert.assertNull(spooler.poolForFile(intervalMillis, TimeUnit.MILLISECONDS));
     spooler.doPostProcessing(fs.getFile(logFile3.toPath().toString()));
-    Assert.assertEquals(0, spoolDir.list().length);
+    Assert.assertEquals(1, spoolDir.list().length);
+    assertTrue(logFile1.exists());
+    assertFalse(logFile2.exists());
+    assertFalse(logFile3.exists());
 
     spooler.destroy();
   }
@@ -510,35 +522,34 @@ public class TestDirectorySpooler {
     assertTrue(logFile3.exists());
 
     spooler.init("x2.log");
-    Assert.assertEquals(2, spoolDir.list().length);
-    Assert.assertEquals(1, archiveDir.list().length);
-    assertFalse(logFile1.exists());
+    Assert.assertEquals(3, spoolDir.list().length);
+    Assert.assertEquals(0, archiveDir.list().length);
+    assertTrue(logFile1.exists());
     assertTrue(logFile2.exists());
     assertTrue(logFile3.exists());
-    assertTrue(new File(archiveDir, "x1.log").exists());
 
     Assert.assertEquals(logFile2.getAbsolutePath(), spooler.poolForFile(intervalMillis, TimeUnit.MILLISECONDS).getAbsolutePath());
-    Assert.assertEquals(2, spoolDir.list().length);
-    Assert.assertEquals(1, archiveDir.list().length);
+    Assert.assertEquals(3, spoolDir.list().length);
+    Assert.assertEquals(0, archiveDir.list().length);
+    assertTrue(logFile1.exists());
     assertTrue(logFile2.exists());
     assertTrue(logFile3.exists());
-    assertTrue(new File(archiveDir, "x1.log").exists());
     WrappedFileSystem fs = new LocalFileSystem("*", GLOB);
 
     spooler.doPostProcessing(fs.getFile(logFile2.toPath().toString()));
 
     Assert.assertEquals(logFile3.getAbsolutePath(), spooler.poolForFile(intervalMillis, TimeUnit.MILLISECONDS).getAbsolutePath());
-    Assert.assertEquals(1, spoolDir.list().length);
-    Assert.assertEquals(2, archiveDir.list().length);
+    Assert.assertEquals(2, spoolDir.list().length);
+    Assert.assertEquals(1, archiveDir.list().length);
+    assertTrue(logFile1.exists());
     assertTrue(logFile3.exists());
-    assertTrue(new File(archiveDir, "x1.log").exists());
     assertTrue(new File(archiveDir, "x2.log").exists());
     spooler.doPostProcessing(fs.getFile(logFile3.toPath().toString()));
 
     Assert.assertNull(spooler.poolForFile(intervalMillis, TimeUnit.MILLISECONDS));
-    Assert.assertEquals(0, spoolDir.list().length);
-    Assert.assertEquals(3, archiveDir.list().length);
-    assertTrue(new File(archiveDir, "x1.log").exists());
+    Assert.assertEquals(1, spoolDir.list().length);
+    Assert.assertEquals(2, archiveDir.list().length);
+    assertTrue(logFile1.exists());
     assertTrue(new File(archiveDir, "x2.log").exists());
     assertTrue(new File(archiveDir, "x3.log").exists());
 
@@ -600,22 +611,20 @@ public class TestDirectorySpooler {
     spooler.doPostProcessing(fs.getFile(logFile3.toPath().toString()));
     Assert.assertNull(spooler.poolForFile(intervalMillis, TimeUnit.MILLISECONDS));
     spooler.doPostProcessing(fs.getFile(logFile3.toPath().toString()));
-    Assert.assertEquals(0, spoolDir.list().length);
-    Assert.assertEquals(3, archiveDir.list().length);
-    File archiveLog1 = new File(archiveDir, "x1.log");
+    Assert.assertEquals(1, spoolDir.list().length);
+    Assert.assertEquals(2, archiveDir.list().length);
     File archiveLog2 = new File(archiveDir, "x2.log");
     File archiveLog3 = new File(archiveDir, "x3.log");
-    assertTrue(archiveLog1.exists());
+    assertTrue(logFile1.exists());
     assertTrue(archiveLog2.exists());
     assertTrue(archiveLog3.exists());
 
     // Be paranoid and update the mtimes to ensure the first purge is < 1 second from mtime.
-    assertTrue(archiveLog1.setLastModified(System.currentTimeMillis()));
     assertTrue(archiveLog2.setLastModified(System.currentTimeMillis()));
     assertTrue(archiveLog3.setLastModified(System.currentTimeMillis()));
     // no purging
     spooler.purger.run();
-    Assert.assertEquals(3, archiveDir.list().length);
+    Assert.assertEquals(2, archiveDir.list().length);
 
     // purging
     Thread.sleep(1100);
@@ -677,7 +686,7 @@ public class TestDirectorySpooler {
     Assert.assertEquals(0L, spoolQueueCounter.getCount());
 
     Thread.sleep(1200);
-    Assert.assertEquals(7L, archiveDir.list().length);
+    Assert.assertEquals(6L, archiveDir.list().length);
 
     //Purge everything.
     spooler.purger.run();

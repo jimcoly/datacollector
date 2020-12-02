@@ -61,8 +61,10 @@ public class HttpClientConfigBean {
       label = "Resource URL",
       defaultValue = "https://stream.twitter.com/1.1/statuses/sample.json",
       description = "Specify the HTTP resource URL",
+          elDefs = {TimeEL.class, TimeNowEL.class},
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HTTP"
   )
   public String resourceUrl = "";
@@ -74,6 +76,7 @@ public class HttpClientConfigBean {
       description = "Headers to include in the request",
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       elDefs = VaultEL.class,
       group = "HTTP"
   )
@@ -86,6 +89,7 @@ public class HttpClientConfigBean {
       defaultValue = "GET",
       description = "HTTP method to send",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HTTP"
   )
   @ValueChooserModel(HttpMethodChooserValues.class)
@@ -98,6 +102,7 @@ public class HttpClientConfigBean {
       label = "Body Time Zone",
       description = "Time zone to use for request body evaluation (if time or time now ELs are used)",
       displayPosition = 35,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "HTTP"
   )
   @ValueChooserModel(TimeZoneChooserValues.class)
@@ -110,6 +115,7 @@ public class HttpClientConfigBean {
       description = "Data that should be included as the body of the request",
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       elDefs = {VaultEL.class, TimeEL.class, TimeNowEL.class},
       lines = 2,
       dependsOn = "httpMethod",
@@ -125,6 +131,7 @@ public class HttpClientConfigBean {
       defaultValue = HttpStageUtil.DEFAULT_CONTENT_TYPE,
       description = "Content-Type header to be sent with the request; used if that header is not already present",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       dependsOn = "httpMethod",
       elDefs = VaultEL.class,
       evaluation = ConfigDef.Evaluation.EXPLICIT,
@@ -142,6 +149,7 @@ public class HttpClientConfigBean {
       label = "Mode",
       defaultValue = "STREAMING",
       displayPosition = 25,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HTTP"
   )
   @ValueChooserModel(HttpClientModeChooserValues.class)
@@ -153,6 +161,7 @@ public class HttpClientConfigBean {
       label = "Polling Interval (ms)",
       defaultValue = "5000",
       displayPosition = 26,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HTTP",
       dependsOn = "httpMode",
       triggeredByValue = "POLLING"
@@ -165,6 +174,7 @@ public class HttpClientConfigBean {
       defaultValue = "JSON",
       label = "Data Format",
       displayPosition = 1,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT"
   )
   @ValueChooserModel(DataFormatChooserValues.class)
@@ -175,11 +185,38 @@ public class HttpClientConfigBean {
           type = ConfigDef.Type.MODEL,
           label = "Per-Status Actions",
           description = "List of actions to take for specific response statuses.",
-          displayPosition = 28,
+          displayPosition = 27,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
           group = "HTTP"
   )
   @ListBeanModel
   public List<HttpStatusResponseActionConfigBean> responseStatusActionConfigs;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      label = "Records for Remaining Statuses",
+      description = "Produces records for all HTTP status codes not listed in Per-Status Actions.",
+      defaultValue = "false",
+      displayPosition = 28,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "HTTP"
+  )
+  public boolean propagateAllHttpResponses = false;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.STRING,
+      label = "Error Response Body Field",
+      description = "Field to store the error response body after performing per-status actions",
+      defaultValue = "outErrorBody",
+      displayPosition = 29,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      dependsOn = "propagateAllHttpResponses",
+      triggeredByValue = "true",
+      group = "HTTP"
+  )
+  public String errorResponseField = "outErrorBody";
 
   @ConfigDefBean(groups = "TIMEOUT")
   public HttpTimeoutResponseActionConfigBean responseTimeoutActionConfig =

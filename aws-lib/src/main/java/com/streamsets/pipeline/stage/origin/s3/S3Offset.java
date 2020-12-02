@@ -24,10 +24,10 @@ import java.io.Serializable;
 public class S3Offset implements Serializable {
   private final String key;
   private final String eTag;
-  private String offset;
+  private final String offset;
   private final String timestamp;
 
-  private static final String OFFSET_SEPARATOR = "::";
+  static final String OFFSET_SEPARATOR = "::";
   private static final String ZERO = "0";
 
   S3Offset(String key, String offset, String eTag, String timestamp) {
@@ -35,6 +35,20 @@ public class S3Offset implements Serializable {
     this.offset = offset;
     this.eTag = eTag;
     this.timestamp = timestamp;
+  }
+
+  S3Offset(S3Offset offset) {
+    this.key = offset.getKey();
+    this.offset = offset.getOffset();
+    this.eTag = offset.geteTag();
+    this.timestamp = offset.getTimestamp();
+  }
+
+  S3Offset(S3Offset offset, String offsetValue) {
+    this.key = offset.getKey();
+    this.offset = offsetValue;
+    this.eTag = offset.geteTag();
+    this.timestamp = offset.getTimestamp();
   }
 
   public String getKey() {
@@ -51,10 +65,6 @@ public class S3Offset implements Serializable {
 
   String getTimestamp() {
     return timestamp;
-  }
-
-  public void setOffset(String offset) {
-    this.offset = offset;
   }
 
   @Override
@@ -84,5 +94,12 @@ public class S3Offset implements Serializable {
       }
     }
     return new S3Offset(null, ZERO, null, ZERO);
+  }
+
+  public boolean representsFile() {
+    return !getKey().equals(S3Constants.EMPTY) ||
+        !getOffset().equals(S3Constants.ZERO) ||
+        !geteTag().equals(S3Constants.EMPTY) ||
+        !getTimestamp().equals(S3Constants.ZERO);
   }
 }

@@ -15,18 +15,53 @@
  */
 package com.streamsets.pipeline.stage.origin.sdcipcwithbuffer;
 
-import com.streamsets.pipeline.stage.origin.sdcipcwithbuffer.SdcIpcWithDiskBufferSourceUpgrader;
+import com.streamsets.pipeline.api.Config;
+import com.streamsets.pipeline.api.StageUpgrader;
+import com.streamsets.pipeline.config.upgrade.UpgraderTestUtils;
 import com.streamsets.pipeline.stage.util.tls.TlsConfigBeanUpgraderTestUtil;
+import com.streamsets.pipeline.upgrader.SelectorStageUpgrader;
+import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
+
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
 public class TestSdcIpcWithDiskBufferSourceUpgrader {
 
+  private StageUpgrader upgrader;
+  private List<Config> configs;
+  private StageUpgrader.Context context;
+
+  @Before
+  public void setUp() {
+    URL yamlResource = ClassLoader.getSystemClassLoader().getResource("upgrader/SdcIpcWithDiskBufferDSource.yaml");
+    upgrader = new SelectorStageUpgrader("stage", new SdcIpcWithDiskBufferSourceUpgrader(), yamlResource);
+    configs = new ArrayList<>();
+    context = Mockito.mock(StageUpgrader.Context.class);
+  }
+
   @Test
-  public void testV1ToV2() throws Exception {
+  public void testV1ToV3() throws Exception {
     TlsConfigBeanUpgraderTestUtil.testRawKeyStoreConfigsToTlsConfigBeanUpgrade(
         "configs.",
         new SdcIpcWithDiskBufferSourceUpgrader(),
         3
     );
+  }
+
+  @Test
+  public void testV3ToV4() {
+    Mockito.doReturn(3).when(context).getFromVersion();
+    Mockito.doReturn(4).when(context).getToVersion();
+
+    String configPrefix = "configs.tlsConfigBean.";
+    configs = upgrader.upgrade(configs, context);
+
+    UpgraderTestUtils.assertExists(configs, configPrefix + "useRemoteKeyStore", false);
+    UpgraderTestUtils.assertExists(configs, configPrefix + "privateKey", "");
+    UpgraderTestUtils.assertExists(configs, configPrefix + "certificateChain", new ArrayList<>());
+    UpgraderTestUtils.assertExists(configs, configPrefix + "trustedCertificates", new ArrayList<>());
   }
 }

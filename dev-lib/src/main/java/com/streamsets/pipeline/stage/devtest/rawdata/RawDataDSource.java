@@ -34,6 +34,9 @@ import com.streamsets.pipeline.api.service.dataformats.DataFormatParserService;
     execution = {ExecutionMode.STANDALONE, ExecutionMode.EDGE},
     icon = "dev.png",
     upgrader = RawDataSourceUpgrader.class,
+    upgraderDef = "upgrader/RawDataDSource.yaml",
+    producesEvents = true,
+    recordsByRef = true,
     onlineHelpRefUrl ="index.html#datacollector/UserGuide/Pipeline_Design/DevStages.html",
     services = @ServiceDependency(
         service = DataFormatParserService.class,
@@ -48,10 +51,10 @@ public class RawDataDSource extends DSource {
 
   private static final String DEFAULT_RAW_DATA =
       "{\n" +
-          "  \"f1\": \"abc\",\n" +
-          "  \"f2\": \"xyz\",\n" +
-          "  \"f3\": \"lmn\"\n" +
-          "}";
+      "  \"f1\": \"abc\",\n" +
+      "  \"f2\": \"xyz\",\n" +
+      "  \"f3\": \"lmn\"\n" +
+      "}";
 
   @ConfigDef(
       required = true,
@@ -61,9 +64,11 @@ public class RawDataDSource extends DSource {
       defaultValue = DEFAULT_RAW_DATA,
       evaluation = ConfigDef.Evaluation.IMPLICIT,
       displayPosition = 1,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "RAW"
   )
   public String rawData;
+
 
   @ConfigDef(
       required = true,
@@ -71,12 +76,26 @@ public class RawDataDSource extends DSource {
       type = ConfigDef.Type.BOOLEAN,
       label = "Stop After First Batch",
       displayPosition = 2,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "RAW"
   )
   public boolean stopAfterFirstBatch = false;
 
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.TEXT,
+      mode = ConfigDef.Mode.JSON,
+      label = "Event Data",
+      defaultValue = "", // By default empty body and thus "no-op" (no events generated)
+      evaluation = ConfigDef.Evaluation.IMPLICIT,
+      displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "EVENT"
+  )
+  public String eventData;
+
   @Override
   protected Source createSource() {
-    return new RawDataSource(rawData, stopAfterFirstBatch);
+    return new RawDataSource(rawData, eventData, stopAfterFirstBatch);
   }
 }

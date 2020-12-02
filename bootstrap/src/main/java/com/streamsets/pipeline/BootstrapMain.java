@@ -23,6 +23,7 @@ import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.security.AccessControlException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -34,6 +35,8 @@ import java.util.Set;
 
 public class BootstrapMain {
   private static final String PIPELINE_BOOTSTRAP_DEBUG_SYS_PROP = "streamsets.bootstrap.debug";
+  public static final String CUSTOM_INIT_CLASS_SYS_PROP = "streamsets.bootstrap.customInitializer.class";
+  public static final String CUSTOM_INIT_LIB_DIR_SYS_PROP = "streamsets.bootstrap.customInitializer.libDir";
   public static final String PIPELINE_BOOTSTRAP_CLASSLOADER_SYS_PROP = "streamsets.classloader.debug";
   private static final String STREAMSETS_LIBRARIES_EXTRA_DIR_SYS_PROP = "STREAMSETS_LIBRARIES_EXTRA_DIR";
 
@@ -45,6 +48,7 @@ public class BootstrapMain {
   private static final String USER_LIBRARIES_DIR_OPTION = "-userLibrariesDir";
   private static final String LIBS_COMMON_LIB_DIR_OPTION = "-libsCommonLibDir";
   private static final String CONFIG_DIR_OPTION = "-configDir";
+  private static final String PRODUCT_NAME_OPTION = "-productName";
 
   private static final String SET_CONTEXT_METHOD = "setContext";
   private static final String MAIN_METHOD = "main";
@@ -64,7 +68,7 @@ public class BootstrapMain {
   private static final String CLASSPATH_DIR_DOES_NOT_EXIST_MSG = "Classpath directory '%s' does not exist";
   private static final String CLASSPATH_PATH_S_IS_NOT_A_DIR_MSG = "Specified Classpath path '%s' is not a directory";
 
-  static final String SDC_CONFIG_FILE = "sdc.properties";
+  public static final String DEFAULT_PRODUCT_NAME = "sdc";
 
   static final String WHITE_LIST_FILE = "stagelibswhitelist.properties";
   static final String SYSTEM_LIBS_WHITE_LIST_KEY = "system.stagelibs.whitelist";
@@ -100,8 +104,49 @@ public class BootstrapMain {
     }
   }
 
-  @SuppressWarnings("unchecked")
   public static void main(String[] args) throws Exception {
+    final String customInitializerClass = System.getProperty(CUSTOM_INIT_CLASS_SYS_PROP);
+    if (customInitializerClass == null) {
+      // no custom initializer specified; call the bootstrap method immediately with same args
+      bootstrap(args);
+    } else {
+      final ClassLoader rootCL = Thread.currentThread().getContextClassLoader();
+
+      // prepare the classpath for the custom initializer
+      final String libDir = System.getProperty(CUSTOM_INIT_LIB_DIR_SYS_PROP);
+      if (libDir == null || libDir.trim().isEmpty()) {
+        throw new IllegalArgumentException(String.format(
+            "%s property was specified, but %s (required) was empty",
+            CUSTOM_INIT_CLASS_SYS_PROP,
+            CUSTOM_INIT_LIB_DIR_SYS_PROP
+        ));
+      }
+      // init logging
+      final URL[] jarsInInitResourcesDir = ClassLoaderUtil.getJarUrlsInDirectory(libDir);
+      // TODO: add debug output of these?
+      final ClassLoader initResourcesCL = new URLClassLoader(jarsInInitResourcesDir, rootCL);
+
+      try {
+        Thread.currentThread().setContextClassLoader(initResourcesCL);
+        final Class klass = initResourcesCL.loadClass(customInitializerClass);
+        final BootstrapInitializer initResources = (BootstrapInitializer) klass.newInstance();
+        // perform initialization and get new args
+        args = initResources.initialize(args);
+      } finally {
+        // restore original classloader
+        Thread.currentThread().setContextClassLoader(rootCL);
+      }
+      // call bootstrap method with (possibly modified) args
+      bootstrap(args);
+    }
+  }
+
+  private static String getProductConfigFileName(String productName) {
+    return productName + ".properties";
+  }
+
+  @SuppressWarnings("unchecked")
+  public static void bootstrap(String[] args) throws Exception {
     try {
       System.getProperty("test.to.ensure.security.is.configured.correctly");
     } catch (AccessControlException e) {
@@ -118,6 +163,9 @@ public class BootstrapMain {
     String userLibrariesDir = null;
     String configDir = null;
     String libsCommonLibDir = null;
+    String productName = DEFAULT_PRODUCT_NAME;
+
+    // TODO: improve this: use lightweight arg parsing library, or other refactoring to reduce verbosity
     for (int i = 0; i < args.length; i++) {
       if (args[i].equals(MAIN_CLASS_OPTION)) {
         i++;
@@ -176,6 +224,13 @@ public class BootstrapMain {
         } else {
           throw new IllegalArgumentException(String.format(MISSING_ARG_MSG, USER_LIBRARIES_DIR_OPTION));
         }
+      } else if (args[i].equals(PRODUCT_NAME_OPTION)) {
+        i++;
+        if (i < args.length) {
+          productName = args[i];
+        } else {
+          throw new IllegalArgumentException(String.format(MISSING_ARG_MSG, PRODUCT_NAME_OPTION));
+        }
       } else {
         throw new IllegalArgumentException(String.format(INVALID_OPTION_ARG_MSG, args[i]));
       }
@@ -232,8 +287,8 @@ public class BootstrapMain {
       systemStageLibs = getWhiteList(configDir, SYSTEM_LIBS_WHITE_LIST_KEY);
       userStageLibs = getWhiteList(configDir, USER_LIBS_WHITE_LIST_KEY);
     } else {
-      systemStageLibs = getSystemStageLibs(configDir);
-      userStageLibs = getUserStageLibs(configDir);
+      systemStageLibs = getSystemStageLibs(configDir, productName);
+      userStageLibs = getUserStageLibs(configDir, productName);
     }
 
     if (debug) {
@@ -243,9 +298,13 @@ public class BootstrapMain {
       System.out.println(String.format(DEBUG_MSG, "User stage libs", whiteListStr));
     }
 
+    if (streamsetsLibrariesExtraDir != null) {
+      System.setProperty(STREAMSETS_LIBRARIES_EXTRA_DIR_SYS_PROP, streamsetsLibrariesExtraDir);
+    }
+
     Map<String, List<URL>> streamsetsLibsUrls = getStageLibrariesClasspaths(streamsetsLibrariesDir,
         streamsetsLibrariesExtraDir, systemStageLibs, libsCommonLibDir);
-    Map<String, List<URL>> userLibsUrls = getStageLibrariesClasspaths(userLibrariesDir, null, systemStageLibs,
+    Map<String, List<URL>> userLibsUrls = getStageLibrariesClasspaths(userLibrariesDir, streamsetsLibrariesExtraDir, systemStageLibs,
         libsCommonLibDir);
 
     if (debug) {
@@ -264,7 +323,7 @@ public class BootstrapMain {
     libsUrls.putAll(streamsetsLibsUrls);
     libsUrls.putAll(userLibsUrls);
 
-    setOverRunProperties(configDir);
+    setOverRunProperties(configDir, productName);
 
     // Create all ClassLoaders
     SDCClassLoader apiCL = SDCClassLoader.getAPIClassLoader(apiUrls, ClassLoader.getSystemClassLoader());
@@ -314,8 +373,8 @@ public class BootstrapMain {
     method.invoke(null, new Object[]{new String[]{}});
   }
 
-  private static void setOverRunProperties(String configDir) {
-    Properties config = readSdcConfiguration(configDir);
+  private static void setOverRunProperties(String configDir, String productName) {
+    Properties config = readProductConfiguration(configDir, productName);
 
     if (config.containsKey(PARSER_LIMIT) && Integer.parseInt(config.getProperty(PARSER_LIMIT)) > 1024 * 1024) {
       System.setProperty("DataFactoryBuilder.OverRunLimit", config.getProperty(PARSER_LIMIT));
@@ -323,15 +382,20 @@ public class BootstrapMain {
     }
   }
 
-  public static Set<String> getSystemStageLibs(String configDir) {
-    return getStageLibs(configDir, SYSTEM_LIBS_WHITE_LIST_KEY, SYSTEM_LIBS_BLACK_LIST_KEY);
+  public static Set<String> getSystemStageLibs(String configDir, String productName) {
+    return getStageLibs(configDir, SYSTEM_LIBS_WHITE_LIST_KEY, SYSTEM_LIBS_BLACK_LIST_KEY, productName);
   }
 
-  public static Set<String> getUserStageLibs(String configDir) {
-    return getStageLibs(configDir, USER_LIBS_WHITE_LIST_KEY, USER_LIBS_BLACK_LIST_KEY);
+  public static Set<String> getUserStageLibs(String configDir, String productName) {
+    return getStageLibs(configDir, USER_LIBS_WHITE_LIST_KEY, USER_LIBS_BLACK_LIST_KEY, productName);
   }
 
-  public static Set<String> getStageLibs(String configDir, String whiteListKey, String blackListKey) {
+  public static Set<String> getStageLibs(
+      String configDir,
+      String whiteListKey,
+      String blackListKey,
+      String productName
+  ) {
     Set<String> stageLibs = null;
     if (isDeprecatedWhiteListConfiguration(configDir)) {
       System.out.println(String.format(
@@ -341,8 +405,8 @@ public class BootstrapMain {
       ));
       stageLibs = getWhiteList(configDir, whiteListKey);
     } else {
-      Properties config = readSdcConfiguration(configDir);
-      validateWhiteBlackList(config, whiteListKey, blackListKey);
+      Properties config = readProductConfiguration(configDir, productName);
+      validateWhiteBlackList(config, whiteListKey, blackListKey, productName);
       if (config.containsKey(whiteListKey)) {
         stageLibs = getList(config, whiteListKey, true);
       } else if (config.containsKey(blackListKey)) {
@@ -392,8 +456,8 @@ public class BootstrapMain {
     return new File(configDir, WHITE_LIST_FILE).getAbsoluteFile().exists();
   }
 
-  public static Properties readSdcConfiguration(String configDir) {
-    File file = new File(configDir, SDC_CONFIG_FILE).getAbsoluteFile();
+  public static Properties readProductConfiguration(String configDir, String productName) {
+    File file = new File(configDir, getProductConfigFileName(productName)).getAbsoluteFile();
     try (InputStream is = new FileInputStream(file)) {
       Properties props = new Properties();
       props.load(is);
@@ -403,11 +467,11 @@ public class BootstrapMain {
     }
   }
 
-  public static void validateWhiteBlackList(Properties props, String whiteList, String blackList) {
+  public static void validateWhiteBlackList(Properties props, String whiteList, String blackList, String productName) {
     if (props.containsKey(whiteList) && props.containsKey(blackList)) {
       throw new IllegalArgumentException(String.format(
           CANNOT_HAVE_WHITE_BLACK_LIST_MSG,
-          SDC_CONFIG_FILE,
+          getProductConfigFileName(productName),
           whiteList,
           blackList
       ));
@@ -481,7 +545,6 @@ public class BootstrapMain {
 
         // add extralibs if avail
         if (librariesExtraDir != null) {
-          System.setProperty(STREAMSETS_LIBRARIES_EXTRA_DIR_SYS_PROP, librariesExtraDir);
           File libExtraDir = new File(librariesExtraDir, libDir.getName());
           if (libExtraDir.exists()) {
             File extraJarsDir = new File(libExtraDir, STAGE_LIB_JARS_DIR);

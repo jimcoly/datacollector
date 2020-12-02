@@ -16,10 +16,12 @@
 package com.streamsets.datacollector.usagestats;
 
 import com.streamsets.datacollector.config.PipelineConfiguration;
+import com.streamsets.datacollector.execution.PipelineStatus;
+import com.streamsets.datacollector.execution.PreviewStatus;
+import com.streamsets.datacollector.execution.Previewer;
 import com.streamsets.datacollector.runner.Pipeline;
 import com.streamsets.datacollector.task.Task;
-
-import java.util.List;
+import com.streamsets.pipeline.api.ErrorCode;
 
 /**
  * Task that handles stats collection for the data collector
@@ -48,6 +50,20 @@ public interface StatsCollector extends Task {
   void setActive(boolean active);
 
   /**
+   * Tracks pipeline creation.
+   *
+   * @param pipelineId pipeline configuration to gather pipeline info for stats.
+   */
+  void createPipeline(String pipelineId);
+
+  /**
+   * Tracks pipeline previews.
+   *
+   * @param pipelineId pipeline configuration to gather pipeline info for stats.
+   */
+  void previewPipeline(String pipelineId);
+
+  /**
    * Starts tracking stats for a pipeline when a pipeline starts.
    *
    * @param pipeline pipeline configuration to gather pipeline info for stats.
@@ -62,6 +78,11 @@ public interface StatsCollector extends Task {
   void stopPipeline(PipelineConfiguration pipeline);
 
   /**
+   * Track that given error code was used.
+   */
+  void errorCode(ErrorCode errorCode);
+
+  /**
    * To be called at the end of each batch using the number of records of the origin batch.
    * <p/>
    *
@@ -70,10 +91,29 @@ public interface StatsCollector extends Task {
   void incrementRecordCount(long count);
 
   /**
+   * Called whenever there is a change to preview status.
+   * @param previewStatus new status
+   * @param previewer current previewer
+   */
+  void previewStatusChanged(PreviewStatus previewStatus, Previewer previewer);
+
+  /**
+   * Called whenever there is a change to preview status.
+   * @param pipelineStatus new status
+   * @param conf the PipelineConfiguration, may be null, or can be stale in the case of STARTING events
+   * @param pipeline pipeline object, may be null, or can be stale in the case of STARTING events
+   */
+  void pipelineStatusChanged(PipelineStatus pipelineStatus, PipelineConfiguration conf, Pipeline pipeline);
+
+  /**
    * Returns the StatsInfo of the data collector.
    *
    * @return the StatsInfo of the data collector.
    */
   StatsInfo getStatsInfo();
 
+  /**
+   * Save Statistics to the local persistent store
+   */
+  void saveStats();
 }

@@ -28,6 +28,7 @@ import com.streamsets.pipeline.api.base.configurablestage.DProcessor;
     label = "XML Flattener",
     description = "Flatten XML data into fields of a record",
     upgrader = XMLFlatteningProcessorUpgrader.class,
+    upgraderDef = "upgrader/XMLFlatteningDProcessor.yaml",
     icon = "xmlparser.png",
     onlineHelpRefUrl ="index.html?contextID=task_pmb_l55_sv"
 )
@@ -42,6 +43,7 @@ public class XMLFlatteningDProcessor extends DProcessor {
       label = "Field to Flatten",
       description = "The field containing XML to flatten.",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "XML"
   )
   @FieldSelectorModel(singleValued = true)
@@ -55,6 +57,7 @@ public class XMLFlatteningDProcessor extends DProcessor {
       description = "Whether all fields in original record should be kept. " +
           "If this is set, the root field of the record must be a Map or List Map.",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "XML"
   )
   public boolean keepOriginalFields;
@@ -65,6 +68,7 @@ public class XMLFlatteningDProcessor extends DProcessor {
       defaultValue = "false",
       label = "Overwrite Existing Fields",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "XML",
       dependsOn = "keepOriginalFields",
       triggeredByValue = "true"
@@ -78,6 +82,7 @@ public class XMLFlatteningDProcessor extends DProcessor {
       label = "Output Field",
       description = "Output field into which the XML will be flattened. Use empty value to write directly to root of the record.",
       displayPosition = 35,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "XML",
       dependsOn = "keepOriginalFields",
       triggeredByValue = "true"
@@ -91,6 +96,7 @@ public class XMLFlatteningDProcessor extends DProcessor {
       label = "Record Delimiter",
       description = "XML element used to delimit records. If this is not specified, only a single record is generated.",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "XML"
   )
   public String recordDelimiter;
@@ -102,6 +108,7 @@ public class XMLFlatteningDProcessor extends DProcessor {
       label = "Field Delimiter",
       description = "The string used to separate entity names in the flattened field names.",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "XML"
   )
   public String fieldDelimiter;
@@ -113,6 +120,7 @@ public class XMLFlatteningDProcessor extends DProcessor {
       label = "Attribute Delimiter",
       description = "The string used to separate attributes in the flattened field names.",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "XML"
   )
   public String attrDelimiter;
@@ -124,6 +132,7 @@ public class XMLFlatteningDProcessor extends DProcessor {
       label = "Ignore Attributes",
       description = "Whether attributes of elements should be ignored.",
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "XML"
   )
   public boolean ignoreAttributes;
@@ -135,6 +144,7 @@ public class XMLFlatteningDProcessor extends DProcessor {
       label = "Ignore Namespace URI",
       description = "Whether namespace URIs should be ignored.",
       displayPosition = 80,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "XML"
   )
   public boolean ignoreNamespace;

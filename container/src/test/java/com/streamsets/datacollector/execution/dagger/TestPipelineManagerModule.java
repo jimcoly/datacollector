@@ -30,6 +30,7 @@ import com.streamsets.datacollector.main.PipelineTask;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.RuntimeModule;
 import com.streamsets.datacollector.main.SlavePipelineTask;
+import com.streamsets.datacollector.main.SlaveRuntimeInfo;
 import com.streamsets.datacollector.store.PipelineStoreTask;
 import com.streamsets.datacollector.store.impl.SlavePipelineStoreTask;
 import com.streamsets.datacollector.task.TaskWrapper;
@@ -45,6 +46,8 @@ import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.UUID;
 
 import static org.junit.Assert.assertEquals;
@@ -69,7 +72,7 @@ public class TestPipelineManagerModule {
   @Test
   public void testStandalonePipelineManagerModule() throws PipelineException {
     //Start SDC and get an instance of PipelineTask
-    ObjectGraph objectGraph = ObjectGraph.create(MainStandalonePipelineManagerModule.class);
+    ObjectGraph objectGraph = ObjectGraph.create(MainStandalonePipelineManagerModule.createForTest(AsterModuleForTest.class));
     TaskWrapper taskWrapper = objectGraph.get(TaskWrapper.class);
     Assert.assertTrue(taskWrapper.getTask() instanceof PipelineTask);
     Assert.assertNotNull(objectGraph.get(Configuration.class));
@@ -82,14 +85,24 @@ public class TestPipelineManagerModule {
     Assert.assertTrue(pipelineManager instanceof StandaloneAndClusterPipelineManager);
 
     PipelineStoreTask pipelineStoreTask = pipelineTask.getPipelineStoreTask();
-    PipelineConfiguration pc = pipelineStoreTask.create("user", "p1", "p1", "description", false, false);
+    PipelineConfiguration pc = pipelineStoreTask.create("user", "p1", "p1", "description", false, false,
+        new HashMap<String, Object>()
+    );
     //Create previewer
-    Previewer previewer = pipelineManager.createPreviewer("user", pc.getInfo().getPipelineId(), "1");
+    Previewer previewer = pipelineManager.createPreviewer(
+        "user",
+        pc.getInfo().getPipelineId(),
+        "1",
+        Collections.emptyList(),
+        p -> null,
+        false,
+        new HashMap<>()
+    );
     assertEquals(previewer, pipelineManager.getPreviewer(previewer.getId()));
     ((StandaloneAndClusterPipelineManager)pipelineManager).outputRetrieved(previewer.getId());
     assertNull(pipelineManager.getPreviewer(previewer.getId()));
 
-    pipelineStoreTask.save("user", pc.getInfo().getPipelineId(), "0", "description", pc);
+    pipelineStoreTask.save("user", pc.getInfo().getPipelineId(), "0", "description", pc, false);
 
     //create Runner
     Runner runner = pipelineManager.getRunner(pc.getInfo().getPipelineId(), "0");
@@ -101,11 +114,14 @@ public class TestPipelineManagerModule {
     Assert.assertEquals(PipelineStatus.EDITED, runner.getState().getStatus());
     Assert.assertEquals(pc.getInfo().getPipelineId(), runner.getName());
     Assert.assertEquals("0", runner.getRev());
+
+    taskWrapper.stop();
   }
 
   @Test
   public void testSlavePipelineManagerModule() throws PipelineException {
-    ObjectGraph objectGraph = ObjectGraph.create(MainSlavePipelineManagerModule.class);
+    ObjectGraph objectGraph = ObjectGraph.create(MainSlavePipelineManagerModule.createForTest(AsterModuleForTest.class));
+    ((SlaveRuntimeInfo)objectGraph.get(RuntimeInfo.class)).setId("id");
     TaskWrapper taskWrapper = objectGraph.get(TaskWrapper.class);
     taskWrapper.init();
     Assert.assertTrue(taskWrapper.getTask() instanceof SlavePipelineTask);
@@ -114,7 +130,7 @@ public class TestPipelineManagerModule {
     Assert.assertTrue(pipelineManager instanceof SlavePipelineManager);
 
     try {
-      pipelineManager.createPreviewer("user", "p1", "1");
+      pipelineManager.createPreviewer("user", "p1", "1", Collections.emptyList(), p -> null, false, new HashMap<>());
       Assert.fail("Expected UnsupportedOperationException");
     } catch (UnsupportedOperationException e) {
 
@@ -124,14 +140,14 @@ public class TestPipelineManagerModule {
     Assert.assertTrue(pipelineStoreTask instanceof SlavePipelineStoreTask);
 
     try {
-      pipelineStoreTask.create("user", "p1", "p1", "description", false, false);
+      pipelineStoreTask.create("user", "p1", "p1", "description", false, false, new HashMap<String, Object>());
       Assert.fail("Expected UnsupportedOperationException");
     } catch (UnsupportedOperationException e) {
 
     }
 
     try {
-      pipelineStoreTask.save("user", "p1", "0", "description", Mockito.mock(PipelineConfiguration.class));
+      pipelineStoreTask.save("user", "p1", "0", "description", Mockito.mock(PipelineConfiguration.class), false);
       Assert.fail("Expected UnsupportedOperationException");
     } catch (UnsupportedOperationException e) {
 
@@ -145,5 +161,7 @@ public class TestPipelineManagerModule {
     Assert.assertEquals(PipelineStatus.EDITED, asyncRunner.getState().getStatus());
     Assert.assertEquals("p1", asyncRunner.getName());
     Assert.assertEquals("0", asyncRunner.getRev());
+
+    taskWrapper.stop();
   }
 }

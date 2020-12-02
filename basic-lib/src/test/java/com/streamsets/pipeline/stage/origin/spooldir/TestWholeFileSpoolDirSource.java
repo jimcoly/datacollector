@@ -68,7 +68,7 @@ public class TestWholeFileSpoolDirSource {
     conf.spoolDir = testDir;
     conf.batchSize = 10;
     conf.overrunLimit = 100;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "*";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -143,6 +143,7 @@ public class TestWholeFileSpoolDirSource {
       Assert.assertEquals(Field.Type.MAP, record.get(FileRefUtil.FILE_INFO_FIELD_PATH).getType());
 
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -203,6 +204,7 @@ public class TestWholeFileSpoolDirSource {
       //Now make sure the file is copied properly,
       checkFileContent(new FileInputStream(sourcePath.toString()), new FileInputStream(targetFile));
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }

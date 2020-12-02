@@ -18,8 +18,11 @@ package com.streamsets.datacollector.json;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.streamsets.datacollector.credential.ClearCredentialValue;
+import com.streamsets.datacollector.event.json.DynamicPreviewEventJson;
+import com.streamsets.datacollector.event.json.customdeserializer.DynamicPreviewEventDeserializer;
 import com.streamsets.datacollector.record.FieldDeserializer;
 import com.streamsets.datacollector.restapi.bean.FieldJson;
+import com.streamsets.datacollector.restapi.rbean.json.RJson;
 import com.streamsets.pipeline.api.impl.ErrorMessage;
 
 import java.time.ZonedDateTime;
@@ -38,6 +41,8 @@ public class ObjectMapperFactory {
     module.addDeserializer(ErrorMessage.class, new ErrorMessageDeserializer());
     module.addSerializer(ClearCredentialValue.class, new ClearCredentialValueSerializer());
     module.addSerializer(ZonedDateTime.class, new ZonedDateTimeSerializer());
+    module.addDeserializer(DynamicPreviewEventJson.class, new DynamicPreviewEventDeserializer());
+    RJson.configureRJson(objectMapper);
     objectMapper.registerModule(module);
     return objectMapper;
   }

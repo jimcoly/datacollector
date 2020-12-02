@@ -18,6 +18,8 @@ package com.streamsets.pipeline.lib.parser.excel;
 public final class WorkbookParserConstants {
 
   public static final String HEADER = "header";
+  public static final String SHEETS = "sheets";
+  public static final String SKIP_CELLS_WITH_NO_HEADER = "skipsCellsWithNoHeader";
 
   private WorkbookParserConstants() {
   }

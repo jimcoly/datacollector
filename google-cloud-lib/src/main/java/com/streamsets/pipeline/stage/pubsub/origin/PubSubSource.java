@@ -23,8 +23,6 @@ import com.google.api.gax.core.CredentialsProvider;
 import com.google.api.gax.core.ExecutorProvider;
 import com.google.api.gax.core.InstantiatingExecutorProvider;
 import com.google.api.gax.grpc.InstantiatingGrpcChannelProvider;
-import com.google.api.gax.rpc.TransportChannel;
-import com.google.api.gax.rpc.TransportChannelProvider;
 import com.google.cloud.pubsub.v1.Subscriber;
 import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
 import com.google.cloud.pubsub.v1.SubscriptionAdminClient.ListSubscriptionsPagedResponse;
@@ -39,10 +37,7 @@ import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.iam.v1.TestIamPermissionsResponse;
-import com.google.pubsub.v1.ProjectName;
-import com.google.pubsub.v1.ProjectTopicName;
 import com.google.pubsub.v1.Subscription;
-import com.google.pubsub.v1.Topic;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.base.BasePushSource;
 import com.streamsets.pipeline.lib.parser.DataParserFactory;
@@ -66,7 +61,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
 
-import static com.streamsets.pipeline.stage.lib.GoogleCloudCredentialsConfig.CONF_CREDENTIALS_CREDENTIALS_PROVIDER;
+import static com.streamsets.pipeline.lib.googlecloud.GoogleCloudCredentialsConfig.CONF_CREDENTIALS_CREDENTIALS_PROVIDER;
 
 public class PubSubSource extends BasePushSource {
 
@@ -155,11 +150,10 @@ public class PubSubSource extends BasePushSource {
 
     TopicAdminSettings settings;
     try {
-      settings =
-          (TopicAdminSettings) TopicAdminSettings
-              .newBuilder()
-              .setCredentialsProvider(credentialsProvider)
-              .build();
+      settings = TopicAdminSettings
+          .newBuilder()
+          .setCredentialsProvider(credentialsProvider)
+          .build();
 
     } catch (IOException e) {
       LOG.error(Errors.PUBSUB_04.getMessage(), e.toString(), e);
@@ -188,7 +182,7 @@ public class PubSubSource extends BasePushSource {
         ListSubscriptionsRequest listSubscriptionsRequest =
             ListSubscriptionsRequest
                 .newBuilder()
-                .setProject("projects/"+conf.credentials.projectId)
+                .setProject("projects/"+conf.credentials.getProjectId())
                 .build();
         ListSubscriptionsPagedResponse response =
             subscriptionAdminClient.listSubscriptions(listSubscriptionsRequest);
@@ -209,7 +203,7 @@ public class PubSubSource extends BasePushSource {
       permissions.add(PUBSUB_SUBSCRIPTIONS_GET_PERMISSION);
       ProjectSubscriptionName subscriptionName = ProjectSubscriptionName
           .of(
-              conf.credentials.projectId,
+              conf.credentials.getProjectId(),
               conf.subscriptionId
           );
       TestIamPermissionsResponse testedPermissions =
@@ -240,16 +234,21 @@ public class PubSubSource extends BasePushSource {
 
     ProjectSubscriptionName subscriptionName = ProjectSubscriptionName
         .of(
-            conf.credentials.projectId,
+            conf.credentials.getProjectId(),
             conf.subscriptionId
         );
 
     executor = Executors.newFixedThreadPool(getNumberOfThreads());
 
+    int batchSize = Math.min(maxBatchSize, conf.basic.maxBatchSize);
+    if (!getContext().isPreview() && conf.basic.maxBatchSize > maxBatchSize) {
+      getContext().reportError(Errors.PUBSUB_10, maxBatchSize);
+    }
+
     for (int i = 0; i < conf.maxThreads; i++) {
       MessageProcessor messageProcessor = new MessageProcessorImpl(
           getContext(),
-          Math.min(maxBatchSize, conf.basic.maxBatchSize),
+          batchSize,
           conf.basic.maxWaitTime,
           parserFactory,
           workQueue

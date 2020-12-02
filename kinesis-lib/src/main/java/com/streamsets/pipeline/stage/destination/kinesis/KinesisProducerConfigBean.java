@@ -21,11 +21,12 @@ import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.config.DataFormat;
 import com.streamsets.pipeline.lib.el.RecordEL;
 import com.streamsets.pipeline.stage.destination.lib.DataGeneratorFormatConfig;
-import com.streamsets.pipeline.stage.lib.kinesis.KinesisConfigBean;
+import com.streamsets.pipeline.stage.lib.kinesis.KinesisFirehoseConfigBean;
+import com.streamsets.pipeline.stage.lib.kinesis.KinesisStreamConfigBean;
 
 import java.util.Map;
 
-public class KinesisProducerConfigBean extends KinesisConfigBean {
+public class KinesisProducerConfigBean extends KinesisStreamConfigBean {
 
   @ConfigDefBean(groups = "DATA_FORMAT")
   public DataGeneratorFormatConfig dataFormatConfig;
@@ -49,6 +50,7 @@ public class KinesisProducerConfigBean extends KinesisConfigBean {
       label = "Partitioning Strategy",
       description = "Partitioning strategy for partition key generation",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0"
   )
   @ValueChooserModel(PartitionStrategyChooserValues.class)
@@ -61,6 +63,7 @@ public class KinesisProducerConfigBean extends KinesisConfigBean {
       label = "Partition Expression",
       description = "EL that is used to evaluate the partitionKey when producing messages.",
       displayPosition = 45,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0",
       dependsOn = "partitionStrategy",
       triggeredByValue = "EXPRESSION",
@@ -75,6 +78,7 @@ public class KinesisProducerConfigBean extends KinesisConfigBean {
       label = "Kinesis Producer Configuration",
       description = "Additional Kinesis Producer properties to set.",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   public Map<String, String> producerConfigs;
@@ -87,6 +91,7 @@ public class KinesisProducerConfigBean extends KinesisConfigBean {
       description = "Enabling this option will guarantee records will be written in-order to the stream. However, " +
           "enabling this option will disable batching and comes at the expense of throughput.",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group =  "#0"
   )
   public boolean preserveOrdering;

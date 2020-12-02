@@ -18,7 +18,6 @@ package com.streamsets.pipeline.stage.bigquery.origin;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.bigquery.BigQuery;
-import com.google.cloud.bigquery.FieldValue;
 import com.google.cloud.bigquery.FieldValueList;
 import com.google.cloud.bigquery.Job;
 import com.google.cloud.bigquery.JobId;
@@ -31,11 +30,12 @@ import com.streamsets.pipeline.sdk.SourceRunner;
 import com.streamsets.pipeline.sdk.StageRunner;
 import com.streamsets.pipeline.stage.bigquery.lib.BigQueryDelegate;
 import com.streamsets.pipeline.stage.bigquery.lib.TestBigQueryDelegate;
-import com.streamsets.pipeline.stage.lib.CredentialsProviderType;
+import com.streamsets.pipeline.stage.common.CredentialsProviderType;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.powermock.modules.junit4.PowerMockRunnerDelegate;
@@ -46,6 +46,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import static com.streamsets.pipeline.lib.googlecloud.Errors.GOOGLE_01;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
@@ -59,6 +60,9 @@ import static org.powermock.api.mockito.PowerMockito.mockStatic;
 @RunWith(PowerMockRunner.class)
 @PowerMockRunnerDelegate(value = Parameterized.class)
 @PrepareForTest({ServiceAccountCredentials.class, GoogleCredentials.class, BigQueryDelegate.class})
+@PowerMockIgnore({
+    "jdk.internal.reflect.*"
+})
 public class TestBigQuerySource {
   private BigQuery mockBigquery;
   private JobId jobId;
@@ -90,9 +94,9 @@ public class TestBigQuerySource {
   @Test
   public void testMissingCredentialsFile() throws Exception {
     BigQuerySourceConfig conf = new BigQuerySourceConfig();
-    conf.credentials.projectId = "test";
-    conf.credentials.path = "/bogus";
-    conf.credentials.credentialsProvider = CredentialsProviderType.JSON_PROVIDER;
+    conf.credentials.connection.projectId = "test";
+    conf.credentials.connection.path = "/bogus";
+    conf.credentials.connection.credentialsProvider = CredentialsProviderType.JSON_PROVIDER;
 
     BigQuerySource bigquerySource = new BigQuerySource(conf);
     SourceRunner runner = new SourceRunner.Builder(BigQueryDSource.class, bigquerySource)
@@ -101,7 +105,7 @@ public class TestBigQuerySource {
 
     List<Stage.ConfigIssue> issues = runner.runValidateConfigs();
     assertEquals(1, issues.size());
-    assertTrue(issues.get(0).toString().contains(com.streamsets.pipeline.stage.lib.Errors.GOOGLE_01.getCode()));
+    assertTrue(issues.get(0).toString().contains(GOOGLE_01.getCode()));
   }
 
   @Test
@@ -110,9 +114,9 @@ public class TestBigQuerySource {
     tempFile.deleteOnExit();
 
     BigQuerySourceConfig conf = new BigQuerySourceConfig();
-    conf.credentials.projectId = "test";
-    conf.credentials.path = tempFile.getAbsolutePath();
-    conf.credentials.credentialsProvider = CredentialsProviderType.JSON_PROVIDER;
+    conf.credentials.connection.projectId = "test";
+    conf.credentials.connection.path = tempFile.getAbsolutePath();
+    conf.credentials.connection.credentialsProvider = CredentialsProviderType.JSON_PROVIDER;
     conf.query = "SELECT * FROM [test:table]";
 
 

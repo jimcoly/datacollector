@@ -17,42 +17,46 @@ package com.streamsets.pipeline.stage.origin.sqs;
 
 import com.streamsets.pipeline.api.ConfigDef;
 import com.streamsets.pipeline.api.ConfigDefBean;
+import com.streamsets.pipeline.api.ConnectionDef;
+import com.streamsets.pipeline.api.Dependency;
 import com.streamsets.pipeline.api.ValueChooserModel;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
-import com.streamsets.pipeline.lib.aws.AwsRegionChooserValues;
-import com.streamsets.pipeline.stage.lib.aws.AWSConfig;
-import com.streamsets.pipeline.stage.lib.aws.ProxyConfig;
+import com.streamsets.pipeline.stage.common.sqs.AwsSqsConnection;
 
 import java.util.List;
 
 public class SqsConsumerConfigBean {
 
-  @ConfigDefBean(groups = "SQS")
-  public AWSConfig awsConfig;
-
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.MODEL,
-      defaultValue = "US_WEST_2",
-      label = "Region",
-      displayPosition = 100,
-      group = "SQS"
+      connectionType = AwsSqsConnection.TYPE,
+      defaultValue = ConnectionDef.Constants.CONNECTION_SELECT_MANUAL,
+      label = "Connection",
+      group = "#0",
+      displayPosition = -500
   )
-  @ValueChooserModel(AwsRegionChooserValues.class)
-  public AwsRegion region;
+  @ValueChooserModel(ConnectionDef.Constants.ConnectionChooserValues.class)
+  public String connectionSelection = ConnectionDef.Constants.CONNECTION_SELECT_MANUAL;
 
-  @ConfigDef(
-      required = false,
-      type = ConfigDef.Type.STRING,
-      label = "Endpoint",
-      description = "",
-      defaultValue = "",
-      displayPosition = 100,
-      dependsOn = "region",
-      triggeredByValue = "OTHER",
-      group = "SQS"
+  @ConfigDefBean(
+      dependencies = {
+          @Dependency(
+              configName = "connectionSelection",
+              triggeredByValues = ConnectionDef.Constants.CONNECTION_SELECT_MANUAL
+          )
+      }
   )
-  public String endpoint;
+  public AwsSqsConnection connection;
+
+  @ConfigDef(required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "Specify Queue URL directly",
+      description = "Allows specifying URL instead of prefix which disables validation of existence.",
+      displayPosition = 105,
+      group = "SQS",
+      displayMode = ConfigDef.DisplayMode.BASIC)
+  public boolean specifyQueueURL;
 
   @ConfigDef(
       required = true,
@@ -61,24 +65,34 @@ public class SqsConsumerConfigBean {
       description = "The name prefixes of queues to fetch messages from. All unique queue names having these prefixes" +
           " will be assigned to all available threads in a round-robin fashion.",
       displayPosition = 110,
-      group = "SQS"
-  )
+      dependsOn = "specifyQueueURL",
+      triggeredByValue = "false",
+      group = "SQS",
+      displayMode = ConfigDef.DisplayMode.BASIC)
   public List<String> queuePrefixes;
 
-  @ConfigDef(
-      required = true,
+  @ConfigDef(required = true,
+      type = ConfigDef.Type.LIST,
+      label = "Queue URLs",
+      description = "The URLs of the queues",
+      displayPosition = 110,
+      dependsOn = "specifyQueueURL",
+      triggeredByValue = "true",
+      group = "SQS",
+      displayMode = ConfigDef.DisplayMode.BASIC)
+  public List<String> queueUrls;
+
+  @ConfigDef(required = true,
       type = ConfigDef.Type.NUMBER,
       defaultValue = "10",
       label = "Number of Messages per Request",
       description = "The max number of messages that should be retrieved per request.",
       displayPosition = 120,
       group = "SQS",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       min = 1
   )
   public int numberOfMessagesPerRequest;
-
-  @ConfigDefBean(groups = "ADVANCED")
-  public ProxyConfig proxyConfig = new ProxyConfig();
 
   @ConfigDef(
       required = true,
@@ -88,6 +102,7 @@ public class SqsConsumerConfigBean {
       description = "Max number of records per batch.",
       displayPosition = 160,
       group = "SQS",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       min = 1,
       max = Integer.MAX_VALUE
   )
@@ -101,6 +116,7 @@ public class SqsConsumerConfigBean {
       description = "The maximum time a partial batch will remain open before being flushed (milliseconds).",
       displayPosition = 170,
       group = "SQS",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       min = 0,
       max = Integer.MAX_VALUE
   )
@@ -114,6 +130,7 @@ public class SqsConsumerConfigBean {
       description = "Maximum number of record processing threads to spawn.",
       displayPosition = 190,
       group = "SQS",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       min = 1,
       max = Integer.MAX_VALUE
   )
@@ -129,6 +146,7 @@ public class SqsConsumerConfigBean {
           " thus not use long polling).",
       displayPosition = 190,
       group = "SQS",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       min = -1,
       max = 20
   )
@@ -141,6 +159,7 @@ public class SqsConsumerConfigBean {
       label = "SQS Message Attribute Level",
       description = "Level of SQS message metadata and attributes to include as SDC record attributes.",
       displayPosition = 200,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "SQS"
   )
   @ValueChooserModel(SqsAttributesOptionChooserValues.class)
@@ -154,6 +173,7 @@ public class SqsConsumerConfigBean {
       displayPosition = 210,
       dependsOn = "sqsAttributesOption",
       triggeredByValue = "ALL",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "SQS"
   )
   public List<String> sqsMessageAttributeNames;

@@ -25,18 +25,21 @@ import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.base.configurablestage.DPushSource;
 
 @StageDef(
-    version = 3,
+    version = 4,
     label = "OPC UA Client",
     description = "Uses an OPC UA Client to read data from an OPC UA Server.",
     icon = "opcua.png",
     execution = ExecutionMode.STANDALONE,
     recordsByRef = true,
     onlineHelpRefUrl ="index.html?contextID=task_bqt_mx3_h1b",
-    upgrader = OpcUaClientSourceUpgrader.class
+    upgrader = OpcUaClientSourceUpgrader.class,
+    upgraderDef = "upgrader/OpcUaClientDSource.yaml"
 )
 @ConfigGroups(Groups.class)
 @HideConfigs({
+    "conf.tlsConfig.useRemoteTrustStore",
     "conf.tlsConfig.trustStoreFilePath",
+    "conf.tlsConfig.trustedCertificates",
     "conf.tlsConfig.trustStoreType",
     "conf.tlsConfig.trustStorePassword",
     "conf.tlsConfig.trustStoreAlgorithm"

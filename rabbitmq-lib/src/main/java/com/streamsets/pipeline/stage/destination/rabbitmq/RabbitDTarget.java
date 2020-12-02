@@ -25,19 +25,20 @@ import com.streamsets.pipeline.api.base.configurablestage.DTarget;
 import com.streamsets.pipeline.lib.rabbitmq.config.Groups;
 
 @StageDef(
-    version = 2,
+    version = 5,
     label = "RabbitMQ Producer",
-    description = "Writes data to a RabbitMQ Target.",
+    description = "Writes data to RabbitMQ",
     icon = "rabbitmq.png",
     execution = ExecutionMode.STANDALONE,
     recordsByRef = true,
     upgrader = RabbitTargetUpgrader.class,
+    upgraderDef = "upgrader/RabbitDTarget.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_rwy_wn5_2v"
 )
 @ConfigGroups(value = Groups.class)
 @GenerateResourceBundle
 public class RabbitDTarget extends DTarget {
-  @ConfigDefBean(groups = {"RABBITMQ", "QUEUE", "EXCHANGE", "ADVANCED", "DATA_FORMAT"})
+  @ConfigDefBean(groups = {"RABBITMQ", "QUEUE", "EXCHANGE", "TLS", "ADVANCED", "DATA_FORMAT"})
   public RabbitTargetConfigBean conf;
 
   @Override

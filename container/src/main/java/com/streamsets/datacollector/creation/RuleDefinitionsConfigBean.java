@@ -44,18 +44,19 @@ public class RuleDefinitionsConfigBean implements Stage {
 
   @ConfigDef(
       required = false,
-      type = ConfigDef.Type.LIST,
       defaultValue = "[]",
-      label = "邮件IDs",
+      type = ConfigDef.Type.LIST,
+      label = "Email IDs",
       description = "Email Addresses",
       displayPosition = 76,
       group = "NOTIFICATIONS"
   )
   public List<String> emailIDs;
 
-  @ConfigDef(required = true,
-      type = ConfigDef.Type.MODEL,
+  @ConfigDef(
+      required = true,
       defaultValue = "[]",
+      type = ConfigDef.Type.MODEL,
       label = "Webhooks",
       description = "Webhooks",
       displayPosition = 200,

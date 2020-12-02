@@ -23,7 +23,6 @@ import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.impl.Utils;
 import com.streamsets.pipeline.lib.jms.config.JmsErrors;
 import com.streamsets.pipeline.lib.jms.config.JmsGroups;
-import com.streamsets.pipeline.stage.common.CredentialsConfig;
 import com.streamsets.pipeline.stage.origin.lib.BasicConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
 import javax.jms.Destination;
+import javax.jms.Topic;
 import javax.jms.JMSException;
 import javax.jms.Message;
 import javax.jms.MessageConsumer;
@@ -47,7 +47,6 @@ public class JmsMessageConsumerImpl implements JmsMessageConsumer {
   private final InitialContext initialContext;
   private final ConnectionFactory connectionFactory;
   private final BasicConfig basicConfig;
-  private final CredentialsConfig credentialsConfig;
   private final JmsSourceConfig jmsConfig;
   private final JmsMessageConverter jmsMessageConverter;
   private Connection connection;
@@ -56,12 +55,11 @@ public class JmsMessageConsumerImpl implements JmsMessageConsumer {
   private MessageConsumer messageConsumer;
 
   public JmsMessageConsumerImpl(InitialContext initialContext, ConnectionFactory connectionFactory,
-                                BasicConfig basicConfig, CredentialsConfig credentialsConfig,
-                                JmsSourceConfig jmsConfig, JmsMessageConverter jmsMessageConverter) {
+                                BasicConfig basicConfig, JmsSourceConfig jmsConfig,
+                                JmsMessageConverter jmsMessageConverter) {
     this.initialContext = initialContext;
     this.connectionFactory = connectionFactory;
     this.basicConfig = basicConfig;
-    this.credentialsConfig = credentialsConfig;
     this.jmsConfig = jmsConfig;
     this.jmsMessageConverter = jmsMessageConverter;
   }
@@ -70,13 +68,16 @@ public class JmsMessageConsumerImpl implements JmsMessageConsumer {
   public List<Stage.ConfigIssue> init(Source.Context context) {
     List<Stage.ConfigIssue> issues = new ArrayList<>();
     try {
-      if (credentialsConfig.useCredentials) {
-        connection = connectionFactory.createConnection(credentialsConfig.username.get(), credentialsConfig.password.get());
+      if (jmsConfig.connection.useCredentials) {
+        connection = connectionFactory.createConnection(
+            jmsConfig.connection.username.get(),
+            jmsConfig.connection.password.get()
+        );
       } else {
         connection = connectionFactory.createConnection();
       }
     } catch (JMSException|StageException ex) {
-      if (credentialsConfig.useCredentials) {
+      if (jmsConfig.connection.useCredentials) {
         issues.add(context.createConfigIssue(
             JmsGroups.JMS.name(),
             "jmsConfig.connectionFactory",
@@ -135,11 +136,23 @@ public class JmsMessageConsumerImpl implements JmsMessageConsumer {
     if (issues.isEmpty()) {
       try {
         String messageSelector = jmsConfig.messageSelector;
+        Boolean durableSubscription = jmsConfig.durableSubscription;
+        String durableSubscriptionName = jmsConfig.durableSubscriptionName;
         if (messageSelector == null) {
           messageSelector = "";
         }
         messageSelector = messageSelector.trim();
-        messageConsumer = session.createConsumer(destination, messageSelector.isEmpty() ? null: messageSelector);
+        if (durableSubscriptionName == null) {
+          durableSubscriptionName = "";
+        }
+        durableSubscriptionName = durableSubscriptionName.trim();
+
+        // added durable topic consumer support based on durable flag in stage config
+        if (durableSubscription) {
+          messageConsumer = session.createDurableSubscriber((Topic) destination, durableSubscriptionName, messageSelector.isEmpty() ? null: messageSelector, false);
+        } else {
+          messageConsumer = session.createConsumer(destination, messageSelector.isEmpty() ? null : messageSelector);
+        }
       } catch (JMSException ex) {
         issues.add(context.createConfigIssue(JmsGroups.JMS.name(), "jmsConfig.connectionFactory", JmsErrors.JMS_11,
           ex.toString()));

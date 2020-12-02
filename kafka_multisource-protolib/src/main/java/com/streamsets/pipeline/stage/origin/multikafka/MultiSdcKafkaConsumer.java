@@ -16,8 +16,11 @@
 package com.streamsets.pipeline.stage.origin.multikafka;
 
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.TopicPartition;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * This is very thin wrapper on top of KafkaConsumer (Kafka native class) that is abstracting method calls that
@@ -26,11 +29,13 @@ import java.util.List;
  */
 public interface MultiSdcKafkaConsumer<K, V> {
 
-  public void subscribe(List<String> topics);
+  void subscribe(List<String> topics);
 
-  public ConsumerRecords<K, V> poll(long timeout);
+  ConsumerRecords<K, V> poll(long timeout);
 
-  public void unsubscribe();
+  void unsubscribe();
 
-  public void close();
+  void close();
+
+  void commitSync(Map<TopicPartition, OffsetAndMetadata> offsetsMap);
 }

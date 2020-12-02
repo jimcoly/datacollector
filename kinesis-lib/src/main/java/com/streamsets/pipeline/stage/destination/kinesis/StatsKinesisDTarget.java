@@ -28,11 +28,12 @@ import com.streamsets.pipeline.config.DataFormat;
 import com.streamsets.pipeline.stage.destination.lib.ToOriginResponseConfig;
 
 @StageDef(
-    version = 8,
+    version = 10,
     label = "Write to Kinesis",
     description = "Writes Pipeline Statistic records to Kinesis",
     icon = "",
     upgrader = KinesisTargetUpgrader.class,
+    upgraderDef = "upgrader/StatsKinesisDTarget.yaml",
     onlineHelpRefUrl = ""
 )
 @ConfigGroups(value = Groups.class)
@@ -41,7 +42,14 @@ import com.streamsets.pipeline.stage.destination.lib.ToOriginResponseConfig;
 @HideConfigs(
   preconditions = true,
   onErrorRecord = true,
-  value = {"kinesisConfig.dataFormat", "kinesisConfig.preserveOrdering"}
+  value = {
+      "kinesisConfig.dataFormat",
+      "kinesisConfig.preserveOrdering",
+      "kinesisConfig.connection.proxyConfig.connectionTimeout",
+      "kinesisConfig.connection.proxyConfig.socketTimeout",
+      "kinesisConfig.connection.proxyConfig.retryCount",
+      "kinesisConfig.connection.proxyConfig.useProxy"
+  }
 )
 @GenerateResourceBundle
 public class StatsKinesisDTarget extends DTarget {

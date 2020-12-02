@@ -23,9 +23,13 @@ import com.streamsets.pipeline.stage.origin.multikafka.MultiSdcKafkaConsumer;
 import com.streamsets.pipeline.stage.origin.multikafka.loader.KafkaConsumerLoader;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.TopicPartition;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 public class Kafka0_9ConsumerLoader extends KafkaConsumerLoader {
@@ -57,9 +61,9 @@ public class Kafka0_9ConsumerLoader extends KafkaConsumerLoader {
    */
   private class WrapperKafkaConsumer implements MultiSdcKafkaConsumer {
 
-    private KafkaConsumer delegate;
+    private Consumer delegate;
 
-    public WrapperKafkaConsumer(KafkaConsumer consumer) {
+    public WrapperKafkaConsumer(Consumer consumer) {
       this.delegate = consumer;
     }
 
@@ -82,5 +86,8 @@ public class Kafka0_9ConsumerLoader extends KafkaConsumerLoader {
     public void close() {
       delegate.close();
     }
+
+    @Override
+    public void commitSync(Map offsetsMap) { delegate.commitSync(offsetsMap); }
   }
 }

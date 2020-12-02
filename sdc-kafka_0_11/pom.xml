@@ -23,21 +23,20 @@
     <parent>
         <groupId>com.streamsets</groupId>
         <artifactId>streamsets-datacollector-root-lib</artifactId>
-        <version>3.7.0-SNAPSHOT</version>
+        <version>3.21.0-SNAPSHOT</version>
         <relativePath>../root-lib</relativePath>
     </parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-sdc-kafka-11</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <description>StreamSets Data Collector SDC Kafka 0.11</description>
     <name>StreamSets Data Collector SDC kafka 0.11</name>
     <packaging>jar</packaging>
 
   <properties>
-    <confluent.version>3.0.1</confluent.version>
     <kafka.version>0.11.0.0</kafka.version>
     <tec.version>0.7</tec.version>
-    <scala.version>2.11.8</scala.version>
+    <scala.version>2.11.12</scala.version>
     <zookeeper.version>3.4.5</zookeeper.version>
     <guava.version>18.0</guava.version>
     <commons.version>3.4</commons.version>
@@ -141,7 +140,7 @@
     <dependency>
       <groupId>com.streamsets</groupId>
       <artifactId>streamsets-datacollector-sdc-kafka-11-common</artifactId>
-      <version>3.7.0-SNAPSHOT</version>
+      <version>3.21.0-SNAPSHOT</version>
       <scope>compile</scope>
     </dependency>
   </dependencies>
@@ -176,7 +175,6 @@
           as some kerberos settings are read only on startup and cached -->
           <forkCount>1</forkCount>
           <reuseForks>false</reuseForks>
-          <argLine>-Xmx1g</argLine>
         </configuration>
       </plugin>
     </plugins>

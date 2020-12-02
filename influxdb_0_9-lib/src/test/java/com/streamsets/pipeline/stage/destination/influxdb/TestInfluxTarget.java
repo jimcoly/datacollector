@@ -28,6 +28,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
@@ -45,6 +46,9 @@ import static org.powermock.api.mockito.PowerMockito.when;
 
 @RunWith(PowerMockRunner.class)
 @PrepareForTest(InfluxTarget.class)
+@PowerMockIgnore({
+    "jdk.internal.reflect.*"
+})
 public class TestInfluxTarget {
 
   @Rule
@@ -128,8 +132,8 @@ public class TestInfluxTarget {
     InfluxConfigBean conf = new InfluxConfigBean();
     conf.url = "http://localhost:8086";
     conf.dbName = "test";
-    conf.username = "test";
-    conf.password = "test";
+    conf.username = () -> "test";
+    conf.password = () -> "test";
     conf.recordConverterType = RecordConverterType.COLLECTD;
     return conf;
   }

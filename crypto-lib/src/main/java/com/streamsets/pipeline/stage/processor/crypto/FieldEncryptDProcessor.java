@@ -32,14 +32,15 @@ import com.streamsets.pipeline.api.base.configurablestage.DProcessor;
     label = "Encrypt and Decrypt Fields",
     description = "Encrypts or decrypts field values",
     icon = "crypto.png",
+    upgraderDef = "upgrader/FieldEncryptDProcessor.yaml",
     onlineHelpRefUrl = "index.html?contextID=ask_fyd_vcj_x2b"
 )
-@ConfigGroups(EncryptGroups.class)
+@ConfigGroups(ProcessorEncryptGroups.class)
 @GenerateResourceBundle
 public class FieldEncryptDProcessor extends DProcessor {
 
   @ConfigDefBean
-  public FieldEncryptConfig conf = new FieldEncryptConfig();
+  public ProcessorFieldEncryptConfig conf = new ProcessorFieldEncryptConfig();
 
   @Override
   protected Processor createProcessor() {

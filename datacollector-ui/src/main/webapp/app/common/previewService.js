@@ -47,8 +47,11 @@ angular.module('dataCollectorApp.common')
       angular.forEach(batchData, function (stageOutput) {
         if(stageOutput.instanceName === stageInstance.instanceName) {
           angular.forEach(stageOutput.output, function(outputs, laneName) {
-            angular.forEach(outputs, function(output) {
+            angular.forEach(outputs, function(output, index) {
               output.laneName = laneName;
+              if (index < 2) {
+                output.expand = true;
+              }
               stagePreviewData.output.push(output);
               if (output.header && !output.header.previousTrackingId) {
                 stagePreviewData.newRecords.push(output);
@@ -132,7 +135,10 @@ angular.module('dataCollectorApp.common')
             if(stageOutput.output[inputLane]) {
               angular.forEach(stageOutput.output[inputLane], function(input) {
                 input.laneName = inputLane;
-                stagePreviewData.input.push(input);
+                // filter records that does not belong to the selected stream
+                if (input.header.trackingId.indexOf(fromStageInstance.instanceName) > 0) {
+                    stagePreviewData.input.push(input);
+                }
               });
             } else if (inputLane === stageOutput.instanceName + '_EventLane')  {
               angular.forEach(stageOutput.eventRecords, function(input) {
@@ -404,12 +410,16 @@ angular.module('dataCollectorApp.common')
               }
             })
             .catch(function(response) {
-              defer.reject();
+              if (defer) {
+                defer.reject();
+              }
               $scope.common.errors = [response.data];
             });
         },
         function() {
-          defer.reject();
+          if (defer) {
+            defer.reject();
+          }
           console.log( "Timer rejected!" );
         }
       );

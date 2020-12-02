@@ -83,9 +83,7 @@ public class WaveAnalyticsTarget extends BaseTarget {
 
   private PartnerConnection connection;
   private String restEndpoint;
-  private String datasetID = null;
   private int partNumber = 1;
-  private long lastBatchTime = 0;
   private String datasetName = null;
   private HttpClient httpClient;
 
@@ -110,11 +108,12 @@ public class WaveAnalyticsTarget extends BaseTarget {
     }
   }
 
-  private void openDataset() throws ConnectionException, StageException {
+  private String openDataset() throws ConnectionException, StageException {
     datasetName = conf.edgemartAliasPrefix;
     if (conf.appendTimestamp) {
       datasetName += "_" + System.currentTimeMillis();
     }
+    String datasetID = null;
 
     SObject sobj = new SObject();
     sobj.setType("InsightsExternalData");
@@ -139,9 +138,10 @@ public class WaveAnalyticsTarget extends BaseTarget {
         }
       }
     }
+    return datasetID;
   }
 
-  private void writeToDataset(Batch batch) throws StageException {
+  private void writeToDataset(Batch batch, String datasetID) throws StageException {
     StringWriter writer = new StringWriter();
     DataGenerator gen;
     CsvHeader csvHeader = conf.metadataJson.isEmpty() ? CsvHeader.WITH_HEADER : CsvHeader.NO_HEADER;
@@ -374,7 +374,7 @@ public class WaveAnalyticsTarget extends BaseTarget {
     return mapper.writeValueAsString(map);
   }
 
-  private void closeDataset() throws StageException, ConnectionException, IOException {
+  private void commitDataset(String datasetID) throws StageException, ConnectionException, IOException {
     // Instruct Wave to start processing the data
     SObject sobj = new SObject();
     sobj.setType("InsightsExternalData");
@@ -419,12 +419,11 @@ public class WaveAnalyticsTarget extends BaseTarget {
             }
           }
         } else {
-          System.out.println("Can't find InsightsExternalData with Id " + datasetID);
+          LOG.warn("Can't find InsightsExternalData with Id " + datasetID);
         }
       }
 
       // Add the dataset to the dataflow
-      ConnectorConfig config = connection.getConfig();
       String dataflowId = getDataflowId();
       String dataflowJson = getDataflowJson(dataflowId);
 
@@ -441,8 +440,6 @@ public class WaveAnalyticsTarget extends BaseTarget {
         runDataflow(dataflowId);
       }
     }
-
-    datasetID = null;
   }
 
   /**
@@ -459,16 +456,16 @@ public class WaveAnalyticsTarget extends BaseTarget {
     try {
       ConnectorConfig partnerConfig = ForceUtils.getPartnerConfig(conf, new WaveSessionRenewer());
       connection = Connector.newConnection(partnerConfig);
-      LOG.info("Successfully authenticated as {}", conf.username);
-      if (conf.mutualAuth.useMutualAuth) {
-        ForceUtils.setupMutualAuth(partnerConfig, conf.mutualAuth);
+      LOG.info("Successfully authenticated as {}", conf.connection.username);
+      if (conf.connection.mutualAuth.useMutualAuth) {
+        ForceUtils.setupMutualAuth(partnerConfig, conf.connection.mutualAuth);
       }
 
       String soapEndpoint = connection.getConfig().getServiceEndpoint();
       restEndpoint = soapEndpoint.substring(0, soapEndpoint.indexOf("services/Soap/"));
 
       httpClient = new HttpClient(ForceUtils.makeSslContextFactory(conf));
-      if (conf.useProxy) {
+      if (conf.connection.useProxy) {
         ForceUtils.setProxy(httpClient, conf);
       }
       httpClient.start();
@@ -490,15 +487,6 @@ public class WaveAnalyticsTarget extends BaseTarget {
    */
   @Override
   public void destroy() {
-    LOG.info("In ForceTarget destroy(), datasetID is " + datasetID);
-    if (datasetID != null) {
-      try {
-        closeDataset();
-      } catch (Exception e) {
-        LOG.error("Exception updating InsightsExternalData", e);
-      }
-    }
-
     if (httpClient != null) {
       try {
         httpClient.stop();
@@ -515,31 +503,25 @@ public class WaveAnalyticsTarget extends BaseTarget {
    */
   @Override
   public void write(Batch batch) throws StageException {
-    if (!batch.getRecords().hasNext()) {
-      LOG.info("Empty batch");
-      if (System.currentTimeMillis() > (lastBatchTime + (conf.datasetWaitTime * 1000L)) && datasetID != null) {
-        // We've waited datasetWaitTime since the last batch
-        LOG.info("Closing dataset");
-        try {
-          closeDataset();
-        } catch (Exception e) {
-          throw new StageException(Errors.WAVE_01, e);
+    if (batch.getRecords().hasNext()) {
+      LOG.info("Opening dataset");
+      String datasetID;
+      try {
+        datasetID = openDataset();
+        if (datasetID == null) {
+          throw new StageException(Errors.WAVE_06);
         }
-      }
-    } else {
-      if (datasetID == null) {
-        LOG.info("Opening dataset");
-        try {
-          openDataset();
-        } catch (ConnectionException ce) {
-          throw new StageException(Errors.WAVE_01, ce);
-        }
+      } catch (ConnectionException ce) {
+        throw new StageException(Errors.WAVE_01, ce);
       }
 
       LOG.info("Writing batch to dataset");
-      writeToDataset(batch);
-
-      lastBatchTime = System.currentTimeMillis();
+      writeToDataset(batch, datasetID);
+      try {
+        commitDataset(datasetID);
+      } catch (ConnectionException | IOException e) {
+        throw new StageException(Errors.WAVE_01, e);
+      }
     }
   }
 }

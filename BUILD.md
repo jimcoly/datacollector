@@ -17,14 +17,40 @@
 To build the Data Collector you will need the following software :
 
 - Git 1.9+
-- Oracle JDK 8
+- Oracle JDK 8+ (1.8, 11, or 14)
 - Docker 1.10+    (required only if running integration tests, older versions may work but are not tested.)
-- Maven 3.3.9+
+- Maven 3.6.3+
 - Node 0.10.32+1  (macOS, `brew install nodejs`       : Linux, [nodejs.org](https://nodejs.org) or [Packages from NodeSource](https://github.com/nodesource/distributions))
  - npm            (macOS, `brew install nodejs`       : Linux, [nodejs.org](https://nodejs.org) or [Packages from NodeSource](https://github.com/nodesource/distributions))
  - bower 1.8.2    (macOS, `npm -g install bower`      : Linux, `sudo npm -g install bower`)
  - grunt-cli      (macOS, `npm -g install grunt-cli`  : Linux, `sudo npm -g install grunt-cli`)
 - md5sum          (macOS, `brew install md5sha1sum`)
+
+## Installing Java JDK via Homebrew
+    brew cask install java<version>
+
+    # latest version (Java 14)
+    brew cask install java
+
+    # LTS version (Java 11)
+    brew cask install java11
+
+## Switch Java JDK via alias
+
+Setup your JAVA_HOME path in your .zshrc or .bash_profile for your primary Java version and add an export for each
+installed Java version.
+
+    export JAVA_HOME=$(/usr/libexec/java_home -v11.8)
+    export JAVA_8_HOME=$(/usr/libexec/java_home -v1.8)
+    export JAVA_11_HOME=$(/usr/libexec/java_home -v11)
+    export JAVA_14_HOME=$(/usr/libexec/java_home -v14)
+
+Add an alias to your .zshrc or .bash_profile for each installed Java version.
+The alias exports JAVA_HOME with the selected JAVA_VERSION_HOME.
+
+    alias java8='export JAVA_HOME=$JAVA_8_HOME'
+    alias java11='export JAVA_HOME=$JAVA_11_HOME'
+    alias java14='export JAVA_HOME=$JAVA_14_HOME'
 
 ## Prerequisite Tasks for Building Data Collector
 
@@ -53,7 +79,7 @@ You also need the artifacts for datacollector-edge installed into your local mav
 
 - Gradle is used in this project as a build tool, so in order to install it to your local maven repository execute:
 
-  `./gradlew clean dist publishToMavenLocal`
+  `./gradlew goClean dist publishToMavenLocal`
 
 Finally, get the latest Data Collector code from Github
 
@@ -67,11 +93,11 @@ From within the Data Collector directory, execute:
 
 To start the Data Collector, execute:
 
-`dist/target/streamsets-datacollector-3.7.0-SNAPSHOT/streamsets-datacollector-3.7.0-SNAPSHOT/bin/streamsets dc`
+`dist/target/streamsets-datacollector-3.21.0-SNAPSHOT/streamsets-datacollector-3.21.0-SNAPSHOT/bin/streamsets dc`
 
 For Data Collector CLI, execute:
 
-`dist/target/streamsets-datacollector-3.7.0-SNAPSHOT/streamsets-datacollector-3.7.0-SNAPSHOT/bin/streamsets cli`
+`dist/target/streamsets-datacollector-3.21.0-SNAPSHOT/streamsets-datacollector-3.21.0-SNAPSHOT/bin/streamsets cli`
 
 To skip the RAT report during the build use the `-DskipRat` option.
 
@@ -93,19 +119,27 @@ In case you want to run a specific integration class (here the module basic-lib 
 
 From within the Data Collector directory, execute:
 
-`mvn package -Drelease -DskipTests`
+`mvn clean package -Drelease -DskipTests -P-rpm`
 
 The release tarball will be created at:
 
-`release/target/streamsets-datacollector-all-3.7.0-SNAPSHOT.tgz`
+`release/target/streamsets-datacollector-all-3.21.0-SNAPSHOT-CATALOG.tgz`
 
 Extract the tarball to your preferred location :
 
-`tar xf streamsets-datacollector-all-3.7.0-SNAPSHOT.tgz`
+`tar xf streamsets-datacollector-all-3.21.0-SNAPSHOT-CATALOG.tgz`
 
 To start the DataCollector, execute:
 
-`streamsets-datacollector-all-3.7.0-SNAPSHOT/bin/streamsets dc`
+`streamsets-datacollector-all-3.21.0-SNAPSHOT-CATALOG/bin/streamsets dc`
+
+Extract the tarball to your preferred location :
+
+`tar xf streamsets-datacollector-all-3.21.0-SNAPSHOT.tgz`
+
+To start the DataCollector, execute:
+
+`streamsets-datacollector-all-3.21.0-SNAPSHOT/bin/streamsets dc`
 
 ## Troubleshooting
 

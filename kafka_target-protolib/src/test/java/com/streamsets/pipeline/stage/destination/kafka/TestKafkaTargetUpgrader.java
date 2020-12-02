@@ -17,14 +17,20 @@ package com.streamsets.pipeline.stage.destination.kafka;
 
 import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.StageException;
+import com.streamsets.pipeline.api.StageUpgrader;
 import com.streamsets.pipeline.config.CsvHeader;
 import com.streamsets.pipeline.config.CsvMode;
 import com.streamsets.pipeline.config.DataFormat;
 import com.streamsets.pipeline.config.JsonMode;
+import com.streamsets.pipeline.config.upgrade.KafkaSecurityUpgradeHelper;
+import com.streamsets.pipeline.config.upgrade.UpgraderTestUtils;
 import com.streamsets.pipeline.kafka.api.PartitionStrategy;
+import com.streamsets.pipeline.upgrader.SelectorStageUpgrader;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -182,5 +188,99 @@ public class TestKafkaTargetUpgrader {
 
     assertEquals("responseConf.sendResponseToOrigin", configs.get(0).getName());
     assertEquals("responseConf.responseType", configs.get(1).getName());
+  }
+
+  @Test
+  public void testUpgradeV4ToV5() throws Exception{
+    List<Config> configs = new ArrayList<>();
+
+    final URL yamlResource = ClassLoader.getSystemClassLoader().getResource("upgrader/KafkaDTarget.yaml");
+    final SelectorStageUpgrader upgrader = new SelectorStageUpgrader(
+        "stage",
+        new KafkaTargetUpgrader(),
+        yamlResource
+    );
+
+    StageUpgrader.Context context = Mockito.mock(StageUpgrader.Context.class);
+    Mockito.doReturn(4).when(context).getFromVersion();
+    Mockito.doReturn(5).when(context).getToVersion();
+
+    configs = upgrader.upgrade(configs, context);
+
+    UpgraderTestUtils.assertExists(configs, "conf.messageKeyFormat", "STRING");
+  }
+
+  @Test
+  public void testUpgradeV5ToV6() throws Exception{
+    List<Config> configs = new ArrayList<>();
+
+    final URL yamlResource = ClassLoader.getSystemClassLoader().getResource("upgrader/KafkaDTarget.yaml");
+    final SelectorStageUpgrader upgrader = new SelectorStageUpgrader(
+        "stage",
+        new KafkaTargetUpgrader(),
+        yamlResource
+    );
+
+    StageUpgrader.Context context = Mockito.mock(StageUpgrader.Context.class);
+    Mockito.doReturn(5).when(context).getFromVersion();
+    Mockito.doReturn(6).when(context).getToVersion();
+
+    configs = upgrader.upgrade(configs, context);
+
+    UpgraderTestUtils.assertExists(
+        configs,
+        "conf.dataGeneratorFormatConfig.basicAuthUserInfo",
+        ""
+    );
+    UpgraderTestUtils.assertExists(
+        configs,
+        "conf.dataGeneratorFormatConfig.basicAuthUserInfoForRegistration",
+        ""
+    );
+  }
+
+  @Test
+  public void testUpgradeV6ToV7() throws Exception {
+    List<Config> configs = new ArrayList<>();
+
+    final URL yamlResource = ClassLoader.getSystemClassLoader().getResource("upgrader/KafkaDTarget.yaml");
+    final SelectorStageUpgrader upgrader = new SelectorStageUpgrader(
+        "stage",
+        new KafkaTargetUpgrader(),
+        yamlResource
+    );
+
+    StageUpgrader.Context context = Mockito.mock(StageUpgrader.Context.class);
+    Mockito.doReturn(6).when(context).getFromVersion();
+    Mockito.doReturn(7).when(context).getToVersion();
+
+    configs = upgrader.upgrade(configs, context);
+
+    UpgraderTestUtils.assertExists(
+        configs,
+        "conf.provideKeytab",
+        false
+    );
+    UpgraderTestUtils.assertExists(
+        configs,
+        "conf.userKeytab",
+        ""
+    );
+    UpgraderTestUtils.assertExists(
+        configs,
+        "conf.userPrincipal",
+        "user/host@REALM"
+    );
+  }
+
+  @Test
+  public void testV7toV8() {
+    KafkaSecurityUpgradeHelper.testUpgradeSecurityOptions(
+        SelectorStageUpgrader.createTestInstanceForStageClass(KafkaDTarget.class),
+        7,
+        "conf",
+        "kafkaProducerConfigs",
+        "metadataBrokerList"
+    );
   }
 }

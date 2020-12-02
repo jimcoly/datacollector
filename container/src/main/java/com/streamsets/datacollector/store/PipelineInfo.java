@@ -91,6 +91,10 @@ public class PipelineInfo implements Serializable {
     return pipelineId;
   }
 
+  public void setPipelineId(String pipelineId) {
+    this.pipelineId = pipelineId;
+  }
+
   public String getTitle() {
     return title;
   }
@@ -137,5 +141,9 @@ public class PipelineInfo implements Serializable {
 
   public String getSdcId() {
     return sdcId;
+  }
+
+  public void setSdcVersion(String sdcVersion) {
+    this.sdcVersion = sdcVersion;
   }
 }

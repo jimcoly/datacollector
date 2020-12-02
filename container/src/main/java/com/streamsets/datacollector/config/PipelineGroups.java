@@ -18,13 +18,20 @@ package com.streamsets.datacollector.config;
 import com.streamsets.pipeline.api.Label;
 
 public enum PipelineGroups implements Label {
-  PARAMETERS("参数配置"),
-  NOTIFICATIONS("通知"),
-  BAD_RECORDS("错误记录"),
-  CLUSTER("集群化"),
-  STATS("统计"),
+  CLUSTER("Cluster"),
+  PARAMETERS("Parameters"),
+  NOTIFICATIONS("Notifications"),
+  BAD_RECORDS("Error Records"),
+  STATS("Statistics"),
   EMR("EMR"),
+  DATAPROC("Dataproc"),
+  ADVANCED("Advanced"),
   ;
+
+  // this is the EMR tab, only to still be used by SDC
+  public static final String EMR_GROUP_NAME = "EMR";
+  // this is the Cluster tab, which is the consolidated place for cluster configurations in Transformer
+  public static final String CLUSTER_GROUP_NAME = "CLUSTER";
 
   private final String label;
 

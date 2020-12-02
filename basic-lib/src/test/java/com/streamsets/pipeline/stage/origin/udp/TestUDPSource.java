@@ -24,6 +24,7 @@ import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.config.DatagramMode;
 import com.streamsets.pipeline.sdk.SourceRunner;
 import com.streamsets.pipeline.sdk.StageRunner;
+import org.apache.commons.lang.SystemUtils;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -36,6 +37,7 @@ public class TestUDPSource extends BaseUDPSourceTest {
   @StageDef(
     version = 1,
     label = "Test stage",
+    upgraderDef = "upgrader/TestUDPSource.yaml",
     onlineHelpRefUrl = ""
   )
   public static class TUDPSource extends UDPSource {
@@ -68,7 +70,9 @@ public class TestUDPSource extends BaseUDPSourceTest {
     TUDPSource source = new TUDPSource(conf);
     SourceRunner runner = new SourceRunner.Builder(TUDPSource.class, source).addOutputLane("lane").build();
     List<Stage.ConfigIssue> issues = runner.runValidateConfigs();
-    if (System.getProperty("user.name").equals("root")) {
+    if (System.getProperty("user.name").equals("root") || SystemUtils.IS_OS_MAC) {
+      // Note: starting Mac OS 10.14, there is no special permission for privileged ports
+      // hence it is same as running as root on any other unix system
       Assert.assertEquals(0, issues.size());
     } else {
       Assert.assertEquals(1, issues.size());
@@ -106,5 +110,6 @@ public class TestUDPSource extends BaseUDPSourceTest {
   @Override
   protected void destroyRunner() throws StageException {
     runner.runDestroy();
+    source.destroy();
   }
 }

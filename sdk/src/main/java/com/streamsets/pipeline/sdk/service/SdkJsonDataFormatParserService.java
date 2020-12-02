@@ -79,11 +79,13 @@ public class SdkJsonDataFormatParserService extends BaseService implements DataF
   }
 
   @Override
+  @Deprecated
   public void setStringBuilderPoolSize(int poolSize) {
     // Throw away in this test case.
   }
 
   @Override
+  @Deprecated
   public int getStringBuilderPoolSize() {
     return 1;
   }
@@ -118,7 +120,7 @@ public class SdkJsonDataFormatParserService extends BaseService implements DataF
     @Override
     public Record parse() throws IOException, DataParserException {
       Object object = recordReader.read();
-      if(object == null) {
+      if(object == JsonObjectReader.EOF) {
         return null;
       }
 

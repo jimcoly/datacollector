@@ -22,15 +22,18 @@ import com.streamsets.pipeline.api.GenerateResourceBundle;
 import com.streamsets.pipeline.api.Source;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.base.configurablestage.DSource;
+import com.streamsets.pipeline.lib.event.NoMoreDataEvent;
 
 @StageDef(
-    version = 1,
+    version = 2,
     label = "Google Cloud Storage",
     description = "Reads from Google Cloud Storage",
     icon = "cloud-storage-logo.png",
     recordsByRef = true,
     resetOffset = true,
     producesEvents = true,
+    eventDefs = {NoMoreDataEvent.class},
+    upgraderDef = "upgrader/GoogleCloudStorageDSource.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_wzm_2rl_nbb"
 )
 @ConfigGroups(value = Groups.class)

@@ -31,7 +31,7 @@ import com.streamsets.pipeline.api.base.BaseSource;
 import com.streamsets.pipeline.api.el.ELEval;
 import com.streamsets.pipeline.api.el.ELVars;
 import com.streamsets.pipeline.config.DataFormat;
-import com.streamsets.pipeline.lib.event.CommonEvents;
+import com.streamsets.pipeline.lib.event.NoMoreDataEvent;
 import com.streamsets.pipeline.lib.hashing.HashingUtil;
 import com.streamsets.pipeline.lib.io.fileref.FileRefUtil;
 import com.streamsets.pipeline.lib.parser.DataParser;
@@ -76,6 +76,7 @@ public class GoogleCloudStorageSource extends BaseSource {
   private long noMoreDataFileCount;
   private Blob blob = null;
   private GcsObjectPostProcessingHandler errorBlobHandler;
+  private boolean checkBatchSize = true;
 
   GoogleCloudStorageSource(GCSOriginConfig gcsOriginConfig) {
     this.gcsOriginConfig = gcsOriginConfig;
@@ -103,8 +104,8 @@ public class GoogleCloudStorageSource extends BaseSource {
           .setCredentials(credentialsProvider.getCredentials())
           .build()
           .getService();
-    } catch (IOException e) {
-      LOG.error("Error when initializing storage. Reason : {}", e);
+    } catch (IOException | NullPointerException e) {
+      LOG.error("Error when initializing storage. Reason : {}", e.toString());
       issues.add(getContext().createConfigIssue(
           Groups.CREDENTIALS.name(),
           "gcsOriginConfig.credentials.credentialsProvider",
@@ -122,6 +123,10 @@ public class GoogleCloudStorageSource extends BaseSource {
   @Override
   public String produce(String lastSourceOffset, int maxBatchSize, BatchMaker batchMaker) throws StageException {
     maxBatchSize = Math.min(maxBatchSize, gcsOriginConfig.basicConfig.maxBatchSize);
+    if (!getContext().isPreview() && checkBatchSize && gcsOriginConfig.basicConfig.maxBatchSize > maxBatchSize) {
+      getContext().reportError(Errors.GCS_07, maxBatchSize);
+      checkBatchSize = false;
+    }
 
     long minTimestamp = 0;
     String blobGeneratedId = "";
@@ -151,15 +156,23 @@ public class GoogleCloudStorageSource extends BaseSource {
                 noMoreDataErrorCount,
                 noMoreDataFileCount
             );
-            CommonEvents.NO_MORE_DATA.create(getContext()).with("record-count", noMoreDataRecordCount).with("error" +
-                    "-count",
-                noMoreDataErrorCount
-            ).with("file-count", noMoreDataFileCount).createAndSend();
+            NoMoreDataEvent.EVENT_CREATOR.create(getContext())
+                .with(NoMoreDataEvent.RECORD_COUNT, noMoreDataRecordCount)
+                .with(NoMoreDataEvent.ERROR_COUNT, noMoreDataErrorCount)
+                .with(NoMoreDataEvent.FILE_COUNT, noMoreDataFileCount)
+                .createAndSend();
             noMoreDataRecordCount = 0;
             noMoreDataErrorCount = 0;
             noMoreDataFileCount = 0;
           }
-          return lastSourceOffset;
+          // Backoff so that we don't query GCS many times per second when no files are available
+          try {
+            LOG.debug("No new files available, waiting {} ms.", gcsOriginConfig.basicConfig.maxWaitTime);
+            Thread.sleep(gcsOriginConfig.basicConfig.maxWaitTime);
+          } catch (InterruptedException ex) {
+            LOG.debug("Interrupted while waiting for new files: {}", ex.getMessage());
+          }
+          return lastSourceOffset == null ? "" : lastSourceOffset;
         }
       } while (!isBlobEligible(blob, minTimestamp, blobGeneratedId, fileOffset));
 

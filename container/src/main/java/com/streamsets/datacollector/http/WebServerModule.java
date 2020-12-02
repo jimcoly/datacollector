@@ -18,8 +18,10 @@ package com.streamsets.datacollector.http;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.jmx.JmxReporter;
 import com.streamsets.datacollector.activation.Activation;
-import com.streamsets.datacollector.activation.ActivationLoader;
+import com.streamsets.datacollector.blobstore.BlobStoreTask;
 import com.streamsets.datacollector.bundles.SupportBundleManager;
+import com.streamsets.datacollector.credential.CredentialStoresTask;
+import com.streamsets.datacollector.event.handler.EventHandlerTask;
 import com.streamsets.datacollector.execution.EventListenerManager;
 import com.streamsets.datacollector.execution.Manager;
 import com.streamsets.datacollector.main.BuildInfo;
@@ -29,8 +31,12 @@ import com.streamsets.datacollector.publicrestapi.PublicRestAPI;
 import com.streamsets.datacollector.restapi.RestAPI;
 import com.streamsets.datacollector.restapi.configuration.AclStoreInjector;
 import com.streamsets.datacollector.restapi.configuration.ActivationInjector;
+import com.streamsets.datacollector.restapi.configuration.AsterContextInjector;
+import com.streamsets.datacollector.restapi.configuration.BlobStoreTaskInjector;
 import com.streamsets.datacollector.restapi.configuration.BuildInfoInjector;
 import com.streamsets.datacollector.restapi.configuration.ConfigurationInjector;
+import com.streamsets.datacollector.restapi.configuration.CredentialStoreTaskInjector;
+import com.streamsets.datacollector.restapi.configuration.EventHandlerTaskInjector;
 import com.streamsets.datacollector.restapi.configuration.PipelineStoreInjector;
 import com.streamsets.datacollector.restapi.configuration.RestAPIResourceConfig;
 import com.streamsets.datacollector.restapi.configuration.RuntimeInfoInjector;
@@ -39,6 +45,10 @@ import com.streamsets.datacollector.restapi.configuration.StandAndClusterManager
 import com.streamsets.datacollector.restapi.configuration.StatsCollectorInjector;
 import com.streamsets.datacollector.restapi.configuration.SupportBundleInjector;
 import com.streamsets.datacollector.restapi.configuration.UserGroupManagerInjector;
+import com.streamsets.datacollector.restapi.configuration.UsersManagerInjector;
+import com.streamsets.datacollector.restapi.rbean.json.RJson;
+import com.streamsets.datacollector.restapi.rbean.rest.RestResourceContextFilter;
+import com.streamsets.datacollector.security.usermgnt.UsersManager;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.datacollector.store.AclStoreTask;
 import com.streamsets.datacollector.store.PipelineStoreTask;
@@ -51,6 +61,7 @@ import com.streamsets.pipeline.http.MDCFilter;
 import dagger.Module;
 import dagger.Provides;
 import dagger.Provides.Type;
+import io.swagger.util.Json;
 import org.eclipse.jetty.server.handler.gzip.GzipHandler;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.FilterHolder;
@@ -62,7 +73,6 @@ import org.glassfish.jersey.server.ServerProperties;
 import org.glassfish.jersey.servlet.ServletContainer;
 import org.glassfish.jersey.servlet.ServletProperties;
 
-import javax.inject.Singleton;
 import javax.servlet.DispatcherType;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -84,12 +94,6 @@ public class WebServerModule {
     return mgr;
   }
 
-  @Provides
-  @Singleton
-  public Activation provideActivation(final RuntimeInfo runtimeInfo) {
-    return new ActivationLoader(runtimeInfo).getActivation();
-  }
-
   private final String SWAGGER_PACKAGE = "io.swagger.jaxrs.listing";
 
   @Provides(type = Type.SET_VALUES)
@@ -104,7 +108,7 @@ public class WebServerModule {
       @Override
       public void init(ServletContextHandler context) {
         ServletHolder servlet = new ServletHolder(new DefaultServlet());
-        servlet.setInitParameter("dirAllowed", "true");
+        servlet.setInitParameter("dirAllowed", "false");
         servlet.setInitParameter("resourceBase", runtimeInfo.getStaticWebDir());
         servlet.setInitParameter("cacheControl","max-age=0,public");
         context.addServlet(servlet, "/*");
@@ -155,7 +159,13 @@ public class WebServerModule {
       public void init(ServletContextHandler context) {
         FilterHolder filter = new FilterHolder(new HeaderFilter());
         filter.setInitParameter("headerConfig", "set X-Frame-Options: DENY");
-        context.addFilter(filter, "/*", EnumSet.of(DispatcherType.REQUEST));
+        context.addFilter(filter, "/*", EnumSet.of(
+            DispatcherType.FORWARD,
+            DispatcherType.REQUEST,
+            DispatcherType.INCLUDE,
+            DispatcherType.ASYNC,
+            DispatcherType.ERROR
+        ));
       }
     };
   }
@@ -229,6 +239,10 @@ public class WebServerModule {
             conf.get(CORSConstants.HTTP_ACCESS_CONTROL_ALLOW_HEADERS,
                 CORSConstants.HTTP_ACCESS_CONTROL_ALLOW_HEADERS_DEFAULT));
 
+        params.put(CrossOriginFilter.EXPOSED_HEADERS_PARAM,
+            conf.get(CORSConstants.HTTP_ACCESS_CONTROL_EXPOSED_HEADERS,
+                CORSConstants.HTTP_ACCESS_CONTROL_EXPOSED_HEADERS_DEFAULT));
+
         crossOriginFilter.setInitParameters(params);
         context.addFilter(crossOriginFilter, "/*", EnumSet.of(DispatcherType.REQUEST));
       }
@@ -263,6 +277,18 @@ public class WebServerModule {
   }
 
   @Provides(type = Type.SET)
+  ContextConfigurator provideRestResourceContext() {
+    return new ContextConfigurator() {
+      @Override
+      public void init(ServletContextHandler context) {
+        FilterHolder filter = new FilterHolder(new RestResourceContextFilter());
+        context.addFilter(filter, "/rest/*", EnumSet.of(DispatcherType.REQUEST));
+        context.addFilter(filter, "/public-rest/*", EnumSet.of(DispatcherType.REQUEST));
+      }
+    };
+  }
+
+  @Provides(type = Type.SET)
   ContextConfigurator provideJersey() {
     return new ContextConfigurator() {
       @Override
@@ -275,6 +301,8 @@ public class WebServerModule {
         );
         protectedRest.setInitParameter(ServletProperties.JAXRS_APPLICATION_CLASS, RestAPIResourceConfig.class.getName());
         context.addServlet(protectedRest, "/rest/*");
+
+        RJson.configureRJsonForSwagger(Json.mapper());
 
         // REST API that it does not require authentication
         ServletHolder publicRest = new ServletHolder(new ServletContainer());
@@ -311,6 +339,36 @@ public class WebServerModule {
       @Override
       public void init(ServletContextHandler context) {
         context.setAttribute(SupportBundleInjector.SUPPORT_BUNDLE_MANAGER, supportBundleManager);
+      }
+    };
+  }
+
+  @Provides(type = Type.SET)
+  ContextConfigurator provideRemoteEventHandlerTask(final EventHandlerTask eventHandlerTask) {
+    return new ContextConfigurator() {
+      @Override
+      public void init(ServletContextHandler context) {
+        context.setAttribute(EventHandlerTaskInjector.EVENT_HANDLER_TASK, eventHandlerTask);
+      }
+    };
+  }
+
+  @Provides(type = Type.SET)
+  ContextConfigurator provideBlobStoreTask(final BlobStoreTask blobStoreTask) {
+    return new ContextConfigurator() {
+      @Override
+      public void init(ServletContextHandler context) {
+        context.setAttribute(BlobStoreTaskInjector.BLOB_STORE_TASK, blobStoreTask);
+      }
+    };
+  }
+
+  @Provides(type = Type.SET)
+  ContextConfigurator provideCredentialStoreTask(final CredentialStoresTask credentialStoreTask) {
+    return new ContextConfigurator() {
+      @Override
+      public void init(ServletContextHandler context) {
+        context.setAttribute(CredentialStoreTaskInjector.CREDENTIAL_STORE_TASK, credentialStoreTask);
       }
     };
   }
@@ -356,6 +414,16 @@ public class WebServerModule {
   }
 
   @Provides(type = Type.SET)
+  ContextConfigurator provideAsterContext(final AsterContext asterContext) {
+    return new ContextConfigurator() {
+      @Override
+      public void init(ServletContextHandler context) {
+        context.setAttribute(AsterContextInjector.ASTER_CONTEXT, asterContext);
+      }
+    };
+  }
+
+  @Provides(type = Type.SET)
   ContextConfigurator provideRuntimeInfo(final RuntimeInfo runtimeInfo) {
     return new ContextConfigurator() {
       @Override
@@ -385,13 +453,22 @@ public class WebServerModule {
     };
   }
 
-
   @Provides(type = Type.SET)
   ContextConfigurator provideUserGroupManager(final UserGroupManager userGroupManager) {
     return new ContextConfigurator() {
       @Override
       public void init(ServletContextHandler context) {
         context.setAttribute(UserGroupManagerInjector.USER_GROUP_MANAGER, userGroupManager);
+      }
+    };
+  }
+
+  @Provides(type = Type.SET)
+  ContextConfigurator provideUsersManager(final UsersManager usersManager) {
+    return new ContextConfigurator() {
+      @Override
+      public void init(ServletContextHandler context) {
+        context.setAttribute(UsersManagerInjector.USERS_MANAGER, usersManager);
       }
     };
   }

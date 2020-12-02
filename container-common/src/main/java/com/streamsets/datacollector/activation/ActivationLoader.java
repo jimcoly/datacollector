@@ -43,7 +43,10 @@ public class ActivationLoader {
     final Activation activation;
     ServiceLoader<Activation> serviceLoader = ServiceLoader.load(Activation.class);
     List<Activation> list = ImmutableList.copyOf(serviceLoader.iterator());
-    if (list.isEmpty()) {
+    if (runtimeInfo.isDPMEnabled()) {
+      activation = new NopActivation();
+      LOG.debug("Control Hub is enabled, using {}", activation.getClass().getName());
+    } else if (list.isEmpty()) {
       activation = new NopActivation();
       LOG.debug("No activation service available, using {}", activation.getClass().getName());
     } else if (list.size() == 1) {
@@ -68,7 +71,11 @@ public class ActivationLoader {
         LOG.info("Activation enabled, activation is valid and it does not expire");
       } else {
         long daysToExpire = TimeUnit.MILLISECONDS.toDays(info.getExpiration() - System.currentTimeMillis() );
-        LOG.info("Activation enabled, activation is valid and it expires in '{}' days", daysToExpire);
+        if (daysToExpire < 0) {
+          LOG.info("Bypass activation because SDC contains only basic stage libraries.");
+        } else {
+          LOG.info("Activation enabled, activation is valid and it expires in '{}' days", daysToExpire);
+        }
       }
     } else {
       LOG.debug("Activation disabled");

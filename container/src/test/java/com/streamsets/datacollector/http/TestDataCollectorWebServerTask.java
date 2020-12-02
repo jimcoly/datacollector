@@ -18,23 +18,35 @@ package com.streamsets.datacollector.http;
 import com.google.common.collect.ImmutableMap;
 import com.streamsets.datacollector.activation.NopActivation;
 import com.streamsets.datacollector.main.BuildInfo;
-import com.streamsets.datacollector.main.DataCollectorBuildInfo;
+import com.streamsets.datacollector.main.ProductBuildInfo;
 import com.streamsets.datacollector.main.FileUserGroupManager;
 import com.streamsets.datacollector.main.RuntimeInfo;
+import com.streamsets.datacollector.security.usermgnt.TrxUsersManager;
+import com.streamsets.datacollector.security.usermgnt.UsersManager;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.lib.security.http.SSOConstants;
+import com.streamsets.pipeline.BootstrapMain;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.Writer;
 import java.util.Collections;
 import java.util.Map;
+import java.util.UUID;
 
 public class TestDataCollectorWebServerTask {
 
   @Test
-  public void testGetRegistrationAttributes() {
-    BuildInfo buildInfo = new DataCollectorBuildInfo();
+  public void testGetRegistrationAttributes() throws IOException  {
+    File file = new File("target", UUID.randomUUID().toString());
+    try (Writer writer = new FileWriter(file)) {
+    }
+    UsersManager usersManager = new TrxUsersManager(file);
+    BuildInfo buildInfo = ProductBuildInfo.getDefault();
     RuntimeInfo runtimeInfo = Mockito.mock(RuntimeInfo.class);
     Mockito.when(runtimeInfo.getBaseHttpUrl()).thenReturn("url");
     WebServerTask webServerTask = new DataCollectorWebServerTask(
@@ -44,9 +56,11 @@ public class TestDataCollectorWebServerTask {
         new NopActivation(),
         Collections.<ContextConfigurator>emptySet(),
         Collections.<WebAppProvider>emptySet(),
-        new FileUserGroupManager()
+        new FileUserGroupManager(usersManager),
+        null
     );
-    Map<String, String> expectedAttrs = ImmutableMap.<String, String>builder().put(SSOConstants.SERVICE_BASE_URL_ATTR,
+    Map<String, String> expectedAttrs = ImmutableMap.<String, String>builder().put(
+        SSOConstants.SERVICE_BASE_URL_ATTR,
         runtimeInfo
         .getBaseHttpUrl())
         .put("sdcJavaVersion", System.getProperty("java.runtime.version"))

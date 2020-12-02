@@ -60,9 +60,21 @@ public class BatchContextImpl implements BatchContext {
    */
   private String originStageLabel;
 
-  public BatchContextImpl(FullPipeBatch pipeBatch) {
+  /**
+   * Flag identifying whether this batch was already processed or not.
+   */
+  private boolean processed;
+
+  /**
+   * Record Cloner that knows how the records should be cloned (if even).
+   */
+  private final RecordCloner recordCloner;
+
+  public BatchContextImpl(FullPipeBatch pipeBatch, boolean recordByRef) {
     this.pipeBatch = pipeBatch;
+    this.processed = false;
     this.startTime = System.currentTimeMillis();
+    this.recordCloner = new RecordCloner(recordByRef);
   }
 
   @Override
@@ -81,7 +93,7 @@ public class BatchContextImpl implements BatchContext {
   public void toError(Record record, String errorMessage) {
     Preconditions.checkNotNull(record, "record cannot be null");
     Preconditions.checkNotNull(errorMessage, "errorMessage cannot be null");
-    toError(record, new ErrorMessage(ContainerError.CONTAINER_0002, errorMessage));
+    toError(record, new ErrorMessage(ContainerError.CONTAINER_0001, errorMessage));
   }
 
   @Override
@@ -93,7 +105,7 @@ public class BatchContextImpl implements BatchContext {
   }
 
   private void toError(Record record, ErrorMessage errorMessage) {
-    RecordImpl recordImpl = ((RecordImpl) record).clone();
+    RecordImpl recordImpl = recordCloner.cloneRecordIfNeeded(record);
     if (recordImpl.isInitialRecord()) {
       recordImpl.getHeader().setSourceRecord(recordImpl);
       recordImpl.setInitialRecord(false);
@@ -104,7 +116,7 @@ public class BatchContextImpl implements BatchContext {
 
   @Override
   public void toEvent(EventRecord record) {
-    EventRecordImpl recordImpl = ((EventRecordImpl) record).clone();
+    EventRecordImpl recordImpl = recordCloner.cloneEventIfNeeded(record);
     if (recordImpl.isInitialRecord()) {
       recordImpl.getHeader().setSourceRecord(recordImpl);
       recordImpl.setInitialRecord(false);
@@ -147,5 +159,13 @@ public class BatchContextImpl implements BatchContext {
   @Override
   public List<Record> getSourceResponseRecords() {
     return pipeBatch.getSourceResponseSink().getResponseRecords();
+  }
+
+  public void setProcessed(boolean processed) {
+    this.processed = processed;
+  }
+
+  public void ensureState() {
+    Preconditions.checkState(!processed, "Batch was already processed and can't be processed again.");
   }
 }

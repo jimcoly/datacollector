@@ -24,7 +24,7 @@ import com.streamsets.pipeline.api.Target;
 import com.streamsets.pipeline.api.base.configurablestage.DTarget;
 
 @StageDef(
-    version = 4,
+    version = 6,
     label = "HTTP Client",
     description = "Uses an HTTP client to write data.",
     icon = "httpclient.png",
@@ -39,7 +39,8 @@ import com.streamsets.pipeline.api.base.configurablestage.DTarget;
         ExecutionMode.EMR_BATCH
 
     },
-    upgrader = HttpClientTargetUpgrader.class
+    upgrader = HttpClientTargetUpgrader.class,
+    upgraderDef = "upgrader/HttpClientDTarget.yaml"
 )
 @ConfigGroups(HttpClientTargetGroups.class)
 @GenerateResourceBundle

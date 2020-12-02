@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 StreamSets Inc.
+ * Copyright 2019 StreamSets Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,15 @@ package com.streamsets.pipeline.destination.aerospike;
 
 import com.aerospike.client.AerospikeClient;
 import com.aerospike.client.AerospikeException;
+import com.aerospike.client.Bin;
 import com.aerospike.client.Key;
 import com.aerospike.client.policy.QueryPolicy;
-import com.google.common.collect.Lists;
-import com.streamsets.pipeline.api.*;
+import com.aerospike.client.policy.WritePolicy;
+import com.streamsets.pipeline.api.Field;
+import com.streamsets.pipeline.api.OnRecordError;
+import com.streamsets.pipeline.api.Record;
+import com.streamsets.pipeline.api.Target;
+import com.streamsets.pipeline.lib.operation.UnsupportedOperationAction;
 import com.streamsets.pipeline.sdk.RecordCreator;
 import com.streamsets.pipeline.sdk.TargetRunner;
 import org.junit.AfterClass;
@@ -35,7 +40,9 @@ import static org.junit.Assert.*;
 public class AerospikeTargetIT {
   private static final int AEROSPIKE_PORT = 3000;
 
-  private static final GenericContainer aerospikeServer = new GenericContainer("aerospike/aerospike-server:3.15.0.2").withExposedPorts(AEROSPIKE_PORT);
+  private static final GenericContainer aerospikeServer =
+      new GenericContainer("aerospike/aerospike-server:3.15.0.2")
+          .withExposedPorts(AEROSPIKE_PORT);
   private static AerospikeClient client;
 
 
@@ -65,6 +72,12 @@ public class AerospikeTargetIT {
     }
   }
 
+  private static void putRecord(String namespace, String set, String key, String bin, String value) {
+    synchronized (aerospikeServer) {
+      client.put(new WritePolicy(), new Key(namespace, set, key), new Bin(bin, value));
+    }
+  }
+
   @AfterClass
   public static void tearDown() {
     if (client != null) {
@@ -78,7 +91,8 @@ public class AerospikeTargetIT {
     config.aerospikeBeanConfig.maxRetries = 5;
     config.aerospikeBeanConfig.connectionString = Arrays.asList(aerospikeServer.getContainerIpAddress() + ":" + aerospikeServer.getMappedPort(AEROSPIKE_PORT));
     config.binConfigsEL = new LinkedList<BinConfig>();
-    config.binConfigsEL.add(new BinConfig("${record:value('/bName1')}", "${record:value('/bValue1')}", DataType.STRING));
+    config.defaultOperation = AerospikeOperationType.UPSERT;
+    config.unsupportedAction = UnsupportedOperationAction.DISCARD;
     config.namespaceEL = "${record:value('/namespace')}";
     config.keyEL = "${record:value('/key')}";
     config.setEL = "${record:value('/set')}";
@@ -178,6 +192,7 @@ public class AerospikeTargetIT {
   public void testEmptyKey() throws Exception {
     AerospikeDTarget config = getDefaultConfig();
     Target target = config.createTarget();
+    config.binConfigsEL.add(new BinConfig("${record:value('/bName1')}", "${record:value('/bValue1')}", DataType.STRING));
     TargetRunner runner = new TargetRunner.Builder(AerospikeDTarget.class, target).setOnRecordError(OnRecordError.TO_ERROR).build();
     List<Record> records = new LinkedList<Record>();
     records.add(getTestRecord("test", "", "", ""));
@@ -196,6 +211,7 @@ public class AerospikeTargetIT {
   public void testNonEmptyKey() throws Exception {
     AerospikeDTarget config = getDefaultConfig();
     Target target = config.createTarget();
+    config.binConfigsEL.add(new BinConfig("${record:value('/bName1')}", "${record:value('/bValue1')}", DataType.STRING));
     TargetRunner runner = new TargetRunner.Builder(AerospikeDTarget.class, target).setOnRecordError(OnRecordError.TO_ERROR).build();
     List<Record> records = new LinkedList<Record>();
     records.add(getTestRecord("test", "", "nonEmpty", ""));
@@ -213,6 +229,7 @@ public class AerospikeTargetIT {
   public void testSet() throws Exception {
     AerospikeDTarget config = getDefaultConfig();
     Target target = config.createTarget();
+    config.binConfigsEL.add(new BinConfig("${record:value('/bName1')}", "${record:value('/bValue1')}", DataType.STRING));
     TargetRunner runner = new TargetRunner.Builder(AerospikeDTarget.class, target).setOnRecordError(OnRecordError.TO_ERROR).build();
     List<Record> records = new LinkedList<Record>();
     records.add(getTestRecord("test", "", "emptySet", ""));
@@ -241,6 +258,7 @@ public class AerospikeTargetIT {
   public void testBins() throws Exception {
     AerospikeDTarget config = getDefaultConfig();
     Target target = config.createTarget();
+    config.binConfigsEL.add(new BinConfig("${record:value('/bName1')}", "${record:value('/bValue1')}", DataType.STRING));
     config.binConfigsEL.add(new BinConfig("${record:value('/bName2')}", "${record:value('/bValue2')}", DataType.LONG));
     config.binConfigsEL.add(new BinConfig("${record:value('/bName3')}", "${record:value('/bValue3')}", DataType.DOUBLE));
     config.binConfigsEL.add(new BinConfig("${record:value('/bName6')}", "${record:value('/bValue4')}", DataType.STRING));
@@ -265,5 +283,43 @@ public class AerospikeTargetIT {
     assertEquals("Aerospike server compare data for bin2", 2L, asRecord.bins.get("bin2"));
     assertEquals("Aerospike server compare data for bin3", 3.0, asRecord.bins.get("bin3"));
     assertEquals("Aerospike server compare data for bin4", "4", asRecord.bins.get(""));
+  }
+
+  @Test
+  public void testDeleteBins() throws Exception {
+    putRecord("test", "delTest", "delTest", "bin", "noVal");
+    putRecord("test", "delTest", "delTest", "bin2", "testVal");
+    putRecord("test", "delTest", "delTest", "bin3", "noVal");
+    com.aerospike.client.Record asRecord = getRecord("test", "delTest", "delTest");
+    assertNotNull(asRecord.bins);
+    assertFalse("Aerospike record does contain bins.", asRecord.bins.isEmpty());
+
+    assertEquals("Aerospike server contains fixed number of bins", 3, asRecord.bins.size());
+    assertEquals("Aerospike server compare data for bin", "noVal", asRecord.bins.get("bin"));
+    assertEquals("Aerospike server compare data for bin", "noVal", asRecord.bins.get("bin3"));
+    assertEquals("Aerospike server compare data for bin", "testVal", asRecord.bins.get("bin2"));
+
+
+    AerospikeDTarget config = getDefaultConfig();
+    config.defaultOperation = AerospikeOperationType.DELETE;
+    config.unsupportedAction = UnsupportedOperationAction.SEND_TO_ERROR;
+    Target target = config.createTarget();
+    config.binConfigsEL.add(new BinConfig("bin", "${record:value('/bValue1')}", DataType.STRING));
+    config.binConfigsEL.add(new BinConfig("${record:value('/bName3')}", "${record:value('/bValue1')}", DataType.STRING));
+    TargetRunner runner = new TargetRunner.Builder(AerospikeDTarget.class, target).setOnRecordError(OnRecordError.TO_ERROR).build();
+    List<Record> records = new LinkedList<Record>();
+    records.add(getTestRecord("test", "delTest", "delTest", "bin"));
+    runner.runInit();
+    runner.runWrite(records);
+    assertTrue("Target runs without errors", runner.getErrorRecords().isEmpty());
+    asRecord = getRecord("test", "delTest", "delTest");
+
+    assertNotNull(asRecord.bins);
+    assertFalse("Aerospike record does not contain any bin.", asRecord.bins.isEmpty());
+    assertEquals("Aerospike server contains data for empty set", 1, asRecord.bins.size());
+    assertNull("Aerospike record bin should not exists", asRecord.bins.get("bin"));
+    assertNull("Aerospike record bin should not exists", asRecord.bins.get("bin3"));
+    assertEquals("Aerospike server compare data for bin", "testVal", asRecord.bins.get("bin2"));
+
   }
 }

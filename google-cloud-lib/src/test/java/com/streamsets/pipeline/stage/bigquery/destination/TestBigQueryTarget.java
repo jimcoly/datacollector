@@ -32,11 +32,11 @@ import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.Target;
 import com.streamsets.pipeline.api.impl.Utils;
+import com.streamsets.pipeline.lib.googlecloud.BigQueryCredentialsConfig;
 import com.streamsets.pipeline.sdk.RecordCreator;
 import com.streamsets.pipeline.sdk.TargetRunner;
 import com.streamsets.pipeline.stage.bigquery.lib.BigQueryDelegate;
 import com.streamsets.pipeline.stage.bigquery.lib.Errors;
-import com.streamsets.pipeline.stage.lib.GoogleCloudCredentialsConfig;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -45,6 +45,7 @@ import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 import org.powermock.api.mockito.PowerMockito;
 import org.powermock.api.support.membermodification.MemberMatcher;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.powermock.reflect.Whitebox;
@@ -77,7 +78,10 @@ import java.util.stream.IntStream;
     BigQueryError.class,
     Table.class,
     Credentials.class,
-    GoogleCloudCredentialsConfig.class
+    BigQueryCredentialsConfig.class
+})
+@PowerMockIgnore({
+    "jdk.internal.reflect.*"
 })
 public class TestBigQueryTarget {
 
@@ -90,7 +94,7 @@ public class TestBigQueryTarget {
   @Before
   public void setup() {
     PowerMockito.replace(
-        MemberMatcher.method(GoogleCloudCredentialsConfig.class, "getCredentials", Stage.Context.class, List.class)
+        MemberMatcher.method(BigQueryCredentialsConfig.class, "getCredentials", Stage.Context.class, List.class)
     ).with((proxy,method,args) -> PowerMockito.mock(Credentials.class));
   }
 

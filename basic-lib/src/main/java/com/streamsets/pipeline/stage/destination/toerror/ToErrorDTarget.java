@@ -15,6 +15,7 @@
  */
 package com.streamsets.pipeline.stage.destination.toerror;
 
+import com.streamsets.pipeline.api.ConfigDef;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.GenerateResourceBundle;
 import com.streamsets.pipeline.api.HideConfigs;
@@ -22,9 +23,10 @@ import com.streamsets.pipeline.api.StageBehaviorFlags;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.Target;
 import com.streamsets.pipeline.api.base.configurablestage.DTarget;
+import com.streamsets.pipeline.lib.el.RecordEL;
 
 @StageDef(
-    version = 1,
+    version = 2,
     label = "To Error",
     description = "Sends records to the pipeline configured error records handling",
     execution = {
@@ -37,14 +39,39 @@ import com.streamsets.pipeline.api.base.configurablestage.DTarget;
     },
     icon="toerror.png",
     flags = StageBehaviorFlags.PURE_FUNCTION,
+    upgraderDef = "upgrader/ToErrorDTarget.yaml",
     onlineHelpRefUrl ="index.html#datacollector/UserGuide/Destinations/ToError.html"
 )
 @HideConfigs(preconditions = true, onErrorRecord = true)
 @GenerateResourceBundle
 public class ToErrorDTarget extends DTarget {
 
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "Stop Pipeline on Error",
+      displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.ADVANCED
+  )
+  public boolean stopPipelineOnError;
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.STRING,
+      label = "Error Message",
+      elDefs = RecordEL.class,
+      evaluation = ConfigDef.Evaluation.EXPLICIT,
+      displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      defaultValue = "Sent to error by previous stage",
+      dependsOn = "stopPipelineOnError",
+      triggeredByValue = "true"
+  )
+  public String errorMessage = Errors.TOERROR_00.getMessage();
+
   @Override
   protected Target createTarget() {
-    return new ToErrorTarget();
+    return new ToErrorTarget(stopPipelineOnError, errorMessage);
   }
 }

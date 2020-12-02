@@ -23,10 +23,10 @@
   <parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
   </parent>
   <artifactId>streamsets-datacollector-root-proto</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector Root Prototype POM</description>
   <name>StreamSets Data Collector Root Prototype POM</name>
   <packaging>pom</packaging>
@@ -50,14 +50,15 @@
     -->
     <awaitility.version>2.0.0</awaitility.version>
     <aws-encryption-sdk.version>1.3.5</aws-encryption-sdk.version>
-    <bouncycastle.version>1.60</bouncycastle.version>
+    <awssdk.version>1.11.892</awssdk.version>
+    <bouncycastle.version>1.64</bouncycastle.version>
     <conscrypt.version>1.2.0</conscrypt.version>
     <metrics.version>4.0.3</metrics.version>
     <log4j.version>1.2.17</log4j.version>
     <slf4j.version>1.7.7</slf4j.version>
     <protobuf.version>3.3.1</protobuf.version>
-    <surefire.version>2.19.1</surefire.version>
-    <failsafe.version>2.19.1</failsafe.version>
+    <surefire.version>2.22.2</surefire.version>
+    <failsafe.version>2.22.2</failsafe.version>
     <junit.version>4.12</junit.version>
     <!-- Check compatible versions before upgrading hamcrest -->
     <hamcrest.version>1.3</hamcrest.version>
@@ -65,13 +66,13 @@
     <mockito.version>1.10.19</mockito.version>
     <powermock.version>1.7.4</powermock.version>
     <jackson.version>2.8.9</jackson.version>
-    <jacoco.version>0.7.7.201606060606</jacoco.version>
-    <hikaricp.version>2.4.1</hikaricp.version>
+    <jacoco.version>0.8.4</jacoco.version>
+    <hikaricp.version>3.2.0</hikaricp.version>
     <jersey.version>2.25.1</jersey.version>
     <!-- Sets the VM argument line used when unit and integration tests are run. -->
-    <argLine>-Xmx2g</argLine>
+    <argLine>-Xmx4g</argLine>
     <testcontainers.version>1.4.3</testcontainers.version>
-    <netty.version>4.1.16.Final</netty.version>
+    <netty.version>4.1.43.Final</netty.version>
     <jetty.version>9.4.12.v20180830</jetty.version>
     <avro.version>1.7.7</avro.version>
 
@@ -80,7 +81,13 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
     <hive-storage-api.version>2.2.1</hive-storage-api.version>
-    <streamsets-datacollector-rbgen-maven-plugin.version>3.7.0-SNAPSHOT</streamsets-datacollector-rbgen-maven-plugin.version>
+    <streamsets-datacollector-rbgen-maven-plugin.version>3.21.0-SNAPSHOT</streamsets-datacollector-rbgen-maven-plugin.version>
+    <gcp-gcs.version>1.113.2</gcp-gcs.version>
+    <gcp-ps.version>1.108.7</gcp-ps.version>
+    <gcp-bigquery.version>1.124.2</gcp-bigquery.version>
+    <google.cloud.version>14.4.1</google.cloud.version>
+
+    <commons-lang3.version>3.4</commons-lang3.version>
   </properties>
 
   <!-- API dependencies ONLY -->
@@ -137,8 +144,23 @@
         <version>${junit.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest-core</artifactId>
+        <version>${hamcrest.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest-library</artifactId>
+        <version>${hamcrest.version}</version>
+      </dependency>
+      <dependency>
         <groupId>org.mockito</groupId>
         <artifactId>mockito-core</artifactId>
+        <version>${mockito.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-all</artifactId>
         <version>${mockito.version}</version>
       </dependency>
       <dependency>
@@ -158,6 +180,13 @@
         <scope>test</scope>
       </dependency>
       <dependency>
+        <groupId>com.streamsets</groupId>
+        <artifactId>streamsets-datacollector-stagesupport</artifactId>
+        <version>${project.version}</version>
+        <type>test-jar</type>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
         <groupId>org.glassfish.jersey.core</groupId>
         <artifactId>jersey-client</artifactId>
         <version>${jersey.version}</version>
@@ -171,6 +200,16 @@
       <dependency>
         <groupId>org.glassfish.jersey.core</groupId>
         <artifactId>jersey-server</artifactId>
+        <version>${jersey.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.glassfish.jersey.core</groupId>
+        <artifactId>jersey-common</artifactId>
+        <version>${jersey.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.glassfish.jersey.bundles.repackaged</groupId>
+        <artifactId>jersey-guava</artifactId>
         <version>${jersey.version}</version>
       </dependency>
       <dependency>
@@ -235,6 +274,11 @@
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.jaxrs</groupId>
+        <artifactId>jackson-jaxrs-base</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.jaxrs</groupId>
         <artifactId>jackson-jaxrs-json-provider</artifactId>
         <version>${jackson.version}</version>
       </dependency>
@@ -283,6 +327,11 @@
         <artifactId>netty-all</artifactId>
         <version>${netty.version}</version>
       </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>${commons-lang3.version}</version>
+      </dependency>
 
       <!--
           The necessary classes from this dependency (for ORC file writing) might also be provided under separate Hive
@@ -313,7 +362,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
-          <version>2.6</version>
+          <version>3.2.0</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -324,9 +373,6 @@
               <requireMavenVersion>
                 <version>[3.2.1,)</version>
               </requireMavenVersion>
-              <requireJavaVersion>
-                <version>${javaVersion}</version>
-              </requireJavaVersion>
             </rules>
           </configuration>
         </plugin>
@@ -343,7 +389,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.6.1</version>
+          <version>3.8.1</version>
         </plugin>
         <plugin>
           <groupId>org.apache.hadoop</groupId>
@@ -357,7 +403,13 @@
           <configuration>
             <forkCount>1</forkCount>
             <reuseForks>true</reuseForks>
-            <forkedProcessTimeoutInSeconds>600</forkedProcessTimeoutInSeconds>
+            <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>   <!-- 30 min -->
+            <!--
+                Some machines don't have enough randomness, and so SecureRandom will block for minutes at a time,
+                significantly slowing some of the tests (SFTP-related ones in particular).  This is a workaround to use
+                a faster random source that won't block.
+            -->
+            <argLine>-Djava.security.egd=file:/dev/./urandom</argLine>
           </configuration>
         </plugin>
         <plugin>
@@ -465,17 +517,17 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-assembly-plugin</artifactId>
-          <version>2.6</version>
+          <version>3.2.0</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-dependency-plugin</artifactId>
-          <version>2.8</version>
+          <version>3.1.2</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
-          <version>2.10.1</version>
+          <version>3.2.0</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -485,7 +537,7 @@
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>build-helper-maven-plugin</artifactId>
-          <version>1.9.1</version>
+          <version>3.2.0</version>
         </plugin>
 
         <plugin>
@@ -580,7 +632,6 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
-          <compilerId>javac-with-errorprone</compilerId>
           <forceJavacCompilerUse>true</forceJavacCompilerUse>
           <source>${javaVersion}</source>
           <target>${javaVersion}</target>
@@ -593,20 +644,6 @@
             -->
           </compilerArgs>
         </configuration>
-        <dependencies>
-          <dependency>
-            <groupId>org.codehaus.plexus</groupId>
-            <artifactId>plexus-compiler-javac-errorprone</artifactId>
-            <version>2.8</version>
-          </dependency>
-          <!-- override plexus-compiler-javac-errorprone's dependency on
-               Error Prone with the latest version -->
-          <dependency>
-            <groupId>com.google.errorprone</groupId>
-            <artifactId>error_prone_core</artifactId>
-            <version>2.0.19</version>
-          </dependency>
-        </dependencies>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -643,6 +680,48 @@
                 </goals>
               </execution>
             </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>jdk8</id>
+      <activation>
+        <jdk>1.8</jdk>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <compilerId>javac-with-errorprone</compilerId>
+              <forceJavacCompilerUse>true</forceJavacCompilerUse>
+              <source>${javaVersion}</source>
+              <target>${javaVersion}</target>
+              <compilerArgs>
+                <!-- Disables Javadoc failures for new strict Java 8 rules -->
+                <arg>-Xdoclint:none</arg>
+                <!-- We need to clean up SDC project a bit more before enabling this
+                <arg>-Xlint:unchecked</arg>
+                <arg>-Xlint:deprecation</arg>
+                -->
+              </compilerArgs>
+            </configuration>
+            <dependencies>
+              <dependency>
+                <groupId>org.codehaus.plexus</groupId>
+                <artifactId>plexus-compiler-javac-errorprone</artifactId>
+                <version>2.8.5</version>
+              </dependency>
+              <!-- override plexus-compiler-javac-errorprone's dependency on
+                   Error Prone with the latest version -->
+              <dependency>
+                <groupId>com.google.errorprone</groupId>
+                <artifactId>error_prone_core</artifactId>
+                <version>2.3.3</version>
+              </dependency>
+            </dependencies>
           </plugin>
         </plugins>
       </build>

@@ -59,6 +59,7 @@ import java.util.concurrent.TimeoutException;
 public class HttpClientTarget extends BaseTarget {
 
   private static final Logger LOG = LoggerFactory.getLogger(HttpClientTarget.class);
+  private static final String REQUEST_STATUS_CONFIG_NAME = "HTTP-Status";
   private final HttpClientTargetConfig conf;
   private final HttpClientCommon httpClientCommon;
   private DataGeneratorFactory generatorFactory;
@@ -105,7 +106,9 @@ public class HttpClientTarget extends BaseTarget {
       if (batch.getRecords().hasNext()) {
         // Use first record for resolving url, headers, ...
         Record firstRecord = batch.getRecords().next();
-        Invocation.Builder builder = getBuilder(firstRecord);
+        MultivaluedMap<String, Object> resolvedHeaders =  httpClientCommon.resolveHeaders(conf.headers, firstRecord);
+        Invocation.Builder builder = getBuilder(firstRecord).headers(resolvedHeaders);
+        String contentType = HttpStageUtil.getContentTypeWithDefault(resolvedHeaders, getContentType());
         HttpMethod method = httpClientCommon.getHttpMethod(conf.httpMethod, conf.methodExpression, firstRecord);
 
         if (method == HttpMethod.POST || method == HttpMethod.PUT || method == HttpMethod.PATCH ||
@@ -122,7 +125,7 @@ public class HttpClientTarget extends BaseTarget {
               throw new IOException(e);
             }
           };
-          response = builder.method(method.getLabel(), Entity.entity(streamingOutput, getContentType()));
+          response = builder.method(method.getLabel(), Entity.entity(streamingOutput, contentType));
         } else {
           response = builder.method(method.getLabel());
         }
@@ -131,7 +134,7 @@ public class HttpClientTarget extends BaseTarget {
         if (response.hasEntity()) {
           responseBody = response.readEntity(String.class);
         }
-        if (conf.client.useOAuth2 && response.getStatus() == 403) {
+        if (conf.client.useOAuth2 && (response.getStatus() == 403 || response.getStatus() == 401)) {
           HttpStageUtil.getNewOAuth2Token(conf.client.oauth2, httpClientCommon.getClient());
         } else if (response.getStatus() < 200 || response.getStatus() >= 300) {
           errorRecordHandler.onError(
@@ -151,7 +154,7 @@ public class HttpClientTarget extends BaseTarget {
                 getContext().toSourceResponse(records.next());
               }
             } else {
-              getContext().toSourceResponse(createResponseRecord(responseBody));
+              getContext().toSourceResponse(createResponseRecord(responseBody,response.getStatus()));
             }
           }
         }
@@ -171,12 +174,13 @@ public class HttpClientTarget extends BaseTarget {
     Iterator<Record> records = batch.getRecords();
     while (records.hasNext()) {
       Record record = records.next();
-      AsyncInvoker asyncInvoker = getBuilder(record).async();
+      MultivaluedMap<String, Object> resolvedHeaders =  httpClientCommon.resolveHeaders(conf.headers, record);
+      AsyncInvoker asyncInvoker = getBuilder(record).headers(resolvedHeaders).async();
+      String contentType = HttpStageUtil.getContentTypeWithDefault(resolvedHeaders, getContentType());
       HttpMethod method = httpClientCommon.getHttpMethod(conf.httpMethod, conf.methodExpression, record);
-      String contentType = getContentType();
       rateLimiter.acquire();
       try {
-        if (method == HttpMethod.POST || method == HttpMethod.PUT) {
+        if (method == HttpMethod.POST || method == HttpMethod.PUT || method == HttpMethod.PATCH) {
           StreamingOutput streamingOutput = outputStream -> {
             try (DataGenerator dataGenerator = generatorFactory.getGenerator(outputStream)) {
               dataGenerator.write(record);
@@ -216,10 +220,8 @@ public class HttpClientTarget extends BaseTarget {
         !target.getUri().getScheme().toLowerCase().startsWith("https")) {
       throw new StageException(Errors.HTTP_07);
     }
-    MultivaluedMap<String, Object> resolvedHeaders =  httpClientCommon.resolveHeaders(conf.headers, record);
     return target.request()
-        .property(OAuth1ClientSupport.OAUTH_PROPERTY_ACCESS_TOKEN, httpClientCommon.getAuthToken())
-        .headers(resolvedHeaders);
+        .property(OAuth1ClientSupport.OAUTH_PROPERTY_ACCESS_TOKEN, httpClientCommon.getAuthToken());
   }
 
   /**
@@ -259,7 +261,7 @@ public class HttpClientTarget extends BaseTarget {
           if (ResponseType.SUCCESS_RECORDS.equals(conf.responseConf.responseType)) {
             getContext().toSourceResponse(record);
           } else {
-            getContext().toSourceResponse(createResponseRecord(responseBody));
+            getContext().toSourceResponse(createResponseRecord(responseBody,response.getStatus()));
           }
         }
       }
@@ -287,10 +289,11 @@ public class HttpClientTarget extends BaseTarget {
     }
   }
 
-  private Record createResponseRecord(String responseBody) {
+  private Record createResponseRecord(String responseBody, int status) {
     Record responseRecord = getContext().createRecord("responseRecord");
     responseRecord.set(Field.create(responseBody));
     responseRecord.getHeader().setAttribute(RestServiceReceiver.RAW_DATA_RECORD_HEADER_ATTR_NAME, "true");
+    responseRecord.getHeader().setAttribute(REQUEST_STATUS_CONFIG_NAME,String.format("%d",status));
     return responseRecord;
   }
 

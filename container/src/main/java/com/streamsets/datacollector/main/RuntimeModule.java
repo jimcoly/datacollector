@@ -20,6 +20,8 @@ import com.google.common.collect.ImmutableList;
 import com.streamsets.datacollector.execution.EventListenerManager;
 import com.streamsets.datacollector.http.WebServerTask;
 import com.streamsets.datacollector.metrics.MetricsModule;
+import com.streamsets.datacollector.runner.Pipeline;
+import com.streamsets.datacollector.security.usermgnt.UsersManager;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.pipeline.api.impl.Utils;
 import dagger.Module;
@@ -32,31 +34,66 @@ import java.io.File;
 import java.util.Collections;
 import java.util.List;
 
-@Module(library = true, injects = {
-    BuildInfo.class,
-    RuntimeInfo.class,
-    Configuration.class,
-    EventListenerManager.class,
-    UserGroupManager.class
-}, includes = MetricsModule.class)
+@Module(
+    library = true,
+    injects = {
+        BuildInfo.class,
+        RuntimeInfo.class,
+        Configuration.class,
+        EventListenerManager.class,
+        UsersManager.class,
+        UserGroupManager.class
+    },
+    includes = MetricsModule.class
+)
 public class RuntimeModule {
   private static final Logger LOG = LoggerFactory.getLogger(RuntimeModule.class);
-  public static final String SDC_PROPERTY_PREFIX = "sdc";
+  private static String productName = RuntimeInfo.SDC_PRODUCT;
+  private static String propertyPrefix = RuntimeInfo.SDC_PRODUCT;
+  private static File baseDir = null;
+
+  /**
+   * Kept under SDC-12270 to avoid changing too many files
+   */
+  public static final String SDC_PROPERTY_PREFIX = RuntimeInfo.SDC_PRODUCT;
+
   public static final String PIPELINE_EXECUTION_MODE_KEY = "pipeline.execution.mode";
   private static List<ClassLoader> stageLibraryClassLoaders = Collections.emptyList();//ImmutableList.of(RuntimeModule.class.getClassLoader());
+
+  private static final String STAGE_CONFIG_PREFIX = "stage.conf_";
 
   public static synchronized void setStageLibraryClassLoaders(List<? extends ClassLoader> classLoaders) {
     stageLibraryClassLoaders = ImmutableList.copyOf(classLoaders);
   }
 
+  public static synchronized void setProductName(String productName) {
+    RuntimeModule.productName = productName;
+  }
+
+  public static synchronized void setPropertyPrefix(String propertyPrefix) {
+    RuntimeModule.propertyPrefix = propertyPrefix;
+  }
+
+  public static synchronized void setBaseDir(File baseDir) {
+    RuntimeModule.baseDir = baseDir;
+  }
+
+  //TODO: add setProductName and make that available in RuntimeInfo when constructed
+
   @Provides @Singleton
   public BuildInfo provideBuildInfo() {
-    return new DataCollectorBuildInfo();
+    return new ProductBuildInfo(productName);
   }
 
   @Provides @Singleton
   public RuntimeInfo provideRuntimeInfo(MetricRegistry metrics) {
-    RuntimeInfo info = new StandaloneRuntimeInfo(SDC_PROPERTY_PREFIX, metrics, stageLibraryClassLoaders);
+    RuntimeInfo info = new StandaloneRuntimeInfo(
+        productName,
+        propertyPrefix,
+        metrics,
+        stageLibraryClassLoaders,
+        baseDir
+    );
     info.init();
     return info;
   }
@@ -66,6 +103,11 @@ public class RuntimeModule {
     Configuration.setFileRefsBaseDir(new File(runtimeInfo.getConfigDir()));
     Configuration conf = new Configuration();
     RuntimeInfo.loadOrReloadConfigs(runtimeInfo, conf);
+
+    // remapping max runner config so it is available to stages
+    int maxRunners = conf.get(Pipeline.MAX_RUNNERS_CONFIG_KEY, Pipeline.MAX_RUNNERS_DEFAULT);
+    conf.set(STAGE_CONFIG_PREFIX + Pipeline.MAX_RUNNERS_CONFIG_KEY, maxRunners);
+
     return conf;
   }
 
@@ -75,14 +117,19 @@ public class RuntimeModule {
   }
 
   @Provides @Singleton
-  public UserGroupManager provideUserGroupManager(Configuration configuration) {
+  public UsersManager provideUsersManager(RuntimeInfo runtimeInfo, Configuration configuration) {
+    return RuntimeModuleUtils.provideUsersManager(runtimeInfo, configuration);
+  }
+
+  @Provides @Singleton
+  public UserGroupManager provideUserGroupManager(Configuration configuration, UsersManager usersManager) {
     String loginModule = configuration.get(
         WebServerTask.HTTP_AUTHENTICATION_LOGIN_MODULE,
         WebServerTask.HTTP_AUTHENTICATION_LOGIN_MODULE_DEFAULT
     );
     switch (loginModule) {
       case WebServerTask.FILE:
-        return new FileUserGroupManager();
+        return new FileUserGroupManager(usersManager);
       case WebServerTask.LDAP:
         return new LdapUserGroupManager();
       default:

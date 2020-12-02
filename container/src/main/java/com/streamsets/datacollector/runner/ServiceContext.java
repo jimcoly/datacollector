@@ -50,7 +50,10 @@ public class ServiceContext extends ProtoContext implements Service.Context {
       stageName,
       null,
       serviceName,
-      resourceDir
+      resourceDir,
+      null,
+      null,
+      null
     );
   }
 
@@ -80,7 +83,10 @@ public class ServiceContext extends ProtoContext implements Service.Context {
       stageName,
       null,
       serviceName,
-      resourceDir
+      resourceDir,
+      null,
+      null,
+      null
     );
   }
 }

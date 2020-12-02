@@ -20,7 +20,7 @@ import com.streamsets.pipeline.api.ConfigDef;
 import com.streamsets.pipeline.api.ConfigDefBean;
 import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.config.DataFormat;
-import com.streamsets.pipeline.stage.lib.GoogleCloudCredentialsConfig;
+import com.streamsets.pipeline.lib.googlecloud.PubSubCredentialsConfig;
 import com.streamsets.pipeline.stage.origin.lib.BasicConfig;
 import com.streamsets.pipeline.stage.origin.lib.DataParserFormatConfig;
 
@@ -31,6 +31,7 @@ public class PubSubSourceConfig {
       label = "Data Format",
       description = "Format of data in the topic",
       displayPosition = 1,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT"
   )
   @ValueChooserModel(DataFormatChooserValues.class)
@@ -41,6 +42,7 @@ public class PubSubSourceConfig {
       type = ConfigDef.Type.STRING,
       label = "Subscription ID",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "PUBSUB"
   )
   public String subscriptionId;
@@ -57,10 +59,11 @@ public class PubSubSourceConfig {
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.NUMBER,
-      defaultValue = "${runtime:availableProcessors()}",
+      defaultValue = "1",
       label = "Num Pipeline Runners",
       description = "Maximum number of pipeline runners. Sets the parallelism of the pipeline.",
       displayPosition = 80,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0",
       min = 1,
       max = Integer.MAX_VALUE
@@ -68,5 +71,5 @@ public class PubSubSourceConfig {
   public int maxThreads;
 
   @ConfigDefBean(groups = "CREDENTIALS")
-  public GoogleCloudCredentialsConfig credentials = new GoogleCloudCredentialsConfig();
+  public PubSubCredentialsConfig credentials = new PubSubCredentialsConfig();
 }

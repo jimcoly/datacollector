@@ -19,12 +19,12 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.base.Preconditions;
 import com.streamsets.datacollector.util.EscapeUtil;
 import com.streamsets.pipeline.api.Field;
-import com.streamsets.pipeline.api.FieldOperator;
 import com.streamsets.pipeline.api.FieldVisitor;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.RecordField;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.impl.Utils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -239,8 +239,20 @@ public class RecordImpl implements Record, Cloneable {
           case LIST_MAP:
             Map<String, FieldWithPath> map = new LinkedHashMap<>();
             for (Map.Entry<String, Field> entry : ((Map<String, Field>) field.getValue()).entrySet()) {
-              String ePath1 = singleQuoteEscapedPath + "/" + EscapeUtil.singleQuoteEscape(entry.getKey());
-              String ePath2 = doubleQuoteEscapedPath + "/" + EscapeUtil.doubleQuoteEscape(entry.getKey());
+              String ePath1;
+              String ePath2;
+              if (header.getAttribute(HeaderImpl.TRANSFORMER_RECORD) != null) {
+                if (StringUtils.isEmpty(singleQuoteEscapedPath)) {
+                  ePath1 = EscapeUtil.singleQuoteEscape(entry.getKey());
+                  ePath2 = EscapeUtil.doubleQuoteEscape(entry.getKey());
+                } else {
+                  ePath1 = singleQuoteEscapedPath + "." + EscapeUtil.singleQuoteEscape(entry.getKey());
+                  ePath2 = doubleQuoteEscapedPath + "." + EscapeUtil.doubleQuoteEscape(entry.getKey());
+                }
+              } else {
+                ePath1 = singleQuoteEscapedPath + "/" + EscapeUtil.singleQuoteEscape(entry.getKey());
+                ePath2 = doubleQuoteEscapedPath + "/" + EscapeUtil.doubleQuoteEscape(entry.getKey());
+              }
               Field eField = entry.getValue();
               map.put(entry.getKey(), createFieldWithPath(ePath1, ePath2, eField));
             }
@@ -272,7 +284,7 @@ public class RecordImpl implements Record, Cloneable {
   }
 
   List<PathElement> parse(String fieldPath) {
-    return PathElement.parse(fieldPath, true);
+    return CachedPathElement.parse(fieldPath);
   }
 
   private List<Field> get(List<PathElement> elements) {
@@ -477,7 +489,7 @@ public class RecordImpl implements Record, Cloneable {
     }
   }
 
-  private String escapeName(String name, boolean includeSingleQuotes) {
+  public static String escapeName(String name, boolean includeSingleQuotes) {
     if(includeSingleQuotes) {
       return EscapeUtil.singleQuoteEscape(name);
     } else {
@@ -599,23 +611,37 @@ public class RecordImpl implements Record, Cloneable {
   public void forEachField(FieldVisitor visitor) throws StageException {
     RecordFieldImpl recordField = new RecordFieldImpl(this);
     if (value != null) {
-      visitFieldsInternal(recordField, visitor, "", "", value);
+      visitFieldsInternal(recordField, visitor, "", "", value, null);
     }
   }
 
-  private void visitFieldsInternal(RecordFieldImpl recordField, FieldVisitor visitor, String name, String path, Field currentField) throws StageException {
+  private void visitFieldsInternal(
+      RecordFieldImpl recordField,
+      FieldVisitor visitor,
+      String name,
+      String path,
+      Field currentField,
+      Field parentField
+  ) throws StageException {
     // For nested types, visit their children first
     switch (currentField.getType()) {
       case MAP:
       case LIST_MAP:
         for(Map.Entry<String, Field> entry : currentField.getValueAsMap().entrySet()) {
-          visitFieldsInternal(recordField, visitor, entry.getKey(), path + "/" + escapeName(entry.getKey(), true), entry.getValue());
+          visitFieldsInternal(
+              recordField,
+              visitor,
+              entry.getKey(),
+              path + "/" + escapeName(entry.getKey(), true),
+              entry.getValue(),
+              currentField
+          );
         }
         break;
       case LIST:
         int index = 0;
         for(Field childField : currentField.getValueAsList()) {
-          visitFieldsInternal(recordField, visitor, name, path + "[" + index + "]", childField);
+          visitFieldsInternal(recordField, visitor, name, path + "[" + index + "]", childField, currentField);
           index++;
         }
         break;
@@ -626,6 +652,7 @@ public class RecordImpl implements Record, Cloneable {
     recordField.path = path;
     recordField.name = name;
     recordField.field = currentField;
+    recordField.parentField = parentField;
     visitor.visit(recordField);
   }
 
@@ -633,6 +660,7 @@ public class RecordImpl implements Record, Cloneable {
     String name;
     String path;
     Field field;
+    Field parentField;
     Record record;
 
     RecordFieldImpl(Record record) {
@@ -647,6 +675,11 @@ public class RecordImpl implements Record, Cloneable {
     @Override
     public String getFieldName() {
       return name;
+    }
+
+    @Override
+    public Field getParentField() {
+      return parentField;
     }
 
     @Override

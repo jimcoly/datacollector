@@ -42,11 +42,13 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -57,6 +59,9 @@ import java.util.Set;
 import java.util.TimeZone;
 
 import static com.streamsets.pipeline.stage.processor.fieldtypeconverter.Errors.CONVERTER_04;
+
+import static com.streamsets.testing.Matchers.mapFieldWithEntry;
+import static org.junit.Assert.assertThat;
 
 public class TestFieldTypeConverterProcessorFields {
 
@@ -1171,7 +1176,7 @@ public class TestFieldTypeConverterProcessorFields {
     config3.targetType = Field.Type.STRING;
     config3.dataLocale = "en";
     config3.zonedDateTimeFormat = ZonedDateTimeFormat.OTHER;
-    config3.otherZonedDateTimeFormat = "YYYY-MM-ddX";
+    config3.otherZonedDateTimeFormat = "yyyy-MM-ddX";
 
     FieldTypeConverterConfig config4 =
         new FieldTypeConverterConfig();
@@ -1179,7 +1184,7 @@ public class TestFieldTypeConverterProcessorFields {
     config4.targetType = Field.Type.STRING;
     config4.dataLocale = "en";
     config4.zonedDateTimeFormat = ZonedDateTimeFormat.OTHER;
-    config4.otherZonedDateTimeFormat = "YYYY-MM-dd'T'HH:mm:ssX[VV]";
+    config4.otherZonedDateTimeFormat = "yyyy-MM-dd'T'HH:mm:ssX[VV]";
 
     FieldTypeConverterConfig config5 =
         new FieldTypeConverterConfig();
@@ -1187,7 +1192,7 @@ public class TestFieldTypeConverterProcessorFields {
     config5.targetType = Field.Type.STRING;
     config5.dataLocale = "en";
     config5.zonedDateTimeFormat = ZonedDateTimeFormat.OTHER;
-    config5.otherZonedDateTimeFormat = "YYYY-MM-dd'T'HH:mm:ssX[VV]";
+    config5.otherZonedDateTimeFormat = "yyyy-MM-dd'T'HH:mm:ssX[VV]";
     ProcessorRunner runner = new ProcessorRunner.Builder(FieldTypeConverterDProcessor.class)
                                  .addConfiguration("convertBy", ConvertBy.BY_FIELD)
                                  .addConfiguration("fieldTypeConverterConfigs",
@@ -1211,9 +1216,9 @@ public class TestFieldTypeConverterProcessorFields {
           output.get("/zdt-1").getValueAsString());
       Assert.assertEquals(current.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
           output.get("/zdt-2").getValueAsString());
-      Assert.assertEquals(current.format(DateTimeFormatter.ofPattern("YYYY-MM-ddX")),
+      Assert.assertEquals(current.format(DateTimeFormatter.ofPattern("yyyy-MM-ddX")),
           output.get("/zdt-3").getValueAsString());
-      Assert.assertEquals(current.format(DateTimeFormatter.ofPattern("YYYY-MM-dd'T'HH:mm:ssX[VV]")),
+      Assert.assertEquals(current.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssX[VV]")),
           output.get("/zdt-4").getValueAsString());
       Assert.assertEquals(null, output.get("/zdt-5").getValueAsString());
     } finally {
@@ -1266,6 +1271,53 @@ public class TestFieldTypeConverterProcessorFields {
       Assert.assertEquals(current, output.get("/zdt-1").getValueAsZonedDateTime());
       Assert.assertEquals(current.toOffsetDateTime().toZonedDateTime(), output.get("/zdt-2").getValueAsZonedDateTime());
       Assert.assertEquals(current, output.get("/zdt-3").getValueAsZonedDateTime());
+    } finally {
+      runner.runDestroy();
+    }
+  }
+
+  @Test
+  public void testDateAndTimeAndDateTimeToZonedDatetime() throws Exception {
+    ZoneId zoneId = ZoneId.of("Europe/Prague");
+
+    FieldTypeConverterConfig config = new FieldTypeConverterConfig();
+    config.fields = ImmutableList.of("/dt", "/t", "/d");
+    config.targetType = Field.Type.ZONED_DATETIME;
+    config.dataLocale = "en";
+    config.zonedDateTimeFormat = ZonedDateTimeFormat.ISO_ZONED_DATE_TIME;
+    config.zonedDateTimeTargetTimeZone = zoneId.getId();
+
+    ProcessorRunner runner = new ProcessorRunner.Builder(FieldTypeConverterDProcessor.class)
+        .addConfiguration("convertBy", ConvertBy.BY_FIELD)
+        .addConfiguration("fieldTypeConverterConfigs", Collections.singletonList(config))
+        .addOutputLane("a").build();
+    runner.runInit();
+
+    Date dt = new Date();
+
+    Map<String, Field> map = new LinkedHashMap<>();
+    map.put("d", Field.create(Field.Type.DATE, dt));
+    map.put("dt", Field.create(Field.Type.DATETIME, dt));
+    map.put("t", Field.create(Field.Type.TIME, dt));
+    Record record = RecordCreator.create("s", "s:1");
+    record.set(Field.create(map));
+
+    ZonedDateTime expected = ZonedDateTime.ofInstant(dt.toInstant(), zoneId);
+
+    try {
+      Record output = runner.runProcess(ImmutableList.of(record)).getRecords().get("a").get(0);
+
+      Assert.assertTrue(output.has("/d"));
+      Assert.assertEquals(Field.Type.ZONED_DATETIME, output.get("/d").getType());
+      Assert.assertEquals(expected, output.get("/d").getValueAsZonedDateTime());
+
+      Assert.assertTrue(output.has("/dt"));
+      Assert.assertEquals(Field.Type.ZONED_DATETIME, output.get("/dt").getType());
+      Assert.assertEquals(expected, output.get("/dt").getValueAsZonedDateTime());
+
+      Assert.assertTrue(output.has("/t"));
+      Assert.assertEquals(Field.Type.ZONED_DATETIME, output.get("/t").getType());
+      Assert.assertEquals(expected, output.get("/t").getValueAsZonedDateTime());
     } finally {
       runner.runDestroy();
     }
@@ -2167,4 +2219,46 @@ public class TestFieldTypeConverterProcessorFields {
     }
   }
 
+  @Test
+  public void testStringToDecimalWithoutPrecisionLoss() throws Exception {
+    final FieldTypeConverterConfig converter1 = new FieldTypeConverterConfig();
+
+    converter1.fields = ImmutableList.of("/field1", "/field2");
+    converter1.targetType = Field.Type.DECIMAL;
+    converter1.dataLocale = "en_US";
+    converter1.scale = -1;
+    converter1.decimalScaleRoundingStrategy = DecimalScaleRoundingStrategy.ROUND_UNNECESSARY;
+
+    ProcessorRunner runner = new ProcessorRunner.Builder(FieldTypeConverterDProcessor.class)
+        .addConfiguration("convertBy", ConvertBy.BY_FIELD)
+        .addConfiguration(
+            "fieldTypeConverterConfigs",
+            Collections.singletonList(converter1)
+        )
+        .addOutputLane("a").build();
+    runner.runInit();
+    try {
+      final Map<String, Field> fieldMap = new HashMap<>();
+
+      // decimals with large scale/precision
+      final String field1Value = "1234567890.1234567890";
+      final String field2Value = "12345678987654321.12345678987654321";
+      fieldMap.put("field1", Field.create(field1Value));
+      fieldMap.put("field2", Field.create(field2Value));
+
+      final Record record = RecordCreator.create();
+      record.set(Field.create(fieldMap));
+
+      final StageRunner.Output output = runner.runProcess(ImmutableList.of(record));
+
+      Assert.assertEquals(1, output.getRecords().get("a").size());
+
+      final Record outputRecord = output.getRecords().get("a").get(0);
+      final Field outputRecordField = outputRecord.get();
+      assertThat(outputRecordField, mapFieldWithEntry("field1", new BigDecimal(field1Value)));
+      assertThat(outputRecordField, mapFieldWithEntry("field2", new BigDecimal(field2Value)));
+    } finally {
+      runner.runDestroy();
+    }
+  }
 }

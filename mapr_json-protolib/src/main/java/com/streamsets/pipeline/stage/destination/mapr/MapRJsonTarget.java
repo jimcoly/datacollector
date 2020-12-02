@@ -53,9 +53,11 @@ import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static com.streamsets.pipeline.lib.operation.OperationType.DELETE_CODE;
 import static com.streamsets.pipeline.lib.operation.OperationType.INSERT_CODE;
@@ -70,6 +72,8 @@ public class MapRJsonTarget extends BaseTarget {
   private MapRJsonConfigBean mapRJsonConfigBean;
   private ErrorRecordHandler errorRecordHandler;
   private DataGeneratorFactory generatorFactory;
+  private ByteArrayOutputStream os = new ByteArrayOutputStream(1024 * 1024);
+  private Set<String> touchedTables = new HashSet<>();
 
   private ELEval tableNameEval;
   private ELVars tableNameVars;
@@ -107,10 +111,6 @@ public class MapRJsonTarget extends BaseTarget {
             mapRJsonConfigBean.tableName,
             Errors.MAPR_JSON_16, issues
         );
-
-      } else {
-        tab = mapRJsonConfigBean.tableName;
-
       }
     }
 
@@ -167,28 +167,26 @@ public class MapRJsonTarget extends BaseTarget {
         errorRecordHandler.onError(ee);
       }
     }
+
+    flush();
   }
 
   private void performInsertOperation(Record rec) throws StageException {
-    ByteArrayOutputStream os = new ByteArrayOutputStream(1024 * 1024);
-    createJson(os, rec);
-    Document document = populateDocument(os, rec);
+    os.reset();
+    Document document = populateDocument(rec);
     setId(document, rec);
     doInsert(document, rec);
-    flush();
   }
 
   private void performDeleteOperation(Record rec) throws StageException {
     doDelete(rec);
-    flush();
   }
 
   private void performUpdateOperation(Record rec) throws StageException {
-    ByteArrayOutputStream os = new ByteArrayOutputStream(1024 * 1024);
+    os.reset();
     createJson(os, rec);
     DocumentMutation document = populateDocumentMutation(rec);
     doUpdate(document, rec);
-    flush();
   }
 
   private void resolveTableName(Record rec) throws StageException {
@@ -200,9 +198,10 @@ public class MapRJsonTarget extends BaseTarget {
         LOG.error(Errors.MAPR_JSON_16.getMessage(), mapRJsonConfigBean.tableName, ex);
         throw new OnRecordErrorException(rec, Errors.MAPR_JSON_16, mapRJsonConfigBean.tableName, ex);
       }
+    } else {
+      tab = mapRJsonConfigBean.tableName;
     }
-    // if tableName contains an EL, "tab" was initialized above,
-    // otherwise use the tableName from the UI
+    touchedTables.add(tab);
   }
 
   private void createJson(OutputStream os, Record rec) throws OnRecordErrorException {
@@ -288,13 +287,16 @@ public class MapRJsonTarget extends BaseTarget {
     }
   }
 
-  private Document populateDocument(ByteArrayOutputStream os, Record rec) throws OnRecordErrorException {
+  private Document populateDocument(Record rec) throws OnRecordErrorException {
     Document document;
     try {
-      document = MapRJsonDocumentLoader.createDocument(new String(os.toByteArray(), StandardCharsets.UTF_8));
+      document = MapRJsonDocumentLoader.createDocument(rec);
     } catch (DecodingException ex) {
       LOG.error(Errors.MAPR_JSON_10.getMessage(), ex.toString(), ex);
       throw new OnRecordErrorException(rec, Errors.MAPR_JSON_10, ex.toString(), ex);
+    } catch (IOException e) {
+      LOG.error(Errors.MAPR_JSON_10.getMessage(), e.toString(), e);
+      throw new OnRecordErrorException(rec, Errors.MAPR_JSON_10, e.toString(), e);
     }
     return document;
   }
@@ -373,7 +375,7 @@ public class MapRJsonTarget extends BaseTarget {
       try {
         MapRJsonDocumentLoader.commit(tab, document, mapRJsonConfigBean.createTable);
       } catch (DocumentExistsException ex) {
-        LOG.error(Errors.MAPR_JSON_07.getMessage(), ex.toString(), ex);
+        LOG.debug(Errors.MAPR_JSON_07.getMessage(), ex.toString(), ex);
         throw new OnRecordErrorException(record, Errors.MAPR_JSON_07, ex.toString(), ex);
 
       } catch (MapRJsonDocumentLoaderException ex) {
@@ -444,12 +446,15 @@ public class MapRJsonTarget extends BaseTarget {
   }
 
   private void flush() throws StageException {
-    try {
-      MapRJsonDocumentLoader.flush(tab);
-    } catch (MapRJsonDocumentLoaderException ex) {
-      LOG.error(Errors.MAPR_JSON_04.getMessage(), mapRJsonConfigBean.tableName, ex);
-      throw new StageException(Errors.MAPR_JSON_04, mapRJsonConfigBean.tableName, ex);
-    }
+      for(String tab : touchedTables) {
+        try {
+        MapRJsonDocumentLoader.flush(tab);
+        } catch (MapRJsonDocumentLoaderException ex) {
+          LOG.error(Errors.MAPR_JSON_04.getMessage(), tab, ex);
+          throw new StageException(Errors.MAPR_JSON_04, tab, ex);
+        }
+      }
+      touchedTables.clear();
   }
 
   @Override

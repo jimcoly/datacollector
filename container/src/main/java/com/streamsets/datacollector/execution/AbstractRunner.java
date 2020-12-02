@@ -15,12 +15,11 @@
  */
 package com.streamsets.datacollector.execution;
 
-import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonMappingException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.creation.PipelineConfigBean;
 import com.streamsets.datacollector.credential.CredentialStoresTask;
@@ -33,6 +32,7 @@ import com.streamsets.datacollector.event.json.PipelineStartEventJson;
 import com.streamsets.datacollector.execution.alerts.EmailNotifier;
 import com.streamsets.datacollector.execution.alerts.WebHookNotifier;
 import com.streamsets.datacollector.execution.runner.common.PipelineRunnerException;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.datacollector.store.AclStoreTask;
@@ -64,9 +64,13 @@ public abstract  class AbstractRunner implements Runner {
 
   public static final String RUNTIME_PARAMETERS_ATTR = "RUNTIME_PARAMETERS";
   public static final String INTERCEPTOR_CONFIGS_ATTR = "INTERCEPTOR_CONFIGS";
+  public static final String ANTENNA_DOCTOR_MESSAGES_ATTR = "ANTENNA_DOCTOR_MESSAGES";
+  public static final String ERROR_STACKTRACE_ATTR = "ERROR_STACKTRACE";
+  public static final String ERROR_MESSAGE_ATTR = "ERROR_MESSAGE";
 
   private final String name;
   private final String rev;
+  private final HashMap<String, ConnectionConfiguration> connections;
 
   @Inject AclStoreTask aclStoreTask;
   @Inject EventListenerManager eventListenerManager;
@@ -75,6 +79,7 @@ public abstract  class AbstractRunner implements Runner {
   @Inject StageLibraryTask stageLibrary;
   @Inject CredentialStoresTask credentialStoresTask;
   @Inject RuntimeInfo runtimeInfo;
+  @Inject BuildInfo buildInfo;
   @Inject Configuration configuration;
 
   // Start Pipeline Context that was used during last start() and will be reused on pipeline retry
@@ -83,12 +88,14 @@ public abstract  class AbstractRunner implements Runner {
   public AbstractRunner(String name, String rev) {
     this.name = name;
     this.rev = rev;
+    this.connections = new HashMap<>();
   }
 
   protected AbstractRunner(
       String name,
       String rev,
       RuntimeInfo runtimeInfo,
+      BuildInfo buildInfo,
       Configuration configuration,
       PipelineStateStore pipelineStateStore,
       PipelineStoreTask pipelineStore,
@@ -100,6 +107,7 @@ public abstract  class AbstractRunner implements Runner {
     this.aclStoreTask = aclStore;
     this.configuration = configuration;
     this.runtimeInfo = runtimeInfo;
+    this.buildInfo = buildInfo;
     this.pipelineStateStore = pipelineStateStore;
     this.pipelineStore = pipelineStore;
     this.stageLibrary = stageLibrary;
@@ -114,6 +122,11 @@ public abstract  class AbstractRunner implements Runner {
   @Override
   public String getRev() {
     return rev;
+  }
+
+  @Override
+  public Map<String, ConnectionConfiguration> getConnections() {
+    return connections;
   }
 
   protected AclStoreTask getAclStore() {
@@ -144,13 +157,17 @@ public abstract  class AbstractRunner implements Runner {
     return runtimeInfo;
   }
 
+  protected BuildInfo getBuildInfo() {
+    return buildInfo;
+  }
+
   protected Configuration getConfiguration() {
     return configuration;
   }
 
   @Override
-  public PipelineConfiguration getPipelineConfiguration() throws PipelineException {
-    return pipelineStore.load(getName(), getRev());
+  public PipelineConfiguration getPipelineConfiguration(String user) throws PipelineException {
+    return getPipelineConf(getName(), getRev(), user);
   }
 
   @Override
@@ -170,8 +187,10 @@ public abstract  class AbstractRunner implements Runner {
 
   @Override
   public Map<String, Object> createStateAttributes() throws PipelineStoreException {
-    Map<String, Object> attributes = new HashMap<>();
-    attributes.put(RUNTIME_PARAMETERS_ATTR, startPipelineContext.getRuntimeParameters());
+    Map<String, Object> attributes = new HashMap<>(getState().getAttributes());
+    if(startPipelineContext != null) {
+      attributes.put(RUNTIME_PARAMETERS_ATTR, startPipelineContext.getRuntimeParameters());
+    }
 
     List<String> interceptors = new ArrayList<>();
     try {
@@ -184,14 +203,17 @@ public abstract  class AbstractRunner implements Runner {
       throw new PipelineStoreException(ContainerError.CONTAINER_0214, e);
     }
     attributes.put(INTERCEPTOR_CONFIGS_ATTR, interceptors);
+    return attributes;
+  }
 
-    // We're persisting information whether this is remote pipeline in the state file rather then in some metadata file
-    // and hence we need to transition that information from previous state.
-    Map<String, Object> oldAttributes = getState().getAttributes();
-    if(oldAttributes != null && oldAttributes.containsKey(RemoteDataCollector.IS_REMOTE_PIPELINE)) {
-      attributes.put(RemoteDataCollector.IS_REMOTE_PIPELINE, oldAttributes.get(RemoteDataCollector.IS_REMOTE_PIPELINE));
-    }
-
+  /**
+   * Variant of createStateAttributes that will remove attributes that should not be carried over from past executions.
+   */
+  public Map<String, Object> createNewStateAttributes() throws PipelineStoreException {
+    Map<String, Object> attributes = createStateAttributes();
+    attributes.remove(ANTENNA_DOCTOR_MESSAGES_ATTR);
+    attributes.remove(ERROR_STACKTRACE_ATTR);
+    attributes.remove(ERROR_MESSAGE_ATTR);
     return attributes;
   }
 
@@ -239,9 +261,16 @@ public abstract  class AbstractRunner implements Runner {
     return newContext;
   }
 
-  protected PipelineConfiguration getPipelineConf(String name, String rev) throws PipelineException {
+  protected PipelineConfiguration getPipelineConf(String name, String rev, String user) throws PipelineException {
     PipelineConfiguration load = pipelineStore.load(name, rev);
-    PipelineConfigurationValidator validator = new PipelineConfigurationValidator(stageLibrary, name, load);
+    PipelineConfigurationValidator validator = new PipelineConfigurationValidator(
+        stageLibrary,
+        buildInfo,
+        name,
+        load,
+        user,
+        connections
+    );
     PipelineConfiguration validate = validator.validate();
     if(validator.getIssues().hasIssues()) {
       LOG.error("Can't run pipeline due to issues: {}", validator.getIssues().getIssueCount());

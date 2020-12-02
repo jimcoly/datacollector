@@ -28,13 +28,15 @@ import com.streamsets.pipeline.lib.httpsource.RawHttpConfigs;
 import com.streamsets.pipeline.stage.destination.kafka.KafkaTargetConfig;
 
 @StageDef(
-  version = 2,
+  version = 4,
   label = "HTTP to Kafka",
   execution = ExecutionMode.STANDALONE,
   description = "Receives data via HTTP and writes every HTTP request payload to Kafka",
   icon="httptokafka.png",
   onlineHelpRefUrl ="index.html?contextID=task_vgx_nqd_dy",
-  upgrader = HttpToKafkaSourceUpgrader.class
+  upgrader = HttpToKafkaSourceUpgrader.class,
+  recordsByRef = true,
+  upgraderDef = "upgrader/HttpToKafkaDSource.yaml"
 )
 @ConfigGroups(Groups.class)
 @GenerateResourceBundle
@@ -58,6 +60,8 @@ import com.streamsets.pipeline.stage.destination.kafka.KafkaTargetConfig;
         "conf.dataGeneratorFormatConfig.subject",
         "conf.dataGeneratorFormatConfig.subjectToRegister",
         "conf.dataGeneratorFormatConfig.schemaRegistryUrlsForRegistration",
+        "conf.dataGeneratorFormatConfig.basicAuthUserInfo",
+        "conf.dataGeneratorFormatConfig.basicAuthUserInfoForRegistration",
         "conf.dataGeneratorFormatConfig.registerSchema",
         "conf.dataGeneratorFormatConfig.schemaId",
         "conf.dataGeneratorFormatConfig.includeSchema",
@@ -76,11 +80,16 @@ import com.streamsets.pipeline.stage.destination.kafka.KafkaTargetConfig;
         "conf.singleMessagePerBatch",
         "conf.topicExpression",
         "conf.topicWhiteList",
+        "configs.tlsConfigBean.useRemoteTrustStore",
         "configs.tlsConfigBean.trustStoreFilePath",
+        "configs.tlsConfigBean.trustedCertificates",
         "configs.tlsConfigBean.trustStoreType",
         "configs.tlsConfigBean.trustStorePassword",
         "configs.tlsConfigBean.trustStoreAlgorithm",
-        "configs.needClientAuth"
+        "configs.needClientAuth",
+        "configs.useApiGateway",
+        "configs.serviceName",
+        "configs.needGatewayAuth"
     }
 )
 @Deprecated

@@ -33,11 +33,13 @@ angular
       });
   }])
   .controller('PipelineHomeController', function (
-    $scope, $rootScope, $routeParams, $timeout, api, configuration, _, $q, $modal, $localStorage, pipelineService,
-    pipelineConstant, visibilityBroadcaster, $translate, contextHelpService, $location, authService, userRoles,
-    Analytics
+    $scope, $rootScope, $routeParams, $timeout, api, configuration, _, $q, $modal, pipelineService,
+    pipelineConstant, $translate, contextHelpService, $location, authService, userRoles,
+    Analytics, tracking, pipelineTracking
   ) {
     var routeParamPipelineName = $routeParams.pipelineName;
+    var searchObject = $location.search();
+    var isSamplePipeline = searchObject.samplePipeline && searchObject.samplePipeline === 'true';
     var configTimeout;
     var configDirty = false;
     var configSaveInProgress = false;
@@ -65,7 +67,9 @@ angular
     var errorsWatchListener;
 
     // Remove search parameter if any, search parameter causing canvas arrow issue
-    $location.search({});
+    if (!isSamplePipeline) {
+      $location.search({});
+    }
 
     // Clear potentially remaining notifications from previous page views
     $rootScope.common.errors = [];
@@ -74,6 +78,7 @@ angular
     angular.extend($scope, {
       _: _,
       showLoading: true,
+      isSamplePipeline: isSamplePipeline,
       monitorMemoryEnabled: false,
       isPipelineReadOnly: !authService.isAuthorized([userRoles.admin, userRoles.creator]),
       isPipelineRulesReadOnly: !authService.isAuthorized([userRoles.admin, userRoles.creator, userRoles.manager]),
@@ -83,6 +88,7 @@ angular
       isPipelineRunning: false,
       sourceExists: false,
       stageLibraries: [],
+      legacyStageLibs: [],
       pipelineGraphData: {},
       previewMode: false,
       snapshotMode: false,
@@ -150,7 +156,42 @@ angular
           return;
         }
 
-        $scope.trackEvent(pipelineConstant.STAGE_CATEGORY, pipelineConstant.ADD_ACTION, stage.label, 1);
+        if (stage.notInstalled) {
+          var stageInfo = pipelineService.getAllLibraryList(stage.name);
+          if (stageInfo && stageInfo.libraryList && stageInfo.libraryList.length) {
+            var modalInstance = $modal.open({
+              templateUrl: 'app/home/packageManager/install_missing_stage_library/install_missing_stage_library.tpl.html',
+              controller: 'InstallMissingLibraryModalInstanceController',
+              size: '',
+              backdrop: 'static',
+              resolve: {
+                customRepoUrl: function () {
+                  return $rootScope.$storage.customPackageManagerRepoUrl;
+                },
+                missingStageInfo: function() {
+                  return stageInfo;
+                },
+                libraryList: function () {
+                  return [{
+                    stageLibraryManifest: {
+                      stageLibId: stageInfo.libraryList[0].libraryId,
+                      stageLibLabel: stageInfo.libraryList[0].libraryLabel
+                    }
+                  }];
+                },
+                withStageLibVersion: function () {
+                  return false;
+                }
+              }
+            });
+            modalInstance.result.then(function() {
+              angular.forEach(libraryList, function(library) {
+                library.installed = true;
+              });
+            });
+          }
+          return;
+        }
 
         if (stage.type === pipelineConstant.SOURCE_STAGE_TYPE) {
           var sourceExists = false;
@@ -252,6 +293,9 @@ angular
         }
 
         $scope.$broadcast('addNode', stageInstance, edges, relativeXPos, relativeYPos);
+
+        pipelineTracking.trackStageAdded(stageInstance, $scope.pipelineConfig.pipelineId);
+        $scope.trackEvent(pipelineConstant.STAGE_CATEGORY, pipelineConstant.ADD_ACTION, stage.label, 1);
       },
 
       /**
@@ -280,10 +324,12 @@ angular
        *
        */
       previewPipeline: function(showPreviewConfig) {
-        //Clear Previous errors
+        // Clear Previous errors
         $rootScope.common.errors = [];
         if (!$scope.pipelineConfig.uiInfo.previewConfig.rememberMe || showPreviewConfig) {
           $scope.trackEvent(pipelineConstant.BUTTON_CATEGORY, pipelineConstant.CLICK_ACTION, 'Preview Pipeline Configuration', 1);
+          pipelineTracking.trackPreviewSelected($scope.pipelineConfig);
+
           var modalInstance = $modal.open({
             templateUrl: 'app/home/preview/configuration/previewConfigModal.tpl.html',
             controller: 'PreviewConfigModalInstanceController',
@@ -314,6 +360,7 @@ angular
         $scope.previewMode = false;
         $scope.setGraphReadOnly(false);
         $scope.setGraphPreviewMode(false);
+        pipelineTracking.trackPreviewClosed($scope.pipelineConfig);
         if ($scope.pipelineConfig.uiInfo.previewConfig.previewSource === pipelineConstant.TEST_ORIGIN) {
           $scope.refreshGraph();
         }
@@ -779,138 +826,271 @@ angular
     });
 
     /**
+     * Checks if status is one of the error statuses
+     * @param {string} status
+     */
+    function isErrorStatus(status) {
+      var ERROR_STATUSES = [
+        'START_ERROR',
+        'STARTING_ERROR',
+        'RUNNING_ERROR',
+        'RUN_ERROR',
+        'CONNECT_ERROR',
+        'STOP_ERROR',
+        'STOPPING_ERROR'];
+      return _.contains(ERROR_STATUSES, status);
+    }
+
+    /**
      * Fetch definitions for Pipeline and Stages, fetch all pipeline configuration info, status and metric.
      */
-    $q.all([
-      api.pipelineAgent.getPipelineStatus(routeParamPipelineName, '0'),
-      api.acl.getPipelinePermissions(routeParamPipelineName),
-      pipelineService.init(),
-      configuration.init()
-    ])
-      .then(function (results) {
-        var pipelineStatusMap = {};
-        pipelineStatusMap[routeParamPipelineName] = results[0].data;
+    var initializePipelinePage = function () {
+      $q.all([
+        api.pipelineAgent.getPipelineStatus(routeParamPipelineName, '0'),
+        api.acl.getPipelinePermissions(routeParamPipelineName),
+        pipelineService.init(),
+        configuration.init()
+      ])
+        .then(function (results) {
+          var pipelineStatusMap = {};
+          pipelineStatusMap[routeParamPipelineName] = results[0].data;
 
-        var permissions = results[1].data;
-        var isACLEnabled = configuration.isACLEnabled();
-        if (authService.isAuthorized([userRoles.admin]) || !isACLEnabled) {
-          // for admin user or if ACL is disabled
-          $scope.canWrite = true;
-          $scope.canExecute = true;
-        } else if (permissions) {
-          angular.forEach(permissions, function (permission) {
-            if (permission.actions.indexOf('WRITE') !== -1) {
-              $scope.canWrite = true;
-            }
-
-            if (permission.actions.indexOf('EXECUTE') !== -1) {
-              $scope.canExecute = true;
-            }
-          });
-
-          if (!$scope.canWrite) {
-            $scope.isPipelineReadOnly = true;
-          }
-        }
-
-        isWebSocketSupported = (typeof(WebSocket) === 'function') && configuration.isWebSocketUseEnabled();
-        undoLimit = configuration.getUndoLimit();
-
-        if (configuration.isAnalyticsEnabled()) {
-          Analytics.trackPage('/collector/pipeline/pipelineName');
-        }
-
-        $scope.monitorMemoryEnabled = configuration.isMonitorMemoryEnabled();
-
-        //Definitions
-        $scope.pipelineConfigDefinition = pipelineService.getPipelineConfigDefinition();
-        $scope.stageLibraries = pipelineService.getStageDefinitions();
-
-        //Pipelines
-
-        $scope.existingPipelineLabels = pipelineService.existingPipelineLabels || [];
-
-        $rootScope.common.pipelineStatusMap = pipelineStatusMap;
-
-        return $q.all([
-          api.pipelineAgent.getPipelineConfig(routeParamPipelineName),
-          api.pipelineAgent.getPipelineRules(routeParamPipelineName)
-        ]);
-      },function(resp) {
-        $scope.showLoading = false;
-        $rootScope.common.errors = [resp.data];
-      })
-      .then(function(results) {
-        $scope.showLoading = false;
-        //Pipeline Configuration, Rules & Metrics
-        if (results && results.length > 1) {
-          var config = results[0].data;
-          var rules = results[1].data;
-          var clickedAlert = $rootScope.common.clickedAlert;
-
-          api.pipelineAgent.getPipelineMetrics(routeParamPipelineName, 0)
-            .then(
-              function(res) {
-                $rootScope.common.pipelineMetrics = res.data;
+          var permissions = results[1].data;
+          var isACLEnabled = configuration.isACLEnabled();
+          if (authService.isAuthorized([userRoles.admin]) || !isACLEnabled) {
+            // for admin user or if ACL is disabled
+            $scope.canWrite = true;
+            $scope.canExecute = true;
+          } else if (permissions) {
+            angular.forEach(permissions, function (permission) {
+              if (permission.actions.indexOf('WRITE') !== -1) {
+                $scope.canWrite = true;
               }
-            );
 
-          if ($rootScope.common.pipelineStatusMap[routeParamPipelineName].status === 'RETRY') {
-            updateRetryCountdown($rootScope.common.pipelineStatusMap[routeParamPipelineName].nextRetryTimeStamp);
+              if (permission.actions.indexOf('EXECUTE') !== -1) {
+                $scope.canExecute = true;
+              }
+            });
+
+            if (!$scope.canWrite) {
+              $scope.isPipelineReadOnly = true;
+            }
           }
+
+          isWebSocketSupported = (typeof(WebSocket) === 'function') && configuration.isWebSocketUseEnabled();
+          undoLimit = configuration.getUndoLimit();
+
+          if (configuration.isAnalyticsEnabled()) {
+            Analytics.trackPage('/collector/pipeline/pipelineName');
+          }
+
+          $scope.monitorMemoryEnabled = configuration.isMonitorMemoryEnabled();
+
+          //Definitions
+          $scope.pipelineConfigDefinition = pipelineService.getPipelineConfigDefinition();
+          $scope.stageLibraries = pipelineService.getStageDefinitions();
+          $scope.legacyStageLibs = pipelineService.getLegacyStageLibs();
+
+          //Pipelines
+
+          $scope.existingPipelineLabels = pipelineService.existingPipelineLabels || [];
+
+          $rootScope.common.pipelineStatusMap = pipelineStatusMap;
+
+          return $q.all([
+            api.pipelineAgent.getPipelineConfig(routeParamPipelineName),
+            api.pipelineAgent.getPipelineRules(routeParamPipelineName)
+          ]);
+        },function(resp) {
+          $scope.showLoading = false;
+          $rootScope.common.errors = [resp.data];
+        })
+        .then(function(results) {
+          $scope.showLoading = false;
+          //Pipeline Configuration, Rules & Metrics
+          if (results && results.length > 1) {
+            var config = results[0].data;
+            var rules = results[1].data;
+            var clickedAlert = $rootScope.common.clickedAlert;
+
+            api.pipelineAgent.getPipelineMetrics(routeParamPipelineName, 0)
+              .then(
+                function(res) {
+                  $rootScope.common.pipelineMetrics = res.data;
+                }
+              );
+
+            if ($rootScope.common.pipelineStatusMap[routeParamPipelineName].status === 'RETRY') {
+              updateRetryCountdown($rootScope.common.pipelineStatusMap[routeParamPipelineName].nextRetryTimeStamp);
+            }
+
+            if (config.fragments && config.fragments.length) {
+              // Pipeline contains fragments - so mark it readonly
+              $scope.isPipelineReadOnly = true;
+
+              $scope.fragmentsScope = {
+                containsFragments: true,
+                fragmentsExpanded: true
+              };
+            }
+
+            if (hasConnections(config.stages, $scope.stageLibraries)) {
+              $scope.isPipelineReadOnly = true;
+              $rootScope.common.errors = ['Pipeline is read only as it has a connection in use.'];
+            }
+
+            if (config.metadata && config.metadata.controlHubTestRun) {
+              // Pipeline is Control Hub test run pipeline - so mark it readonly
+              $scope.isPipelineReadOnly = true;
+            }
+
+            updateGraph(config, rules, undefined, undefined, true);
+
+            if (_.contains(['RUNNING', 'STARTING'], $rootScope.common.pipelineStatusMap[routeParamPipelineName].status)) {
+              refreshPipelineMetrics();
+            }
+
+            if (clickedAlert && clickedAlert.pipelineName === $scope.activeConfigInfo.pipelineId) {
+              var edges = $scope.edges,
+                edge;
+              $rootScope.common.clickedAlert = undefined;
+
+              if (clickedAlert.ruleDefinition.metricId) {
+                //Select Pipeline Config
+                updateDetailPane({
+                  selectedObject: undefined,
+                  type: pipelineConstant.PIPELINE,
+                  detailTabName: 'summary'
+                });
+              } else {
+                //Select edge
+                edge = _.find(edges, function(ed) {
+                  return ed.outputLane === clickedAlert.ruleDefinition.lane;
+                });
+                updateDetailPane({
+                  selectedObject: edge,
+                  type: pipelineConstant.LINK,
+                  detailTabName: 'summary'
+                });
+              }
+            } else {
+              updateDetailPane({
+                selectedObject: undefined,
+                type: pipelineConstant.PIPELINE
+              });
+            }
+          }
+          $scope.loaded = true;
+        },function(resp) {
+          $scope.pipelineConfig = undefined;
+          $scope.showLoading = false;
+          $rootScope.common.errors = [resp.data];
+        });
+    };
+
+    var initializeSamplePipelinePage = function () {
+      $scope.isPipelineReadOnly = true;
+      $q.all([
+        pipelineService.init(),
+        configuration.init()
+      ])
+        .then(function (results) {
+          if (configuration.isAnalyticsEnabled()) {
+            Analytics.trackPage('/collector/pipeline/pipelineName');
+          }
+
+          $scope.monitorMemoryEnabled = configuration.isMonitorMemoryEnabled();
+
+          // Definitions
+          $scope.pipelineConfigDefinition = pipelineService.getPipelineConfigDefinition();
+          $scope.stageLibraries = pipelineService.getStageDefinitions();
+          $scope.legacyStageLibs = pipelineService.getLegacyStageLibs();
+
+          // Pipelines
+          $scope.existingPipelineLabels = pipelineService.existingPipelineLabels || [];
+          return api.pipelineAgent.getSamplePipeline(routeParamPipelineName);
+        },function(resp) {
+          $scope.showLoading = false;
+          $rootScope.common.errors = [resp.data];
+        })
+        .then(function(res) {
+          $scope.showLoading = false;
+          var pipelineEnvelope = res.data;
+          var config = pipelineEnvelope.pipelineConfig;
+          var rules = pipelineEnvelope.pipelineRules;
 
           if (config.fragments && config.fragments.length) {
-            // Pipeline contains fragments - so mark it readonly
-            $scope.isPipelineReadOnly = true;
-
+            // Pipeline contains fragments
             $scope.fragmentsScope = {
               containsFragments: true,
               fragmentsExpanded: true
             };
           }
 
+          var tutorialLink = config.description
+            .split('\n', 1)[0]
+            .replace('Tutorial - ', '')
+            .trim();
+          if (tutorialLink && tutorialLink.startsWith('http')) {
+            $scope.tutorialLink = tutorialLink;
+          }
+
           updateGraph(config, rules, undefined, undefined, true);
+          updateDetailPane({
+            selectedObject: undefined,
+            type: pipelineConstant.PIPELINE
+          });
+          $scope.loaded = true;
+        },function(resp) {
+          $scope.pipelineConfig = undefined;
+          $scope.showLoading = false;
+          $rootScope.common.errors = [resp.data];
+        });
+    };
 
-          if (_.contains(['RUNNING', 'STARTING'], $rootScope.common.pipelineStatusMap[routeParamPipelineName].status)) {
-            refreshPipelineMetrics();
-          }
+    if (isSamplePipeline) {
+      initializeSamplePipelinePage();
+    } else {
+      initializePipelinePage();
+    }
 
-          if (clickedAlert && clickedAlert.pipelineName === $scope.activeConfigInfo.pipelineId) {
-            var edges = $scope.edges,
-                edge;
-            $rootScope.common.clickedAlert = undefined;
 
-            if (clickedAlert.ruleDefinition.metricId) {
-              //Select Pipeline Config
-              updateDetailPane({
-                selectedObject: undefined,
-                type: pipelineConstant.PIPELINE,
-                detailTabName: 'summary'
-              });
-            } else {
-              //Select edge
-              edge = _.find(edges, function(ed) {
-                return ed.outputLane === clickedAlert.ruleDefinition.lane;
-              });
-              updateDetailPane({
-                selectedObject: edge,
-                type: pipelineConstant.LINK,
-                detailTabName: 'summary'
-              });
+    /**
+     * Check if any stage in the pipeline is configured to use a connection
+     * A stage can have multiple connections configured.
+     * if at least one of them is not set to MANUAL, that connection is in use for that stage.
+     */
+    var hasConnections = function(pipelineStages, stageLibraries) {
+      /**
+       * this generates list of fields for each stage with the type CONNECTION type configurations
+       * {
+       *    stageName: ['config1', 'config2']
+       * }
+       */
+      var configsWithConnections = stageLibraries
+        .flatMap(function (stage) {
+          return (stage.configDefinitions || [])
+            .filter(function (config) { return !!config.connectionType; })
+            .map(function (config) { return {name: config.name, stageName: stage.name }; });
+        })
+        .reduce(function(map, config) {
+          map[config.stageName] = (map[config.stageName] || []).concat(config.name);
+          return map;
+        }, {});
+      /*
+      * we first check if the pipeline has any stages that could have a connection config
+      * if it has, then we check that configuration value to check if that is using a connection. (If set to MANUAL it is not in use)
+      */
+      return pipelineStages.some(function (stage)  {
+        // 1. does this stage have CONNECTION type config
+        // 2. are they set to MANUAL
+        return configsWithConnections[stage.stageName] && stage.configuration.some(
+          function (configValue) {
+              return configsWithConnections[stage.stageName].indexOf(configValue.name) !== -1 && configValue.value !== 'MANUAL';
             }
-          } else {
-            updateDetailPane({
-              selectedObject: undefined,
-              type: pipelineConstant.PIPELINE
-            });
-          }
-        }
-        $scope.loaded = true;
-      },function(resp) {
-        $scope.pipelineConfig = undefined;
-        $scope.showLoading = false;
-        $rootScope.common.errors = [resp.data];
+        );
       });
+    };
 
     /**
      * Load Pipeline Configuration by fetching it from server for the given Pipeline Configuration name.
@@ -962,7 +1142,7 @@ angular
         }
       },function(resp) {
         $scope.pipelineConfig = undefined;
-        $rootScope.common.errors = [resp.data];
+        $rootScope.common.errors = ['Pipeline contains stages with connections configured'];
       });
     };
 
@@ -1057,7 +1237,7 @@ angular
       configDirty = false;
       configSaveInProgress = true;
       $rootScope.common.saveOperationInProgress++;
-
+      $rootScope.common.title = config.title;
 
       if (!$scope.isPipelineRunning) {
         api.pipelineAgent.savePipelineConfig($scope.activeConfigInfo.pipelineId, config)
@@ -1142,6 +1322,7 @@ angular
       var stageErrorCounts = {};
       var pipelineMetrics = $rootScope.common.pipelineMetrics;
       var pipelineStatus = $rootScope.common.pipelineStatusMap[routeParamPipelineName];
+      $rootScope.common.title = pipelineConfig.title;
 
       if (!manualUpdate) {
         ignoreUpdate = true;
@@ -1306,7 +1487,7 @@ angular
       $scope.firstOpenLane = $rootScope.$storage.dontShowHelpAlert ? {} : getFirstOpenLane();
 
       if (pipelineStatus && pipelineStatus.pipelineId === pipelineConfig.info.pipelineId &&
-        pipelineStatus.status === 'RUNNING' && pipelineMetrics && pipelineMetrics.meters) {
+        pipelineMetrics && pipelineMetrics.meters) {
         stageErrorCounts = getStageErrorCounts();
       }
 
@@ -1515,10 +1696,9 @@ angular
         $scope.detailPaneConfigDefn = undefined;
 
         _.each($scope.stageLibraries, function (stageLibrary) {
-          if (stageLibrary.name === selectedObject.stageName &&
-            stageLibrary.version === selectedObject.stageVersion) {
+          if (stageLibrary.name === selectedObject.stageName) {
 
-            if (stageLibrary.library === selectedObject.library) {
+            if (stageLibrary.library === selectedObject.library && stageLibrary.version === selectedObject.stageVersion) {
               $scope.detailPaneConfigDefn = stageLibrary;
             }
 
@@ -1543,12 +1723,6 @@ angular
         if (!options.detailTabName) {
           if ($scope.selectedDetailPaneTabCache[selectedObject.instanceName]) {
             options.detailTabName = $scope.selectedDetailPaneTabCache[selectedObject.instanceName];
-          } else {
-            if ($scope.isPipelineRunning) {
-              options.detailTabName = 'summary';
-            } else {
-              options.detailTabName = 'configuration';
-            }
           }
 
           if ($scope.selectedConfigGroupCache[selectedObject.instanceName]) {
@@ -1612,12 +1786,6 @@ angular
         if (!options.detailTabName) {
           if ($scope.selectedDetailPaneTabCache[$scope.pipelineConfig.info.pipelineId]) {
             options.detailTabName = $scope.selectedDetailPaneTabCache[$scope.pipelineConfig.info.pipelineId];
-          } else {
-            if ($scope.isPipelineRunning) {
-              options.detailTabName = 'summary';
-            } else {
-              options.detailTabName = 'configuration';
-            }
           }
 
           if ($scope.selectedConfigGroupCache[$scope.pipelineConfig.info.pipelineId]) {
@@ -1631,12 +1799,6 @@ angular
         if (!options.detailTabName) {
           if ($scope.selectedDetailPaneTabCache[$scope.selectedObject.outputLane]) {
             options.detailTabName = $scope.selectedDetailPaneTabCache[$scope.selectedObject.outputLane];
-          } else {
-            if ($scope.isPipelineRunning) {
-              options.detailTabName = 'summary';
-            } else {
-              options.detailTabName = 'dataRules';
-            }
           }
         }
       }
@@ -1891,6 +2053,8 @@ angular
 
     var prepareForPreview = function() {
       $scope.trackEvent(pipelineConstant.BUTTON_CATEGORY, pipelineConstant.CLICK_ACTION, 'Run Preview', 1);
+      pipelineTracking.trackPreviewConfigComplete($scope.pipelineConfig, $scope.pipelineConfig.uiInfo.previewConfig);
+
       $scope.previewMode = true;
       $rootScope.$storage.maximizeDetailPane = false;
       $rootScope.$storage.minimizeDetailPane = false;
@@ -1901,6 +2065,50 @@ angular
       if ($scope.pipelineConfig.uiInfo.previewConfig.previewSource === pipelineConstant.TEST_ORIGIN) {
         $scope.refreshGraph();
       }
+    };
+
+    /**
+     * Checks if the active stage has advanced issues
+     * @param stageIssues {Object} an object of lists of issues per stage
+     * @param selectedInstanceName {String} the selected stage
+     * @param commonErrors {Object} the global error object
+     * @param configDefinitions {Object} configuration definitions for the stage
+     */
+    var stageHasAdvancedIssues = function(stageIssues, selectedInstanceName, commonErrors, configDefinitions) {
+      if (selectedInstanceName) {
+        var issues = [];
+        if (stageIssues && stageIssues[selectedInstanceName]) {
+          issues = stageIssues[selectedInstanceName];
+        }
+        var errorIssues = [];
+        var validationIssues = [];
+        if (commonErrors && commonErrors.length && commonErrors[0].stageIssues) {
+          errorIssues = commonErrors[0].stageIssues;
+          if (errorIssues && errorIssues[selectedInstanceName]) {
+            validationIssues = errorIssues[selectedInstanceName];
+          }
+        }
+        var allIssues = issues.concat(validationIssues);
+        return hasAdvancedConfigurationIssues(
+          allIssues,
+          configDefinitions
+        );
+      }
+    };
+
+    /**
+     * Checks if configuration has any advanced issues.
+     *
+     * @param {Object} issues - a list of issues for a single stage
+     * @param {Object} configDefinitions - a list of configuration defintions
+     * @returns {Boolean} - Returns true if any issue is for an advanced configuration
+     */
+    var hasAdvancedConfigurationIssues = function(issues, configDefinitions) {
+      var advancedDefinitionNames = configDefinitions
+        .filter(function(config) {return config.displayMode === $scope.pipelineConstant.DISPLAY_MODE_ADVANCED;})
+        .map(function(config) {return config.name;});
+      var issueConfigNames = issues.map(function(issue) {return issue.configName;});
+      return issueConfigNames.some(function(issueName) {return advancedDefinitionNames.includes(issueName);});
     };
 
     // Event Handling
@@ -2122,6 +2330,33 @@ angular
       }
     }, true);
 
+    // Force advanced issues to be shown if there are errors
+    $scope.$watchGroup(
+      ['pipelineConfig.issues.stageIssues', 'selectedObject', 'common.errors'],
+      function(newValues, _oldValues, scope) {
+        var stageIssues = newValues[0];
+        var selectedObject = newValues[1];
+        var commonErrors = newValues[2];
+        if (
+          selectedObject &&
+          selectedObject.stageName &&
+          selectedObject.instanceName &&
+          scope.detailPaneConfigDefn &&
+          stageHasAdvancedIssues(
+            stageIssues,
+            selectedObject.instanceName,
+            commonErrors,
+            scope.detailPaneConfigDefn.configDefinitions
+          )
+        ) {
+          scope.configHasAdvancedIssues = true;
+          scope.detailPaneConfig.uiInfo.displayMode = pipelineConstant.DISPLAY_MODE_ADVANCED;
+        } else {
+          scope.configHasAdvancedIssues = false;
+        }
+      }
+    );
+
     $scope.$on('onNodeSelection', function (event, options) {
       updateDetailPane(options);
     });
@@ -2181,13 +2416,14 @@ angular
 
     infoNameWatchListener = $scope.$watch('pipelineConfig.info.pipelineId', function() {
       $scope.isPipelineRunning = derivePipelineRunning();
-      $scope.activeConfigStatus = $rootScope.common.pipelineStatusMap[routeParamPipelineName];
-      if ($scope.activeConfigStatus && $scope.activeConfigStatus.attributes &&
-        $scope.activeConfigStatus.attributes.IS_REMOTE_PIPELINE === true) {
-        $scope.isRemotePipeline = true;
-        $scope.isPipelineReadOnly = true;
+      if ($rootScope.common.pipelineStatusMap[routeParamPipelineName]) {
+        $scope.activeConfigStatus = $rootScope.common.pipelineStatusMap[routeParamPipelineName];
+        if ($scope.activeConfigStatus && $scope.activeConfigStatus.attributes &&
+          $scope.activeConfigStatus.attributes.IS_REMOTE_PIPELINE === true) {
+          $scope.isRemotePipeline = true;
+          $scope.isPipelineReadOnly = true;
+        }
       }
-
     });
 
     pipelineStatusWatchListener = $rootScope.$watch('common.pipelineStatusMap["' + routeParamPipelineName + '"]',
@@ -2197,19 +2433,34 @@ angular
         $scope.isPipelineRunning = derivePipelineRunning();
         $scope.activeConfigStatus = $rootScope.common.pipelineStatusMap[routeParamPipelineName] || {};
 
+        // clear current running stage
+        $scope.$broadcast('updateRunningStage', null);
+
         if (oldActiveConfigStatus.timeStamp && oldActiveConfigStatus.timeStamp !== $scope.activeConfigStatus.timeStamp &&
-          _.contains(['START_ERROR', 'STARTING_ERROR','RUNNING_ERROR', 'RUN_ERROR', 'CONNECT_ERROR', 'STOP_ERROR', 'STOPPING_ERROR'], $scope.activeConfigStatus.status)
+          isErrorStatus($scope.activeConfigStatus.status)
         ) {
 
           var status = $scope.activeConfigStatus;
 
           if (status.attributes && status.attributes.issues) {
             $rootScope.common.errors = [status.attributes.issues];
+          } else if(status.attributes["ERROR_MESSAGE"]) {
+            $rootScope.common.errors = [{
+              RemoteException: {
+                antennaDoctorMessages: status.attributes['ANTENNA_DOCTOR_MESSAGES'],
+                localizedMessage: 'Pipeline Status: ' + $scope.activeConfigStatus.status + ': ' + status.attributes['ERROR_MESSAGE'],
+                stackTrace: status.attributes['ERROR_STACKTRACE']
+              }
+            }];
           } else {
             $rootScope.common.errors = ['Pipeline Status: ' + $scope.activeConfigStatus.status + ': ' +
             $scope.activeConfigStatus.message];
           }
 
+          // Track if this error status is new
+          if (!isErrorStatus(oldActiveConfigStatus.status)) {
+            pipelineTracking.pipelineError(status, oldActiveConfigStatus, $scope.pipelineConfig);
+          }
         }
 
         if ($scope.activeConfigStatus.status === 'RETRY') {
@@ -2222,13 +2473,22 @@ angular
           $scope.isPipelineReadOnly = true;
         }
 
+        if ($scope.activeConfigStatus.status === 'STOPPED' && oldActiveConfigStatus.status === 'STOPPING') {
+          pipelineTracking.trackPipelineStop(
+            $scope.pipelineConfig,
+            $rootScope.common.pipelineMetrics
+          );
+        }
+
       });
 
+    var updatedRunningStageStatus = false;
     metricsWatchListener = $rootScope.$watch('common.pipelineMetrics', function() {
-      var pipelineStatus = $rootScope.common.pipelineStatusMap[routeParamPipelineName],
-        config = $scope.pipelineConfig;
+      var pipelineStatus = $rootScope.common.pipelineStatusMap[routeParamPipelineName];
+      var config = $scope.pipelineConfig;
+      var pipelineMetrics  = $rootScope.common.pipelineMetrics;
       if (pipelineStatus && config && pipelineStatus.pipelineId === config.info.pipelineId &&
-        $scope.isPipelineRunning && $rootScope.common.pipelineMetrics) {
+        $scope.isPipelineRunning && pipelineMetrics) {
 
         if (!$scope.snapshotMode) {
           $scope.$broadcast('updateErrorCount', getStageErrorCounts());
@@ -2237,12 +2497,27 @@ angular
         $scope.triggeredAlerts = pipelineService.getTriggeredAlerts(
           routeParamPipelineName,
           $scope.pipelineRules,
-          $rootScope.common.pipelineMetrics
+          pipelineMetrics
         );
+
+        if (pipelineMetrics.gauges && pipelineMetrics.gauges['RuntimeStatsGauge.gauge'] &&
+          pipelineMetrics.gauges['RuntimeStatsGauge.gauge'].value) {
+          $scope.$broadcast(
+            'updateRunningStage',
+            pipelineMetrics.gauges['RuntimeStatsGauge.gauge'].value.currentStages
+          );
+          updatedRunningStageStatus = true;
+        } else {
+          $scope.$broadcast('updateRunningStage', null);
+        }
 
         $scope.$broadcast('updateEdgePreviewIconColor', $scope.pipelineRules, $scope.triggeredAlerts);
       } else {
         $scope.triggeredAlerts = [];
+        if (updatedRunningStageStatus) {
+          $scope.$broadcast('updateRunningStage', null);
+          updatedRunningStageStatus = false;
+        }
       }
     });
 

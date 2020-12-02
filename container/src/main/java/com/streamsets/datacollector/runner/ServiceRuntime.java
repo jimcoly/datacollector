@@ -31,8 +31,11 @@ import com.streamsets.pipeline.api.service.dataformats.DataFormatParserService;
 import com.streamsets.pipeline.api.service.dataformats.DataGenerator;
 import com.streamsets.pipeline.api.service.dataformats.DataParser;
 import com.streamsets.pipeline.api.service.dataformats.DataParserException;
+import com.streamsets.pipeline.api.service.dataformats.SdcRecordGeneratorService;
 import com.streamsets.pipeline.api.service.dataformats.WholeFileChecksumAlgorithm;
 import com.streamsets.pipeline.api.service.dataformats.WholeFileExistsAction;
+import com.streamsets.pipeline.api.service.dataformats.log.LogParserService;
+import com.streamsets.pipeline.api.service.sshtunnel.SshTunnelService;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,16 +47,19 @@ import java.util.Set;
 
 /**
  * This is general wrapper on top of Service implementation. This actual instance will be returned when Stage calls
- * getContext().getService(Class) and hence it needs to implement all supported services. We return this wrapping
+ * getContext().getServiceClass(Class) and hence it needs to implement all supported services. We return this wrapping
  * object rather then Service instance itself because we need to wrap each method execution to change active class
  * loader and execute the code in privileged mode to apply the proper permissions.
  */
-public class ServiceRuntime implements DataFormatGeneratorService, DataFormatParserService {
+public class ServiceRuntime implements DataFormatGeneratorService, DataFormatParserService, LogParserService, SdcRecordGeneratorService, SshTunnelService {
 
   // Static list with all supported services
   private static Set<Class> SUPPORTED_SERVICES = ImmutableSet.of(
     DataFormatGeneratorService.class,
-    DataFormatParserService.class
+    DataFormatParserService.class,
+    SdcRecordGeneratorService.class,
+    LogParserService.class,
+    SshTunnelService.class
   );
 
   /**
@@ -100,14 +106,22 @@ public class ServiceRuntime implements DataFormatGeneratorService, DataFormatPar
     );
   }
 
-  @Override // From DataFormatGeneratorService
+  @Override // From DataFormatGeneratorService, SdcRecordGeneratorService
   public DataGenerator getGenerator(OutputStream os) throws IOException {
     ClassLoader cl = serviceBean.getDefinition().getStageClassLoader();
 
     return LambdaUtil.privilegedWithClassLoader(
       cl,
       IOException.class,
-      () -> new DataGeneratorServiceWrapper(cl, ((DataFormatGeneratorService)serviceBean.getService()).getGenerator(os))
+      () -> {
+        if(serviceBean.getService() instanceof DataFormatGeneratorService) {
+          return new DataGeneratorServiceWrapper(cl, ((DataFormatGeneratorService)serviceBean.getService()).getGenerator(os));
+        } else if(serviceBean.getService() instanceof  SdcRecordGeneratorService) {
+          return new DataGeneratorServiceWrapper(cl, ((SdcRecordGeneratorService)serviceBean.getService()).getGenerator(os));
+        } else {
+          throw new IllegalStateException("Called on wrong service: " + serviceBean.getService().getClass().getCanonicalName());
+        }
+      }
     );
   }
 
@@ -136,6 +150,7 @@ public class ServiceRuntime implements DataFormatGeneratorService, DataFormatPar
   }
 
   @Override // From DataFormatParserService
+  @Deprecated
   public void setStringBuilderPoolSize(int poolSize) {
     LambdaUtil.privilegedWithClassLoader(
       serviceBean.getDefinition().getStageClassLoader(),
@@ -144,6 +159,7 @@ public class ServiceRuntime implements DataFormatGeneratorService, DataFormatPar
   }
 
   @Override // From DataFormatParserService
+  @Deprecated
   public int getStringBuilderPoolSize() {
     return LambdaUtil.privilegedWithClassLoader(
         serviceBean.getDefinition().getStageClassLoader(),
@@ -254,6 +270,58 @@ public class ServiceRuntime implements DataFormatGeneratorService, DataFormatPar
       cl,
       DataParserException.class,
       () -> new DataParserServiceWrapper(cl, ((DataFormatParserService)serviceBean.getService()).getParser(id, metadata, fileRef))
+    );
+  }
+
+  @Override
+  public DataParser getLogParser(String id, Reader reader, long offset) throws DataParserException {
+    ClassLoader cl = serviceBean.getDefinition().getStageClassLoader();
+
+    return LambdaUtil.privilegedWithClassLoader(
+        cl,
+        DataParserException.class,
+        () -> new DataParserServiceWrapper(
+            cl,
+            ((LogParserService) serviceBean.getService()).getLogParser(id, reader, offset)
+        )
+    );
+  }
+
+  @Override // From SshTunnelService
+  public boolean isEnabled() {
+      return LambdaUtil.privilegedWithClassLoader(
+          serviceBean.getDefinition().getStageClassLoader(),
+          () -> ((SshTunnelService)serviceBean.getService()).isEnabled()
+      );
+  }
+
+  @Override // From SshTunnelService
+  public Map<HostPort, HostPort>  start(List<HostPort> targetHostsPorts) {
+    return LambdaUtil.privilegedWithClassLoader(
+        serviceBean.getDefinition().getStageClassLoader(),
+        () -> ((SshTunnelService)serviceBean.getService()).start(targetHostsPorts)
+    );
+  }
+
+  @Override // From SshTunnelService
+  public void healthCheck() {
+    LambdaUtil.privilegedWithClassLoader(
+        serviceBean.getDefinition().getStageClassLoader(),
+        () -> {
+          ((SshTunnelService) serviceBean.getService()).healthCheck();
+          return null;
+        }
+    );
+  }
+
+  @Override // From SshTunnelService
+  public void stop() {
+    LambdaUtil.privilegedWithClassLoader(
+        serviceBean.getDefinition().getStageClassLoader(),
+        () -> {
+          ((SshTunnelService) serviceBean.getService()).stop();
+          return null;
+        }
     );
   }
 }

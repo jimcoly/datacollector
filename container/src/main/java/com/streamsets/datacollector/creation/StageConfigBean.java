@@ -43,6 +43,7 @@ public class StageConfigBean {
       label = "当记录发生错误时",
       description = "当记录发生错误时的操作",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = ""
   )
   @ValueChooserModel(OnRecordErrorChooserValues.class)
@@ -56,6 +57,7 @@ public class StageConfigBean {
       label = "必需的字段",
       description = "记录中如果未包含这些字段，将会被当作错误记录",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = ""
   )
   @FieldSelectorModel
@@ -65,10 +67,11 @@ public class StageConfigBean {
   @ConfigDef(
       required = false,
       type = ConfigDef.Type.LIST,
-      defaultValue="",
-      label = "先决条件",
-      description = "记录如果不满足该条件，将会被当作错误记录",
+      defaultValue="[]",
+      label = "Preconditions",
+      description = "Records that don't satisfy all the preconditions are sent to error",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "",
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       elDefs = { RecordEL.class, RuntimeEL.class }

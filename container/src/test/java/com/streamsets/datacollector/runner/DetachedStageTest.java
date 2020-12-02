@@ -20,10 +20,12 @@ import com.streamsets.datacollector.config.DetachedStageConfiguration;
 import com.streamsets.datacollector.config.StageConfiguration;
 import com.streamsets.datacollector.email.EmailSender;
 import com.streamsets.datacollector.lineage.LineagePublisherDelegator;
+import com.streamsets.datacollector.main.ProductBuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.datacollector.validation.Issue;
+import com.streamsets.pipeline.BootstrapMain;
 import com.streamsets.pipeline.api.DeliveryGuarantee;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.Processor;
@@ -56,9 +58,9 @@ public class DetachedStageTest {
       "rev",
       Mockito.mock(UserContext.class),
       Mockito.mock(MetricRegistry.class),
-      0,
       ExecutionMode.STANDALONE,
       DeliveryGuarantee.AT_LEAST_ONCE,
+      ProductBuildInfo.getDefault(),
       Mockito.mock(RuntimeInfo.class),
       Mockito.mock(EmailSender.class),
       Mockito.mock(Configuration.class),
@@ -89,9 +91,9 @@ public class DetachedStageTest {
       "rev",
       Mockito.mock(UserContext.class),
       Mockito.mock(MetricRegistry.class),
-      0,
       ExecutionMode.STANDALONE,
       DeliveryGuarantee.AT_LEAST_ONCE,
+      ProductBuildInfo.getDefault(),
       Mockito.mock(RuntimeInfo.class),
       Mockito.mock(EmailSender.class),
       Mockito.mock(Configuration.class),

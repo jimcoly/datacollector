@@ -17,6 +17,7 @@ package com.streamsets.pipeline.stage.origin.hdfs;
 
 import com.google.common.base.Strings;
 import com.streamsets.pipeline.api.PushSource;
+import com.streamsets.pipeline.api.Source;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.lib.dirspooler.Offset;
 import com.streamsets.pipeline.lib.dirspooler.SpoolDirBaseSource;
@@ -24,7 +25,10 @@ import com.streamsets.pipeline.lib.dirspooler.SpoolDirConfigBean;
 import com.streamsets.pipeline.lib.dirspooler.SpoolDirUtil;
 import com.streamsets.pipeline.lib.dirspooler.WrappedFileSystem;
 import com.streamsets.pipeline.stage.origin.hdfs.spooler.HdfsFileSystem;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -33,10 +37,13 @@ import java.util.Map;
 import java.util.Set;
 
 public class HdfsSource extends SpoolDirBaseSource {
+
+  private static final Logger LOG = LoggerFactory.getLogger(HdfsSource.class);
+
   public static final String OFFSET_VERSION =
       "$com.streamsets.pipeline.stage.origin.hdfs.HdfsSource.offset.version$";
 
-  private final HdfsSourceConfigBean hdfsSourceConfigBean;
+  protected final HdfsSourceConfigBean hdfsSourceConfigBean;
 
   public HdfsSource(SpoolDirConfigBean conf, HdfsSourceConfigBean hdfsSourceConfigBean) {
     this.conf = conf;
@@ -64,13 +71,13 @@ public class HdfsSource extends SpoolDirBaseSource {
     Map<String, Offset> offsetMap = new HashMap<>();
 
     if (lastSourceOffset != null && lastSourceOffset.size() > 0) {
-      String version = lastSourceOffset.get(OFFSET_VERSION);
+      String version = lastSourceOffset.get(OFFSET_VERSION) == null ? Offset.VERSION_ONE : lastSourceOffset.get(OFFSET_VERSION);
       Set<String> key = lastSourceOffset.keySet();
       Iterator iterator = key.iterator();
 
       while (iterator.hasNext()) {
         String keyString = (String) iterator.next();
-        if (Strings.isNullOrEmpty(keyString) || keyString.equals(OFFSET_VERSION)) {
+        if (Strings.isNullOrEmpty(keyString) || keyString.equals(OFFSET_VERSION) || keyString.equals(Source.POLL_SOURCE_OFFSET_KEY)) {
           continue;
         }
 
@@ -82,12 +89,22 @@ public class HdfsSource extends SpoolDirBaseSource {
         if (lastSourceFileName != null) {
           if (useLastModified) {
             // return the newest file in the offset
-            if (SpoolDirUtil.compareFiles(
-                fs,
-                fs.getFile(spooler.getSpoolDir(), lastSourceFileName),
-                fs.getFile(spooler.getSpoolDir(), offset.getFile())
-            )) {
-              lastSourceFileName = offset.getFile();
+            try {
+              if (SpoolDirUtil.compareFiles(
+                  fs,
+                  SpoolDirUtil.getFileFromOffsetFile(fs, spooler.getSpoolDir(), lastSourceFileName),
+                  SpoolDirUtil.getFileFromOffsetFile(fs, spooler.getSpoolDir(), offset.getFile())
+              )) {
+                lastSourceFileName = offset.getFile();
+              }
+            } catch (IOException ex) {
+              LOG.debug(
+                  "Error when checking offsets. Discarding errored file. Last Source File Name: '{}. offset file " +
+                      "being compared: '{}'",
+                  lastSourceFileName,
+                  offset.getFile(),
+                  ex
+              );
             }
           } else {
             if (offset.getFile().compareTo(lastSourceFileName) < 0) {

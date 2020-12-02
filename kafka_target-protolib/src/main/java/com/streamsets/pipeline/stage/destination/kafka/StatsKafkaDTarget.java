@@ -27,11 +27,12 @@ import com.streamsets.pipeline.config.DataFormat;
 import com.streamsets.pipeline.stage.destination.lib.ToOriginResponseConfig;
 
 @StageDef(
-    version = 4,
+    version = 6,
     label = "Write to Kafka",
     description = "Writes Pipeline Statistic records to Kafka",
     onlineHelpRefUrl = "",
-    upgrader = KafkaTargetUpgrader.class)
+    upgrader = KafkaTargetUpgrader.class,
+    upgraderDef = "upgrader/StatsKafkaDTarget.yaml")
 @HideConfigs(
     preconditions = true,
     onErrorRecord = true,

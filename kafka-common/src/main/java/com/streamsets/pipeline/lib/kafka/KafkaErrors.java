@@ -29,6 +29,9 @@ public enum KafkaErrors implements ErrorCode {
   KAFKA_09("Invalid Zookeeper connect string '{}' : {}"),
   KAFKA_10("Cannot validate configuration: {}"),
   KAFKA_11("Cannot retrieve metadata for topic '{}' from broker '{}': {}"),
+  KAFKA_12("Dynamic Kerberos authentication is only supported in versions >= 0.11"),
+  KAFKA_13("Unable to store keytab file in disk: {}"),
+  KAFKA_14("Security properties should be specified in the Security tab, not in the Kafka properties"),
 
   //Kafka source messages
   KAFKA_21("Cannot find a new leader after a Kafka broker failure"),
@@ -52,10 +55,13 @@ public enum KafkaErrors implements ErrorCode {
   KAFKA_43("Schema Registry URLs must be configured to use Confluent Deserializer"),
   KAFKA_44("Confluent Avro Deserializer not supported by this version of Kafka."),
   KAFKA_74("Message payload cannot be null"),
+  KAFKA_78("Batch size greater than maximal batch size allowed in sdc.properties, maxBatchSize: {}"),
 
   //Kafka target messages
   KAFKA_50("Error writing data to the Kafka broker: {}"),
   KAFKA_51("Error serializing record '{}': {}"),
+  KAFKA_52("Error evaluating the message key expression '{}' for record '{}': {}"),
+  KAFKA_53("Invalid message key expression '{}': {}"),
   KAFKA_54("Error evaluating the partition expression '{}' for record '{}': {}"),
   KAFKA_55("Error converting the partition expression '{}' to a partition ID for topic '{}': {}"),
   KAFKA_56("Partition expression generated an invalid partition ID '{}'. Topic '{}' has {} partitions. Record '{}'."),
@@ -77,7 +83,11 @@ public enum KafkaErrors implements ErrorCode {
   KAFKA_72("Subject or Schema ID must be defined to use Confluent Serializer"),
   KAFKA_73("Confluent Avro Serializer not supported by this version of Kafka."),
   KAFKA_75("Inherited timestamps from Kafka are enabled but not supported in this Kafka version."),
-  KAFKA_76("Auto Offset Reset = 'Timestamp' can only be used for Kafka version >= 0.10.1.0")
+  KAFKA_76("Auto Offset Reset = 'Timestamp' can only be used for Kafka version >= 0.10.1.0"),
+  KAFKA_77("Invalid key serializer '{}' used for the Avro message key format"),
+
+  KAFKA_201("Error handling message key for partition {}, offset {}: {}"),
+  KAFKA_202("{} when serializing message key to bytes: {}"),
   ;
 
   private final String msg;

@@ -25,12 +25,13 @@ import com.streamsets.pipeline.api.StageDef;
 @StageDef(
     // We're reusing upgrader for both ToErrorElasticSearchDTarget and ElasticsearchDTargetUpgrader, make sure that you
     // upgrade both versions at the same time when changing.
-    version = 10,
+    version = 11,
     label = "Write to Elasticsearch",
     description = "",
     icon = "",
     onlineHelpRefUrl ="index.html?contextID=task_uns_gtv_4r",
-    upgrader = ElasticsearchDTargetUpgrader.class
+    upgrader = ElasticsearchDTargetUpgrader.class,
+    upgraderDef = "upgrader/ToErrorElasticSearchDTarget.yaml"
 )
 @HideConfigs(
     preconditions = true,

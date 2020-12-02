@@ -69,10 +69,20 @@ public enum CreationError implements ErrorCode {
   CREATION_070("Invalid execution mode '{}'"),
   CREATION_071("Execution mode not set"),
 
+  CREATION_072("Stage library {} is a legacy library and must be installed separately"),
+
   CREATION_080("Configuration value is required for Webhook URL"),
 
   // Detached stage support
   CREATION_0900("Can't parse stage definition: {}"),
+
+  // Cluster Type support
+  CREATION_1000("Invalid cluster manager type '{}'"),
+
+  CREATION_1102("Retrieved connection type is '{}' which does not match the connection type from the stage configuration ('{}')"),
+  CREATION_1104("There was a problem retrieving the connection: {}"),
+  CREATION_1105("This pipeline is using connections, which requires that Control Hub is enabled"),
+  CREATION_1106("Could not determine Connection ID: {}"),
   ;
 
   private final String msg;

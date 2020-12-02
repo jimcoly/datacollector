@@ -24,6 +24,7 @@ import com.streamsets.pipeline.api.lineage.LineageEventType;
 import com.streamsets.pipeline.api.lineage.LineageSpecificAttribute;
 import com.streamsets.pipeline.kafka.api.MessageAndOffset;
 import com.streamsets.pipeline.kafka.api.MessageAndOffsetWithTimestamp;
+import com.streamsets.pipeline.lib.kafka.KafkaErrors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,6 +32,8 @@ import java.util.List;
 
 public class StandaloneKafkaSource extends BaseKafkaSource {
   private static final Logger LOG = LoggerFactory.getLogger(StandaloneKafkaSource.class);
+
+  private boolean checkBatchSize = true;
 
   public StandaloneKafkaSource(KafkaConfigBean conf) {
     super(conf);
@@ -51,11 +54,13 @@ public class StandaloneKafkaSource extends BaseKafkaSource {
         issues.add(getContext().createConfigIssue(null, null, ex.getErrorCode(), ex.getParams()));
       }
     }
-    LineageEvent event = getContext().createLineageEvent(LineageEventType.ENTITY_READ);
-    event.setSpecificAttribute(LineageSpecificAttribute.ENDPOINT_TYPE, EndPointType.KAFKA.name());
-    event.setSpecificAttribute(LineageSpecificAttribute.ENTITY_NAME, conf.topic);
-    event.setSpecificAttribute(LineageSpecificAttribute.DESCRIPTION, conf.consumerGroup);
-    getContext().publishLineageEvent(event);
+    if(issues.isEmpty()) {
+      LineageEvent event = getContext().createLineageEvent(LineageEventType.ENTITY_READ);
+      event.setSpecificAttribute(LineageSpecificAttribute.ENDPOINT_TYPE, EndPointType.KAFKA.name());
+      event.setSpecificAttribute(LineageSpecificAttribute.ENTITY_NAME, conf.topic);
+      event.setSpecificAttribute(LineageSpecificAttribute.DESCRIPTION, conf.consumerGroup);
+      getContext().publishLineageEvent(event);
+    }
 
     return issues;
   }
@@ -68,6 +73,11 @@ public class StandaloneKafkaSource extends BaseKafkaSource {
   public String produce(String lastSourceOffset, int maxBatchSize, BatchMaker batchMaker) throws StageException {
     int recordCounter = 0;
     int batchSize = conf.maxBatchSize > maxBatchSize ? maxBatchSize : conf.maxBatchSize;
+    if (!getContext().isPreview() && checkBatchSize && conf.maxBatchSize > maxBatchSize) {
+      getContext().reportError(KafkaErrors.KAFKA_78, maxBatchSize);
+      checkBatchSize = false;
+    }
+
     long startTime = System.currentTimeMillis();
     while (recordCounter < batchSize && (startTime + conf.maxWaitTime) > System.currentTimeMillis()) {
       MessageAndOffset message = kafkaConsumer.read();
@@ -75,7 +85,9 @@ public class StandaloneKafkaSource extends BaseKafkaSource {
         String messageId = getMessageID(message);
         List<Record> records;
         if (conf.timestampsEnabled && message instanceof MessageAndOffsetWithTimestamp){
-          records = processKafkaMessageDefault(String.valueOf(message.getPartition()),
+          records = processKafkaMessageDefault(
+              message.getMessageKey(),
+              String.valueOf(message.getPartition()),
               message.getOffset(),
               messageId,
               (byte[]) message.getPayload(),
@@ -83,7 +95,9 @@ public class StandaloneKafkaSource extends BaseKafkaSource {
               ((MessageAndOffsetWithTimestamp) message).getTimestampType()
           );
         }else{
-          records = processKafkaMessageDefault(String.valueOf(message.getPartition()),
+          records = processKafkaMessageDefault(
+              message.getMessageKey(),
+              String.valueOf(message.getPartition()),
               message.getOffset(),
               messageId,
               (byte[]) message.getPayload()

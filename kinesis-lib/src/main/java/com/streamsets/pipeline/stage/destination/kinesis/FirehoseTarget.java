@@ -15,25 +15,31 @@
  */
 package com.streamsets.pipeline.stage.destination.kinesis;
 
+import com.amazonaws.AmazonServiceException;
 import com.amazonaws.client.builder.AwsClientBuilder;
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.kinesisfirehose.AmazonKinesisFirehose;
 import com.amazonaws.services.kinesisfirehose.AmazonKinesisFirehoseClientBuilder;
+import com.amazonaws.services.kinesisfirehose.model.DeliveryStreamStatus;
+import com.amazonaws.services.kinesisfirehose.model.DescribeDeliveryStreamRequest;
+import com.amazonaws.services.kinesisfirehose.model.DescribeDeliveryStreamResult;
 import com.amazonaws.services.kinesisfirehose.model.PutRecordBatchRequest;
 import com.amazonaws.services.kinesisfirehose.model.PutRecordBatchResponseEntry;
 import com.amazonaws.services.kinesisfirehose.model.PutRecordBatchResult;
+import com.amazonaws.services.kinesisfirehose.model.ResourceNotFoundException;
 import com.streamsets.pipeline.api.Batch;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.base.BaseTarget;
 import com.streamsets.pipeline.api.base.OnRecordErrorException;
-import com.streamsets.pipeline.api.impl.Utils;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
 import com.streamsets.pipeline.lib.generator.DataGenerator;
 import com.streamsets.pipeline.lib.generator.DataGeneratorFactory;
 import com.streamsets.pipeline.stage.common.DefaultErrorRecordHandler;
 import com.streamsets.pipeline.stage.common.ErrorRecordHandler;
-import com.streamsets.pipeline.stage.lib.aws.AWSUtil;
+import com.streamsets.pipeline.stage.lib.aws.AWSKinesisUtil;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
 import com.streamsets.pipeline.stage.lib.kinesis.Errors;
+import com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,12 +49,19 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.KB;
+import static com.streamsets.pipeline.stage.lib.kinesis.KinesisUtil.KINESIS_CONFIG_BEAN;
 
 public class FirehoseTarget extends BaseTarget {
   private static final Logger LOG = LoggerFactory.getLogger(FirehoseTarget.class);
   private static final int MAX_RECORDS_PER_REQUEST = 500;
+
+  private static final Pattern REGION_PATTERN = Pattern.compile(
+      "(?:https?://)?[\\w-]*\\.?firehose\\.([\\w-]+)(?:\\.vpce)?\\.amazonaws\\.com"
+  );
 
   private final FirehoseConfigBean conf;
 
@@ -76,28 +89,62 @@ public class FirehoseTarget extends BaseTarget {
     }
 
     generatorFactory = conf.dataFormatConfig.getDataGeneratorFactory();
+    Regions region = Regions.DEFAULT_REGION;
     try {
-      AmazonKinesisFirehoseClientBuilder builder = AmazonKinesisFirehoseClientBuilder
-        .standard()
-        .withCredentials(AWSUtil.getCredentialsProvider(conf.awsConfig));
+      AmazonKinesisFirehoseClientBuilder builder = AmazonKinesisFirehoseClientBuilder.standard();
 
-      if (conf.region == AwsRegion.OTHER) {
-        builder.withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(conf.endpoint, null));
+      if (conf.connection.region == AwsRegion.OTHER) {
+        Matcher matcher = REGION_PATTERN.matcher(conf.connection.endpoint);
+        if (matcher.find()) {
+          AwsClientBuilder.EndpointConfiguration endpoint = new AwsClientBuilder.EndpointConfiguration(conf.connection.endpoint.substring(
+              matcher.start(),
+              matcher.end()
+          ), matcher.group(1));
+          builder.withEndpointConfiguration(endpoint);
+        } else {
+          issues.add(getContext().createConfigIssue(Groups.KINESIS.name(),
+              KinesisUtil.KINESIS_CONFIG_BEAN_CONNECTION + ".endpoint",
+              Errors.KINESIS_19
+          ));
+        }
       } else {
-        builder.withRegion(conf.region.getId());
+        region = Regions.fromName(conf.connection.region.getId().toLowerCase());
+        builder.withRegion(region);
       }
 
-      firehoseClient = builder.build();
-    } catch (StageException ex) {
-      LOG.error(Utils.format(Errors.KINESIS_12.getMessage(), ex.toString()), ex);
+      firehoseClient = builder.withCredentials(AWSKinesisUtil.getCredentialsProvider(conf.connection.awsConfig,
+          getContext(),
+          region
+      )).build();
+
+      DescribeDeliveryStreamResult describeResult =
+          firehoseClient.describeDeliveryStream(new DescribeDeliveryStreamRequest()
+          .withDeliveryStreamName(conf.streamName));
+      String streamStatus = describeResult.getDeliveryStreamDescription().getDeliveryStreamStatus();
+      if (!DeliveryStreamStatus.ACTIVE.name().equals(streamStatus)) {
+        issues.add(getContext().createConfigIssue(
+            Groups.KINESIS.name(),
+            KINESIS_CONFIG_BEAN + ".streamName",
+            Errors.KINESIS_20,
+            conf.streamName
+        ));
+      }
+    } catch (ResourceNotFoundException ex) {
       issues.add(getContext().createConfigIssue(
           Groups.KINESIS.name(),
-          "kinesisConfig.awsConfig.awsAccessKeyId",
-          Errors.KINESIS_12,
+          KINESIS_CONFIG_BEAN + ".streamName",
+          Errors.KINESIS_21,
+          conf.streamName,
+          ex.toString()
+      ));
+    } catch (AmazonServiceException ex) {
+      issues.add(getContext().createConfigIssue(
+          Groups.KINESIS.name(),
+          KINESIS_CONFIG_BEAN + ".streamName",
+          Errors.KINESIS_22,
           ex.toString()
       ));
     }
-
     return issues;
   }
 
@@ -143,11 +190,9 @@ public class FirehoseTarget extends BaseTarget {
 
   private void flush(List<com.amazonaws.services.kinesisfirehose.model.Record> records, List<Record> sdcRecords)
       throws StageException {
-
     if (records.isEmpty()) {
       return;
     }
-
     PutRecordBatchRequest batchRequest = new PutRecordBatchRequest()
         .withDeliveryStreamName(conf.streamName)
         .withRecords(records);

@@ -39,7 +39,7 @@ public class DataFactoryBuilder<B extends DataFactoryBuilder, DF extends DataFac
   private int maxDataLen;
   private int overRunLimit = DataFormatConstants.MAX_OVERRUN_LIMIT;
   private String filePatternInArchive = DataFormatConstants.FILE_PATTERN_IN_ARCHIVE;
-  private int stringBuilderPoolSize = DataFormatConstants.STRING_BUILDER_POOL_SIZE;
+  private int stringBuilderPoolSize = DataFormatConstants.DEFAULT_STRING_BUILDER_POOL_SIZE;
 
   public DataFactoryBuilder(ProtoConfigurableEntity.Context context, F format) {
     this.context = Utils.checkNotNull(context, "context");
@@ -55,8 +55,7 @@ public class DataFactoryBuilder<B extends DataFactoryBuilder, DF extends DataFac
 
   public B setMode(Enum mode) {
     Utils.checkNotNull(mode, "mode");
-    Utils.checkArgument(expectedModes.contains(mode.getClass()), Utils.formatL("Format '{}' does not support mode '{}'",
-                                                                               format, mode.getClass()));
+    Utils.checkArgument(expectedModes.contains(mode.getClass()), Utils.formatL("Format '{}' does not support mode '{}'", format, mode.getClass()));
     modes.put(mode.getClass(), mode);
     return (B) this;
   }

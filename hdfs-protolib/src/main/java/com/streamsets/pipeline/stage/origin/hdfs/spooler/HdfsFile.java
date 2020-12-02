@@ -20,12 +20,14 @@ import com.streamsets.pipeline.stage.common.HeaderAttributeConstants;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class HdfsFile implements WrappedFile {
   public static final String PERMISSIONS = "permissions";
@@ -107,24 +109,24 @@ public class HdfsFile implements WrappedFile {
   }
 
   @Override
-  public int hashCode() {
-    return getAbsolutePath().hashCode();
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+    HdfsFile hdfsFile = (HdfsFile) o;
+    return Objects.equals(filePath, hdfsFile.filePath);
   }
 
   @Override
-  public boolean equals(Object o) {
-    if (o == null) {
-      return false;
-    }
+  public int hashCode() {
+    return Objects.hash(filePath);
+  }
 
-    if (o == this) {
-      return true;
-    }
-
-    if (!(o instanceof HdfsFile)) {
-      return false;
-    }
-
-    return getAbsolutePath().equals(new Path(((HdfsFile) o).getAbsolutePath()));
+  @Override
+  public boolean canRead() throws IOException{
+    return fs.getFileStatus(filePath).getPermission().getUserAction().implies(FsAction.READ);
   }
 }

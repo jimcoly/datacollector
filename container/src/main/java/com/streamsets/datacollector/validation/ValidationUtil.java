@@ -16,23 +16,35 @@
 package com.streamsets.datacollector.validation;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.streamsets.datacollector.config.ConfigDefinition;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
+import com.streamsets.datacollector.config.ConnectionDefinition;
+import com.streamsets.datacollector.config.PipelineGroups;
 import com.streamsets.datacollector.config.ServiceConfiguration;
 import com.streamsets.datacollector.config.ServiceDefinition;
+import com.streamsets.datacollector.config.SparkClusterType;
 import com.streamsets.datacollector.config.StageConfiguration;
 import com.streamsets.datacollector.config.StageDefinition;
 import com.streamsets.datacollector.config.UserConfigurable;
+import com.streamsets.datacollector.creation.PipelineBean;
+import com.streamsets.datacollector.creation.PipelineConfigBean;
 import com.streamsets.datacollector.creation.StageConfigBean;
 import com.streamsets.datacollector.definition.ConcreteELDefinitionExtractor;
 import com.streamsets.datacollector.el.ELEvaluator;
 import com.streamsets.datacollector.el.ELVariables;
+import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.record.PathElement;
 import com.streamsets.datacollector.record.RecordImpl;
+import com.streamsets.datacollector.security.SecurityConfiguration;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
+import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.ConfigDef;
+import com.streamsets.pipeline.api.ExecutionMode;
+import com.streamsets.pipeline.api.HideStage;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.StageType;
 import com.streamsets.pipeline.api.el.ELEval;
@@ -43,12 +55,17 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -56,6 +73,15 @@ import java.util.stream.Collectors;
  */
 public class ValidationUtil {
   private static final Logger LOG = LoggerFactory.getLogger(ValidationUtil.class);
+
+  //Have to be kept in sync with hadoop-common
+  //This is to avoid adding a dependency to hadoop-common
+  public static final String IMPERSONATION_ALWAYS_CURRENT_USER = "hadoop.always.impersonate.current.user";
+
+  public static final String ALLOW_KEYTAB_PROPERTY = "kerberos.pipeline.keytab.allowed";
+  public static final boolean ALLOW_KEYTAB_DEFAULT = true;
+
+  private static final Pattern CONTAINS_EXPRESSION_PATTERN = Pattern.compile(".*\\$\\{.*}.*");
 
   /**
    * Resolve stage aliases (e.g. when a stage is renamed).
@@ -129,7 +155,97 @@ public class ValidationUtil {
           stageConf.addConfig(config);
         }
       }
+
+      for(ServiceConfiguration serviceConf : stageConf.getServices()) {
+        addMissingConfigsToService(stageLibrary, stageConf, serviceConf);
+      }
     }
+  }
+
+  /**
+   * Add any missing configs to the connection configuration.
+   */
+  public static void addMissingConfigsToConnection(
+    StageLibraryTask stageLibrary,
+    ConnectionConfiguration connectionConf
+  ) {
+    ConnectionDefinition connDef = stageLibrary.getConnection(connectionConf.getType());
+    if (connDef != null) {
+      for (ConfigDefinition configDef : connDef.getConfigDefinitions()) {
+        String configName = configDef.getName();
+        Config config = connectionConf.getConfig(configName);
+        if (config == null) {
+          Object defaultValue = configDef.getDefaultValue();
+          LOG.warn(
+              "Connection '{}' missing configuration '{}', adding with '{}' as default",
+              connectionConf.getType(),
+              configName,
+              defaultValue
+          );
+          config = new Config(configName, defaultValue);
+          connectionConf.addConfig(config);
+        }
+      }
+    }
+  }
+
+  /**
+   * Add any missing configs to the service configuration.
+   */
+  public static void addMissingConfigsToService(StageLibraryTask stageLibrary, StageConfiguration stageConf, ServiceConfiguration serviceConf) {
+    ServiceDefinition serviceDef = stageLibrary.getServiceDefinition(serviceConf.getService(), false);
+    if (serviceDef != null) {
+      for (ConfigDefinition configDef : serviceDef.getConfigDefinitions()) {
+        String configName = configDef.getName();
+        Config config = serviceConf.getConfig(configName);
+        if (config == null) {
+          Object defaultValue = configDef.getDefaultValue();
+          LOG.warn(
+            "Service {} of stage '{}' missing configuration '{}', adding with '{}' as default",
+            serviceConf.getService().getName(),
+            stageConf.getInstanceName(),
+            configName,
+            defaultValue
+          );
+          config = new Config(configName, defaultValue);
+          serviceConf.addConfig(config);
+        }
+      }
+    }
+  }
+
+  /**
+   * Validate given connection configuration.
+   */
+  public static boolean validateConnectionConfiguration(
+      StageLibraryTask stageLibrary,
+      ConnectionConfiguration connConf,
+      IssueCreator issueCreator,
+      List<Issue> issues
+  ) {
+    boolean valid;
+    ConnectionDefinition connDef = stageLibrary.getConnection(connConf.getType());
+    if (connDef == null) {
+      issues.add(issueCreator.create(
+          ValidationError.VALIDATION_0038,
+          connConf.getType(),
+          connConf.getVersion()
+      ));
+      valid = false;
+    } else {
+      // Validate connection configuration
+      valid = validateComponentConfigs(
+          connConf,
+          connDef.getConfigDefinitions(),
+          connDef.getConfigDefinitionsMap(),
+          Collections.emptySet(),
+          false,
+          Collections.emptyMap(),
+          issueCreator,
+          issues
+      );
+    }
+    return valid;
   }
 
   /**
@@ -152,16 +268,19 @@ public class ValidationUtil {
         false
     );
     if (stageDef == null) {
-      // stage configuration refers to an undefined stage definition
-      issues.add(
-          issueCreator.create(
-              stageConf.getInstanceName(),
-              ValidationError.VALIDATION_0006,
-              stageConf.getLibrary(),
-              stageConf.getStageName(),
-              stageConf.getStageVersion()
-          )
-      );
+      if(stageLibrary.getLegacyStageLibs().contains(stageConf.getLibrary())) {
+        issues.add(issueCreator.create(
+          ValidationError.VALIDATION_0095,
+          stageConf.getLibrary()
+        ));
+      } else {
+        issues.add(issueCreator.create(
+          ValidationError.VALIDATION_0006,
+          stageConf.getLibrary(),
+          stageConf.getStageName(),
+          stageConf.getStageVersion()
+        ));
+      }
       preview = false;
     } else {
       if (shouldBeSource) {
@@ -171,7 +290,7 @@ public class ValidationUtil {
           preview = false;
         }
       } else {
-        if (stageDef.getType() == StageType.SOURCE) {
+        if (!stageLibrary.isMultipleOriginSupported() && stageDef.getType() == StageType.SOURCE) {
           // no stage other than first stage can be a Source
           issues.add(issueCreator.create(stageConf.getInstanceName(), ValidationError.VALIDATION_0004));
           preview = false;
@@ -183,6 +302,7 @@ public class ValidationUtil {
             issueCreator.create(
                 stageConf.getInstanceName(),
                 ValidationError.VALIDATION_0016,
+                stageConf.getInstanceName(),
                 TextUtils.VALID_NAME
             )
         );
@@ -190,7 +310,7 @@ public class ValidationUtil {
       }
 
       // Hidden stages can't appear on the main canvas
-      if(!notOnMainCanvas && !stageDef.getHideStage().isEmpty()) {
+      if (!notOnMainCanvas && !stageDef.getHideStage().isEmpty() && !isConnectionVerifierStage(stageDef)) {
         issues.add(issueCreator.create(stageConf.getInstanceName(), ValidationError.VALIDATION_0037));
         preview = false;
       }
@@ -238,6 +358,25 @@ public class ValidationUtil {
         }
       }
 
+      // Special validation for stage exposed limit of input lanes
+      // -1: Means that framework is fully in control on how many input lanes should be present
+      //  0: Means that the stage supports unlimited number of input lanes
+      // >0: Means that stage needs exactly that amount of lanes which we will validate here
+      // For Pipeline Fragments validate only if contains more than expected lanes
+      if (stageDef.getInputStreams() > 0) {
+        if ((stageDef.getInputStreams() != stageConf.getInputLanes().size() && !isPipelineFragment) ||
+            (stageConf.getInputLanes().size() > stageDef.getInputStreams() && isPipelineFragment)) {
+           issues.add(
+              issueCreator.create(
+                  stageConf.getInstanceName(),
+                  ValidationError.VALIDATION_0094,
+                  stageDef.getInputStreams(),
+                  stageConf.getInputLanes().size()
+              )
+          );
+        }
+      }
+
       // Validate proper input/output lane configuration
       switch (stageDef.getType()) {
         case SOURCE:
@@ -253,7 +392,7 @@ public class ValidationUtil {
             );
             preview = false;
           }
-          if (!stageDef.isVariableOutputStreams()) {
+          if (!notOnMainCanvas && !stageDef.isVariableOutputStreams()) {
             // source stage must match the output stream defined in StageDef
             if (stageDef.getOutputStreams() != stageConf.getOutputLanes().size()) {
               issues.add(
@@ -265,7 +404,7 @@ public class ValidationUtil {
                   )
               );
             }
-          } else if (stageConf.getOutputLanes().isEmpty()) {
+          } else if (!notOnMainCanvas && stageConf.getOutputLanes().isEmpty()) {
             // source stage must have at least one output lane
             issues.add(issueCreator.create(stageConf.getInstanceName(), ValidationError.VALIDATION_0032));
           }
@@ -355,7 +494,7 @@ public class ValidationUtil {
       }
 
       // Validate proper event configuration
-      if(stageConf.getEventLanes().size() > 1) {
+      if(!notOnMainCanvas && stageConf.getEventLanes().size() > 1) {
         issues.add(
           issueCreator.create(
             stageConf.getInstanceName(),
@@ -364,7 +503,7 @@ public class ValidationUtil {
         );
         preview = false;
       }
-      if(!stageDef.isProducingEvents() && stageConf.getEventLanes().size() > 0) {
+      if(!notOnMainCanvas && !stageDef.isProducingEvents() && stageConf.getEventLanes().size() > 0) {
         issues.add(
           issueCreator.create(
             stageConf.getInstanceName(),
@@ -388,7 +527,7 @@ public class ValidationUtil {
 
       // Validate service definitions
       Set<String> expectedServices = stageDef.getServices().stream()
-        .map(service -> service.getService().getName())
+        .map(service -> service.getServiceClass().getName())
         .collect(Collectors.toSet());
       Set<String> configuredServices = stageConf.getServices().stream()
         .map(service -> service.getService().getName())
@@ -706,6 +845,24 @@ public class ValidationUtil {
           preview = false;
         }
         break;
+      case FIELD_SELECTOR:
+        if (!(conf.getValue() instanceof String)) {
+          // stage configuration must be a model
+          issues.add(
+                  issueCreator.create(
+                          confDef.getGroup(),
+                          confDef.getName(),
+                          ValidationError.VALIDATION_0009,
+                          "String")
+          );
+          preview = false;
+        } else {
+          //validate all the field names for proper syntax
+          String fieldPath = (String) conf.getValue();
+          preview &= validatePath(confDef, issueCreator, issues, fieldPath);
+          break;
+        }
+        break;
       case FIELD_SELECTOR_MULTI_VALUE:
         if (!(conf.getValue() instanceof List)) {
           // stage configuration must be a model
@@ -721,18 +878,8 @@ public class ValidationUtil {
           //validate all the field names for proper syntax
           List<String> fieldPaths = (List<String>) conf.getValue();
           for (String fieldPath : fieldPaths) {
-            try {
-              PathElement.parse(fieldPath, true);
-            } catch (IllegalArgumentException e) {
-              issues.add(
-                  issueCreator.create(
-                      confDef.getGroup(),
-                      confDef.getName(),
-                      ValidationError.VALIDATION_0033,
-                      e.toString()
-                  )
-              );
-              preview = false;
+            preview &= validatePath(confDef, issueCreator, issues, fieldPath);
+            if (! preview) {
               break;
             }
           }
@@ -893,14 +1040,35 @@ public class ValidationUtil {
           }
         }
         break;
-      case FIELD_SELECTOR:
-        // fall through
       case MULTI_VALUE_CHOOSER:
         break;
       default:
         throw new RuntimeException("Unknown model type: " + confDef.getModel().getModelType().name());
     }
     return preview;
+  }
+
+  private static boolean validatePath(ConfigDefinition confDef, IssueCreator issueCreator, List<Issue> issues, String fieldPath) {
+    try {
+      if(fieldPath == null) {
+        return false;
+      }
+      if (CONTAINS_EXPRESSION_PATTERN.matcher(fieldPath).matches()) {
+        return true; // don't try and validate expressions statically
+      }
+      PathElement.parse(fieldPath, true);
+    } catch(Exception e) {
+      issues.add(
+              issueCreator.create(
+                      confDef.getGroup(),
+                      confDef.getName(),
+                      ValidationError.VALIDATION_0033,
+                      e.toString()
+              )
+      );
+      return false;
+    }
+    return true;
   }
 
   private static boolean validateComplexConfig(
@@ -933,5 +1101,168 @@ public class ValidationUtil {
   }
 
   private ValidationUtil() {
+  }
+
+  public static void validateClusterConfigs(
+      PipelineBean pipelineBean,
+      Configuration dataCollectorConfiguration,
+      RuntimeInfo runtimeInfo,
+      IssueCreator issueCreator,
+      List<Issue> errors
+  ) {
+    Preconditions.checkNotNull(
+        dataCollectorConfiguration,
+        "dataCollectorConfiguration must be provided to ValidationUtil constructor when validating cluster configs"
+    );
+    Preconditions.checkNotNull(
+        runtimeInfo,
+        "runtimeInfo must be provided to ValidationUtil constructor when validating cluster configs"
+    );
+    final PipelineConfigBean config = pipelineBean.getConfig();
+    final ExecutionMode executionMode = config.executionMode;
+    if (EnumSet.of(ExecutionMode.BATCH, ExecutionMode.STREAMING).contains(executionMode)) {
+      final SparkClusterType clusterType = config.clusterConfig.clusterType;
+      if (clusterType != null) {
+        switch (clusterType) {
+          case YARN:
+            final SecurityConfiguration securityConfiguration = new SecurityConfiguration(
+                runtimeInfo,
+                dataCollectorConfiguration
+            );
+            validateYarnClusterConfigs(
+                dataCollectorConfiguration,
+                securityConfiguration,
+                issueCreator,
+                errors,
+                config,
+                runtimeInfo
+            );
+            break;
+          case STANDALONE_SPARK_CLUSTER:
+            validateStandaloneClusterConfigs(issueCreator, errors, config);
+            break;
+          default:
+            //nothing to validate for now
+            break;
+        }
+      }
+    }
+  }
+
+  private static void validateYarnClusterConfigs(
+      Configuration dataCollectorConfiguration,
+      SecurityConfiguration securityConfig,
+      IssueCreator issueCreator,
+      List<Issue> errors,
+      PipelineConfigBean config,
+      RuntimeInfo runtimeInfo
+  ) {
+    final boolean keytabEnabled = config.clusterConfig.useYarnKerberosKeytab;
+    final boolean keytabAllowed = dataCollectorConfiguration.get(
+        ALLOW_KEYTAB_PROPERTY,
+        ALLOW_KEYTAB_DEFAULT
+    );
+
+    if (keytabEnabled && !keytabAllowed) {
+      errors.add(issueCreator.create(
+          PipelineGroups.CLUSTER.name(),
+          "clusterConfig.useYarnKerberosKeytab",
+          ValidationError.VALIDATION_0401,
+          ALLOW_KEYTAB_PROPERTY,
+          keytabAllowed
+      ));
+    }
+
+    if (keytabEnabled && !runtimeInfo.isEmbedded()) {
+      // only validate the keytab if not in embedded mode (since otherwise, we already validated in the launcher)
+      String keytabPathStr = null;
+      String errorMsgSuffix = null;
+      boolean checkKeytab = true;
+      switch (config.clusterConfig.yarnKerberosKeytabSource) {
+        case PIPELINE:
+          keytabPathStr = config.clusterConfig.yarnKerberosKeytab;
+          // no suffix needed, since the validation error will show up directly next to the UI config
+          errorMsgSuffix = "";
+          break;
+        case PROPERTIES_FILE:
+          keytabPathStr = securityConfig.getKerberosKeytab();
+          errorMsgSuffix = " via the " + SecurityConfiguration.KERBEROS_KEYTAB_KEY + " configuration property";
+          break;
+        case PIPELINE_CREDENTIAL_STORE:
+          keytabPathStr = "";
+          errorMsgSuffix = "";
+          checkKeytab = false;
+      }
+      if (checkKeytab) {
+        if (Strings.isNullOrEmpty(keytabPathStr)) {
+          errors.add(issueCreator.create(
+              PipelineGroups.CLUSTER.name(),
+              "clusterConfig.yarnKerberosKeytab",
+              ValidationError.VALIDATION_0307,
+              errorMsgSuffix
+          ));
+        } else {
+          final Path keytabPath = Paths.get(keytabPathStr);
+          if (!keytabPath.isAbsolute()) {
+            errors.add(issueCreator.create(
+                PipelineGroups.CLUSTER.name(),
+                "clusterConfig.yarnKerberosKeytab",
+                ValidationError.VALIDATION_0302,
+                keytabPath.toString(),
+                errorMsgSuffix
+            ));
+          } else if (!Files.exists(keytabPath)) {
+            errors.add(issueCreator.create(
+                PipelineGroups.CLUSTER.name(),
+                "clusterConfig.yarnKerberosKeytab",
+                ValidationError.VALIDATION_0303,
+                keytabPath.toString(),
+                errorMsgSuffix
+            ));
+          } else if (!Files.isRegularFile(keytabPath)) {
+            errors.add(issueCreator.create(
+                PipelineGroups.CLUSTER.name(),
+                "clusterConfig.yarnKerberosKeytab",
+                ValidationError.VALIDATION_0304,
+                keytabPath.toString(),
+                errorMsgSuffix
+            ));
+          }
+        }
+      }
+    }
+
+    // Kerberos client is disabled via configuration
+    // keytab could still come from properties (we just don't log in from our own code)
+    final boolean alwaysImpersonate = dataCollectorConfiguration.get(
+        IMPERSONATION_ALWAYS_CURRENT_USER,
+        false
+    );
+    if (alwaysImpersonate && StringUtils.isNotBlank(config.clusterConfig.hadoopUserName)) {
+      errors.add(issueCreator.create(
+          PipelineGroups.CLUSTER.name(),
+          "clusterConfig.hadoopUserName",
+          ValidationError.VALIDATION_0305,
+          IMPERSONATION_ALWAYS_CURRENT_USER
+      ));
+    }
+  }
+
+  private static void validateStandaloneClusterConfigs(
+      IssueCreator issueCreator,
+      List<Issue> errors,
+      PipelineConfigBean config
+  ) {
+    if (!config.clusterConfig.sparkMasterUrl.startsWith("spark://")) {
+      errors.add(issueCreator.create(
+          PipelineGroups.CLUSTER.name(),
+          "clusterConfig.sparkMasterUrl",
+          ValidationError.VALIDATION_0306
+      ));
+    }
+  }
+
+  private static boolean isConnectionVerifierStage(StageDefinition stageDef) {
+    return stageDef.getHideStage().contains(HideStage.Type.CONNECTION_VERIFIER);
   }
 }

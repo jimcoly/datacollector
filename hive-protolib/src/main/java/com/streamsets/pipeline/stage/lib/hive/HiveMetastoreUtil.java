@@ -55,12 +55,15 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.UUID;
 
 public final class HiveMetastoreUtil {
@@ -81,6 +84,8 @@ public final class HiveMetastoreUtil {
   //Schema Change Constants
   public static final String COLUMNS_FIELD = "columns";
   public static final String INTERNAL_FIELD = "internal";
+  public static final String CUSTOM_LOCATION = "customLocation";
+  public static final boolean DEFAULT_CUSTOM_LOCATION = true;
 
   //Partition Rolling Constants
   public static final String PARTITION_VALUE = "value";
@@ -96,7 +101,7 @@ public final class HiveMetastoreUtil {
   public static final String VERSION = "version";
   public static final String METADATA_RECORD_TYPE = "type";
   public static final String SCHEMA_CHANGE_METADATA_RECORD_VERSION = "2";
-  public static final String PARTITION_ADDITION_METADATA_RECORD_VERSION = "2";
+  public static final String PARTITION_ADDITION_METADATA_RECORD_VERSION = "3";
 
   public static final String HIVE_OBJECT_ESCAPE =  "`";
   public static final String COLUMN_TYPE = HIVE_OBJECT_ESCAPE + "%s" + HIVE_OBJECT_ESCAPE + " %s COMMENT \"%s\"";
@@ -457,6 +462,29 @@ public final class HiveMetastoreUtil {
   }
 
   /**
+   * Get the customLocation flag from the metadata record. This flag marks whether or not the Hive database object
+   * is stored into a custom path on the Hadoop filesystem. In both cases, the path is stored in the 'location'
+   * field of the metadata record.
+   *
+   * The customLocation flag is included in partition metadata records with version > 2. For previous versions this
+   * function returns {@code DEFAULT_CUSTOM_LOCATION} to keep the previous behavior.
+   *
+   * @param metadataRecord the metadata record.
+   * @return true if the location has been customized, false otherwise.
+   * @throws HiveStageCheckedException
+   */
+  public static boolean getCustomLocation(Record metadataRecord) throws HiveStageCheckedException{
+    if (metadataRecord.get(SEP + VERSION).getValueAsInteger() < 3) {
+      return DEFAULT_CUSTOM_LOCATION;
+    }
+
+    if (metadataRecord.has(SEP + CUSTOM_LOCATION)) {
+      return metadataRecord.get(SEP + CUSTOM_LOCATION).getValueAsBoolean();
+    }
+    throw new HiveStageCheckedException(Errors.HIVE_17, CUSTOM_LOCATION, metadataRecord);
+  }
+
+  /**
    * Get Avro Schema from Metadata Record.
    * @param metadataRecord the metadata record.
    * @return Avro Schema
@@ -487,12 +515,15 @@ public final class HiveMetastoreUtil {
 
   /**
    * Fill in metadata to Record. This is for new partition creation.
+   * Use the {@code customLocation} flag to mark whether the {@code location} is a custom one or the default location
+   * used by Hive.
    */
   public static Field newPartitionMetadataFieldBuilder(
       String database,
       String tableName,
       LinkedHashMap<String, String> partitionList,
       String location,
+      boolean customLocation,
       HMPDataFormat dataFormat) throws HiveStageCheckedException {
     LinkedHashMap<String, Field> metadata = new LinkedHashMap<>();
     metadata.put(VERSION, Field.create(PARTITION_ADDITION_METADATA_RECORD_VERSION));
@@ -500,6 +531,7 @@ public final class HiveMetastoreUtil {
     metadata.put(DATABASE_FIELD, Field.create(database));
     metadata.put(TABLE_FIELD, Field.create(tableName));
     metadata.put(LOCATION_FIELD, Field.create(location));
+    metadata.put(CUSTOM_LOCATION, Field.create(customLocation));
     metadata.put(DATA_FORMAT, Field.create(dataFormat.name()));
 
     //fill in the partition list here
@@ -622,6 +654,20 @@ public final class HiveMetastoreUtil {
     }
   }
 
+  private static Date getDateForTimeZone(TimeZone timeZone, Field field) throws HiveStageCheckedException {
+    Date fieldValue;
+    switch (field.getType()) {
+      case DATETIME:
+        fieldValue = field.getValueAsDate();
+        break;
+      default:
+        throw new HiveStageCheckedException(Errors.HIVE_41, field.getType().name());
+    }
+    Calendar calendar = Calendar.getInstance();
+    calendar.setTime(fieldValue);
+    calendar.setTimeZone(timeZone);
+    return calendar.getTime();
+  }
 
   /**
    * Convert a Record to LinkedHashMap. This is for comparing the structure of incoming Record with cache.
@@ -640,7 +686,9 @@ public final class HiveMetastoreUtil {
       String scaleExpression,
       String precisionExpression,
       String commentExpression,
-      ELVars variables
+      ELVars variables,
+      boolean convertTimesToString,
+      TimeZone timeZone
   ) throws HiveStageCheckedException, ELEvalException {
     if(!record.get().getType().isOneOf(Field.Type.MAP, Field.Type.LIST_MAP)) {
       throw new HiveStageCheckedException(Errors.HIVE_33, record.getHeader().getSourceId(), record.get().getType().toString());
@@ -661,10 +709,22 @@ public final class HiveMetastoreUtil {
           currField = Field.create(currField.getValueAsString());
           break;
         case DATETIME:
-          currField = Field.create(Field.Type.STRING, currField.getValue() == null ? null : datetimeFormat.get().format(currField.getValueAsDate()));
+          if (convertTimesToString) {
+            currField = Field.create(
+                Field.Type.STRING,
+                currField.getValue() == null ? null : datetimeFormat.get().format(currField.getValueAsDate())
+            );
+          } else {
+            currField = Field.create(
+                Field.Type.DATETIME,
+                currField.getValue() == null ? null : getDateForTimeZone(timeZone, currField));
+          }
           break;
         case TIME:
-          currField = Field.create(Field.Type.STRING, currField.getValue() == null ? null : timeFormat.get().format(currField.getValueAsTime()));
+          currField = Field.create(
+              Field.Type.STRING,
+              currField.getValue() == null ? null : timeFormat.get().format(currField.getValueAsTime())
+          );
           break;
         default:
           break;

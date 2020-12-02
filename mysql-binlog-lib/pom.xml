@@ -22,19 +22,19 @@
   <parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-stage-lib-parent</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <relativePath>../stage-lib-parent</relativePath>
   </parent>
   <groupId>com.streamsets</groupId>
   <artifactId>streamsets-datacollector-mysql-binlog-lib</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector MySql BinLog Lib</description>
   <name>StreamSets Data Collector MySql BinLog Lib</name>
 
   <properties>
     <jackson.version>2.8.8</jackson.version>
     <mysql-connector-java.version>5.1.39</mysql-connector-java.version>
-    <mysql-binlog-connector-java.version>0.13.0</mysql-binlog-connector-java.version>
+    <mysql-binlog-connector-java.version>0.23.3</mysql-binlog-connector-java.version>
     <joda.version>2.8</joda.version>
     <guava.version>19.0</guava.version>
   </properties>
@@ -70,9 +70,9 @@
 
     <!-- Compile Dependencies -->
     <dependency>
-        <groupId>com.github.shyiko</groupId>
-        <artifactId>mysql-binlog-connector-java</artifactId>
-        <version>${mysql-binlog-connector-java.version}</version>
+      <groupId>com.zendesk</groupId>
+      <artifactId>mysql-binlog-connector-java</artifactId>
+      <version>${mysql-binlog-connector-java.version}</version>
     </dependency>
     <dependency>
         <groupId>com.zaxxer</groupId>

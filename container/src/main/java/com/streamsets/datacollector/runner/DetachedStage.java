@@ -25,6 +25,7 @@ import com.streamsets.datacollector.creation.StageBean;
 import com.streamsets.datacollector.email.EmailSender;
 import com.streamsets.datacollector.json.ObjectMapperFactory;
 import com.streamsets.datacollector.lineage.LineagePublisherDelegator;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.restapi.bean.DetachedStageConfigurationJson;
 import com.streamsets.datacollector.restapi.bean.StageConfigurationJson;
@@ -41,6 +42,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -66,9 +68,9 @@ public abstract class DetachedStage {
     String rev,
     Stage.UserContext userContext,
     MetricRegistry metrics,
-    long pipelineMaxMemory,
     ExecutionMode executionMode,
     DeliveryGuarantee deliveryGuarantee,
+    BuildInfo buildInfo,
     RuntimeInfo runtimeInfo,
     EmailSender emailSender,
     Configuration configuration,
@@ -99,9 +101,9 @@ public abstract class DetachedStage {
       rev,
       userContext,
       metrics,
-      pipelineMaxMemory,
       executionMode,
       deliveryGuarantee,
+      buildInfo,
       runtimeInfo,
       emailSender,
       configuration,
@@ -123,9 +125,9 @@ public abstract class DetachedStage {
     String rev,
     Stage.UserContext userContext,
     MetricRegistry metrics,
-    long pipelineMaxMemory,
     ExecutionMode executionMode,
     DeliveryGuarantee deliveryGuarantee,
+    BuildInfo buildInfo,
     RuntimeInfo runtimeInfo,
     EmailSender emailSender,
     Configuration configuration,
@@ -154,6 +156,8 @@ public abstract class DetachedStage {
       false,
       Collections.emptyMap(),
       null,
+      userContext.getUser(),
+      new HashMap<>(),
       errors
     );
     if(!errors.isEmpty()) {
@@ -200,9 +204,9 @@ public abstract class DetachedStage {
       Collections.emptyList(),
       Collections.emptyMap(),
       stageInfo,
-      pipelineMaxMemory,
       executionMode,
       deliveryGuarantee,
+      buildInfo,
       runtimeInfo,
       emailSender,
       configuration,
@@ -210,6 +214,10 @@ public abstract class DetachedStage {
       startTime,
       lineagePublisherDelegator,
       Collections.emptyMap(),
+      false,
+      null,
+      null,
+      null,
       false
     );
 

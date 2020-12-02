@@ -27,34 +27,34 @@ import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.api.base.configurablestage.DPushSource;
 import com.streamsets.pipeline.config.DataFormat;
 import com.streamsets.pipeline.lib.http.DataFormatChooserValues;
-import com.streamsets.pipeline.lib.httpsource.RawHttpConfigs;
+import com.streamsets.pipeline.lib.httpsource.HttpSourceConfigs;
 import com.streamsets.pipeline.lib.microservice.ResponseConfigBean;
 import com.streamsets.pipeline.stage.origin.lib.DataParserFormatConfig;
 
 import static com.streamsets.pipeline.config.OriginAvroSchemaSource.SOURCE;
 
 @StageDef(
-    version = 2,
+    version = 6,
     label = "REST Service",
-    description = "Listens for requests on an HTTP endpoint and send response back",
+    description = "Listens for requests on an HTTP endpoint and sends response back",
     icon="api.png",
     execution = {ExecutionMode.STANDALONE},
     recordsByRef = true,
     sendsResponse = true,
     onlineHelpRefUrl ="index.html?contextID=task_upp_lgp_q2b",
-    upgrader = RestServicePushSourceUpgrader.class
+    upgrader = RestServicePushSourceUpgrader.class,
+    upgraderDef = "upgrader/RestServiceDPushSource.yaml"
 )
 @ConfigGroups(Groups.class)
 @HideConfigs(value = {
     "dataFormatConfig.verifyChecksum",
-    "dataFormatConfig.avroSchemaSource",
-    "responseConfig.dataGeneratorFormatConfig.jsonMode"
+    "dataFormatConfig.avroSchemaSource"
 })
 @GenerateResourceBundle
 public class RestServiceDPushSource extends DPushSource {
 
   @ConfigDefBean
-  public RawHttpConfigs httpConfigs;
+  public HttpSourceConfigs httpConfigs;
 
   @ConfigDef(
       required = true,
@@ -62,6 +62,7 @@ public class RestServiceDPushSource extends DPushSource {
       label = "Max Request Size (MB)",
       defaultValue = "100",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "HTTP",
       min = 1,
       max = Integer.MAX_VALUE
@@ -75,6 +76,7 @@ public class RestServiceDPushSource extends DPushSource {
       description = "HTTP payload data format",
       defaultValue = "JSON",
       displayPosition = 1,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT"
   )
   @ValueChooserModel(DataFormatChooserValues.class)

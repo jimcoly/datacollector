@@ -19,7 +19,10 @@
 
 angular
   .module('dataCollectorApp.home')
-  .controller('ImportModalInstanceController', function ($scope, $modalInstance, api, pipelineInfo, $translate) {
+  .controller('ImportModalInstanceController', function (
+    $scope, $modalInstance, api, pipelineInfo, $translate, tracking,
+    trackingEvent, pipelineTracking
+  ) {
     var errorMsg = 'Not a valid Pipeline Configuration file.';
 
     angular.extend($scope, {
@@ -39,6 +42,7 @@ angular
        * Import button callback function.
        */
       import: function () {
+        tracking.mixpanel.track(trackingEvent.PIPELINE_IMPORT_START, {});
         var reader = new FileReader();
 
         if ($scope.createNewPipeline && !$scope.newConfig.title) {
@@ -69,6 +73,7 @@ angular
 
             if (jsonConfigObj.uuid) {
               if (pipelineInfo && !$scope.createNewPipeline) { // If pipeline config already exists
+                jsonConfigObj.pipelineId = pipelineInfo.pipelineId;
                 jsonConfigObj.uuid = pipelineInfo.uuid;
                 jsonConfigObj.metadata = pipelineInfo.metadata;
                 jsonConfigObj.title = pipelineInfo.title;
@@ -89,6 +94,8 @@ angular
 
                       api.pipelineAgent.savePipelineRules(pipelineInfo.pipelineId, rulesObj).
                       then(function() {
+                        tracking.mixpanel.track(trackingEvent.PIPELINE_IMPORT_UPDATE_COMPLETE, {});
+                        tracking.mixpanel.people.set({'Core Journey Stage - Pipeline Imported': true});
                         $modalInstance.close();
                       });
 
@@ -99,6 +106,7 @@ angular
                   }
                 },function(res) {
                   $scope.common.errors = [res.data];
+                  pipelineTracking.trackImportFailure(trackingEvent.PIPELINE_IMPORT_FAILED, res);
                 });
               } else { // If no pipeline exist or create pipeline option selected
                 var newPipelineObject,
@@ -128,6 +136,9 @@ angular
                     newPipelineObject.metadata = jsonConfigObj.metadata;
                     newPipelineObject.startEventStages = jsonConfigObj.startEventStages;
                     newPipelineObject.stopEventStages = jsonConfigObj.stopEventStages;
+                    newPipelineObject.testOriginStage = jsonConfigObj.testOriginStage;
+                    newPipelineObject.fragments = jsonConfigObj.fragments;
+                    newPipelineObject.info.sdcVersion = jsonConfigObj.info.sdcVersion;
                     return api.pipelineAgent.savePipelineConfig(name, newPipelineObject);
                   })
                   .then(function(res) {
@@ -146,16 +157,22 @@ angular
                         api.pipelineAgent.savePipelineRules(name, rulesObj).
                         then(function() {
                           $modalInstance.close(newPipelineObject);
+                          tracking.mixpanel.track(trackingEvent.PIPELINE_IMPORT_COMPLETE, {'Pipeline ID': newPipelineObject.pipelineId});
+                          tracking.mixpanel.people.set({'Core Journey Stage - Pipeline Imported': true});
+                          tracking.FS.event(trackingEvent.PIPELINE_IMPORT_COMPLETE, {'Pipeline ID': newPipelineObject.pipelineId});
                         });
 
                       });
 
                     } else {
                       $modalInstance.close(newPipelineObject);
+                      tracking.mixpanel.track(trackingEvent.PIPELINE_IMPORT_COMPLETE, {'Pipeline ID': newPipelineObject.pipelineId});
+                      tracking.mixpanel.people.set({'Core Journey Stage - Pipeline Imported': true});
+                      tracking.FS.event('Import Pipeline Completed', {'Pipeline ID': newPipelineObject.pipelineId});
                     }
                   },function(res) {
                     $scope.common.errors = [res.data];
-
+                    pipelineTracking.trackImportFailure(trackingEvent.PIPELINE_IMPORT_FAILED, res);
                     //Failed to import pipeline. If new pipeline is created during import revert it back.
                     if (res.data && res.data.RemoteException &&
                       res.data.RemoteException.errorCode === 'CONTAINER_0201') {
@@ -171,11 +188,13 @@ angular
               $scope.$apply(function() {
                 $scope.common.errors = [errorMsg];
               });
+              pipelineTracking.trackImportFailure(trackingEvent.PIPELINE_IMPORT_FAILED, 'Missing Pipeline uuid');
             }
           } catch(e) {
             $scope.$apply(function() {
               $scope.common.errors = [errorMsg];
             });
+            pipelineTracking.trackImportFailure(trackingEvent.PIPELINE_IMPORT_FAILED, e);
           }
         };
         reader.readAsText($scope.uploadFile);

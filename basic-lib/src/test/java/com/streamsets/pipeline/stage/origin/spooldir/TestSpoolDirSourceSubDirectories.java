@@ -57,7 +57,7 @@ public class TestSpoolDirSourceSubDirectories {
     conf.spoolDir = createTestDir();
     conf.batchSize = 10;
     conf.overrunLimit = 100;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].log";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -85,6 +85,7 @@ public class TestSpoolDirSourceSubDirectories {
       Assert.assertTrue(source.getSpooler().isRunning());
       Assert.assertEquals(runner.getContext(), source.getSpooler().getContext());
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -98,7 +99,7 @@ public class TestSpoolDirSourceSubDirectories {
     conf.spoolDir = f.getAbsolutePath();
     conf.batchSize = 10;
     conf.overrunLimit = 100;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].log";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -171,8 +172,9 @@ public class TestSpoolDirSourceSubDirectories {
       });
       runner2.waitOnProduce();
 
-      TestOffsetUtil.compare(offset, runner2.getOffsets());
+      TestOffsetUtil.compare(offset, runner2.getOffsets(), false);
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -195,9 +197,10 @@ public class TestSpoolDirSourceSubDirectories {
       });
       runner.waitOnProduce();
 
-      TestOffsetUtil.compare("dir1/file-0.log::0", runner.getOffsets());
+      TestOffsetUtil.compare("dir1/file-0.log::0", runner.getOffsets(), false);
       //Assert.assertTrue(source.produceCalled);
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -216,9 +219,10 @@ public class TestSpoolDirSourceSubDirectories {
       });
       runner.waitOnProduce();
 
-      TestOffsetUtil.compare(offset, runner.getOffsets());
+      TestOffsetUtil.compare(offset, runner.getOffsets(), false);
       //Assert.assertFalse(source.produceCalled);
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -249,9 +253,10 @@ public class TestSpoolDirSourceSubDirectories {
       });
       runner.waitOnProduce();
 
-      TestOffsetUtil.compare("dir1/file-0.log::0", runner.getOffsets());
+      TestOffsetUtil.compare("dir1/file-0.log::0", runner.getOffsets(), false);
       //Assert.assertTrue(source.produceCalled);
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -275,9 +280,10 @@ public class TestSpoolDirSourceSubDirectories {
       });
       runner.waitOnProduce();
 
-      TestOffsetUtil.compare(offset, runner.getOffsets());
+      TestOffsetUtil.compare(offset, runner.getOffsets(), false);
       //Assert.assertTrue(source.produceCalled);
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -316,11 +322,12 @@ public class TestSpoolDirSourceSubDirectories {
       runner.waitOnProduce();
 
       Assert.assertEquals(2, batchCount.get());
-      TestOffsetUtil.compare("dir1/file-0.log::-1", runner.getOffsets());
+      TestOffsetUtil.compare("dir1/file-0.log::-1", runner.getOffsets(), false);
 
       //Produce will not be called as this file-0.log will not be eligible for produce
       //Assert.assertFalse(source.produceCalled);
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }
@@ -332,7 +339,7 @@ public class TestSpoolDirSourceSubDirectories {
     conf.spoolDir = createTestDir();
     conf.batchSize = 10;
     conf.overrunLimit = 100;
-    conf.poolingTimeoutSecs = 1;
+    conf.poolingTimeoutSecs = 10;
     conf.filePattern = "file-[0-9].log";
     conf.pathMatcherMode = PathMatcherMode.GLOB;
     conf.maxSpoolFiles = 10;
@@ -381,9 +388,10 @@ public class TestSpoolDirSourceSubDirectories {
       runner.waitOnProduce();
 
       Assert.assertEquals(2, batchCount.get());
-      TestOffsetUtil.compare("dir1/file-0.log::-1", runner.getOffsets());
+      TestOffsetUtil.compare("dir1/file-0.log::-1", runner.getOffsets(), false);
       Assert.assertTrue(!Files.exists(file.toPath()));
     } finally {
+      source.destroy();
       runner.runDestroy();
     }
   }

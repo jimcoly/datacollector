@@ -26,20 +26,28 @@ import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.api.el.ELEval;
 import com.streamsets.pipeline.api.el.ELEvalException;
 import com.streamsets.pipeline.api.el.ELVars;
+import com.streamsets.pipeline.api.impl.Utils;
 import com.streamsets.pipeline.config.DataFormat;
 import com.streamsets.pipeline.kafka.api.KafkaDestinationGroups;
 import com.streamsets.pipeline.kafka.api.KafkaOriginGroups;
 import com.streamsets.pipeline.kafka.api.PartitionStrategy;
 import com.streamsets.pipeline.kafka.api.ProducerFactorySettings;
+import com.streamsets.pipeline.kafka.api.ProducerKeyFormat;
 import com.streamsets.pipeline.kafka.api.SdcKafkaProducer;
 import com.streamsets.pipeline.kafka.api.SdcKafkaProducerFactory;
 import com.streamsets.pipeline.kafka.api.SdcKafkaValidationUtil;
 import com.streamsets.pipeline.kafka.api.SdcKafkaValidationUtilFactory;
+import com.streamsets.pipeline.lib.el.AvroEL;
+import com.streamsets.pipeline.lib.el.Base64EL;
 import com.streamsets.pipeline.lib.el.ELUtils;
 import com.streamsets.pipeline.lib.el.RecordEL;
+import com.streamsets.pipeline.lib.kafka.connection.KafkaConnectionConfigBean;
 import com.streamsets.pipeline.lib.kafka.KafkaConstants;
 import com.streamsets.pipeline.lib.kafka.KafkaErrors;
+import com.streamsets.datacollector.security.kafka.KafkaKerberosUtil;
+import com.streamsets.pipeline.lib.kafka.KafkaSecurityUtil;
 import com.streamsets.pipeline.stage.destination.lib.DataGeneratorFormatConfig;
+import org.apache.avro.generic.GenericRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,6 +74,7 @@ public class KafkaTargetConfig {
   private static final long RETRY_BACKOFF_MS_DEFAULT = 1000;
   private static final int TOPIC_WARN_SIZE = 500;
   private static final String KAFKA_CONFIG_BEAN_PREFIX = "conf.";
+  public static final String KAFKA_CONNECTION_CONFIG_BEAN_PREFIX = "conf.connectionConfig.connection.";
 
   @ConfigDef(
       required = true,
@@ -78,113 +87,122 @@ public class KafkaTargetConfig {
   @ValueChooserModel(ProducerDataFormatChooserValues.class)
   public DataFormat dataFormat;
 
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      defaultValue = "STRING",
+      label = "Message Key Format",
+      displayPosition = 2,
+      group = "DATA_FORMAT"
+  )
+  @ValueChooserModel(ProducerKeyFormatChooserValues.class)
+  public ProducerKeyFormat messageKeyFormat;
+
   @ConfigDefBean(groups = {"DATA_FORMAT"})
   public DataGeneratorFormatConfig dataGeneratorFormatConfig = new DataGeneratorFormatConfig();
 
-  @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.STRING,
-    defaultValue = "localhost:9092",
-    label = "Broker URI",
-    description = "Comma-separated list of URIs for brokers that write to the topic.  Use the format " +
-      "<HOST>:<PORT>. To ensure a connection, enter as many as possible.",
-    displayPosition = 10,
-    group = "#0"
-  )
-  public String metadataBrokerList;
+  @ConfigDefBean()
+  public KafkaConnectionConfigBean connectionConfig = new KafkaConnectionConfigBean();
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.BOOLEAN,
-    defaultValue = "false",
-    label = "Runtime Topic Resolution",
-    description = "Select topic at runtime based on the field values in the record",
-    displayPosition = 15,
-    group = "#0"
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "Runtime Topic Resolution",
+      description = "Select topic at runtime based on the field values in the record",
+      displayPosition = 15,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "#0"
   )
   public boolean runtimeTopicResolution;
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.STRING,
-    defaultValue = "${record:value('/topic')}",
-    label = "Topic Expression",
-    description = "An expression that resolves to the name of the topic to use",
-    displayPosition = 20,
-    elDefs = {RecordEL.class},
-    group = "#0",
-    evaluation = ConfigDef.Evaluation.EXPLICIT,
-    dependsOn = "runtimeTopicResolution",
-    triggeredByValue = "true"
+      required = true,
+      type = ConfigDef.Type.STRING,
+      defaultValue = "${record:value('/topic')}",
+      label = "Topic Expression",
+      description = "An expression that resolves to the name of the topic to use",
+      displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      elDefs = {RecordEL.class},
+      group = "#0",
+      evaluation = ConfigDef.Evaluation.EXPLICIT,
+      dependsOn = "runtimeTopicResolution",
+      triggeredByValue = "true"
   )
   public String topicExpression;
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.TEXT,
-    lines = 5,
-    defaultValue = "*",
-    label = "Topic White List",
-    description = "A comma-separated list of valid topic names. " +
-      "Records with invalid topic names are treated as error records. " +
-      "'*' indicates that all topic names are allowed.",
-    displayPosition = 23,
-    group = "#0",
-    dependsOn = "runtimeTopicResolution",
-    triggeredByValue = "true"
+      required = true,
+      type = ConfigDef.Type.TEXT,
+      lines = 5,
+      defaultValue = "*",
+      label = "Topic White List",
+      description = "A comma-separated list of valid topic names. " +
+        "Records with invalid topic names are treated as error records. " +
+        "'*' indicates that all topic names are allowed.",
+      displayPosition = 23,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "#0",
+      dependsOn = "runtimeTopicResolution",
+      triggeredByValue = "true"
   )
   public String topicWhiteList;
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.STRING,
-    defaultValue = "topicName",
-    label = "Topic",
-    description = "",
-    displayPosition = 25,
-    group = "#0",
-    dependsOn = "runtimeTopicResolution",
-    triggeredByValue = "false"
+      required = true,
+      type = ConfigDef.Type.STRING,
+      defaultValue = "topicName",
+      label = "Topic",
+      description = "",
+      displayPosition = 25,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "#0",
+      dependsOn = "runtimeTopicResolution",
+      triggeredByValue = "false"
   )
   public String topic;
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.MODEL,
-    defaultValue = "ROUND_ROBIN",
-    label = "Partition Strategy",
-    description = "Strategy to select a partition to write to",
-    displayPosition = 30,
-    group = "#0"
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      defaultValue = "ROUND_ROBIN",
+      label = "Partition Strategy",
+      description = "Strategy to select a partition to write to",
+      displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "#0"
   )
   @ValueChooserModel(PartitionStrategyChooserValues.class)
   public PartitionStrategy partitionStrategy;
 
   @ConfigDef(
-    required = false,
-    type = ConfigDef.Type.STRING,
-    defaultValue = "${0}",
-    label = "Partition Expression",
-    description = "When using the default partition strategy, enter an expression to evaluate the partition key " +
-        "from record, which will be used with hash function to determine the topic's partition. " +
-        "When using Expression, enter an expression that determines the partition number. ",
-    displayPosition = 40,
-    group = "#0",
-    dependsOn = "partitionStrategy",
-    triggeredByValue = {"EXPRESSION", "DEFAULT"},
-    elDefs = {RecordEL.class},
-    evaluation = ConfigDef.Evaluation.EXPLICIT
+      required = false,
+      type = ConfigDef.Type.STRING,
+      defaultValue = "${0}",
+      label = "Partition Expression",
+      description = "When using the default partition strategy, enter an expression to evaluate the partition key " +
+          "from record, which will be used with hash function to determine the topic's partition. " +
+          "When using Expression, enter an expression that determines the partition number. ",
+      displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "#0",
+      dependsOn = "partitionStrategy",
+      triggeredByValue = {"EXPRESSION", "DEFAULT"},
+      elDefs = {RecordEL.class},
+      evaluation = ConfigDef.Evaluation.EXPLICIT
   )
   public String partition;
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.BOOLEAN,
-    defaultValue = "false",
-    label = "One Message per Batch",
-    description = "Generates a single Kafka message with all records in the batch",
-    displayPosition = 50,
-    group = "#0"
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "One Message per Batch",
+      description = "Generates a single Kafka message with all records in the batch",
+      displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "#0"
   )
   public boolean singleMessagePerBatch;
 
@@ -195,7 +213,8 @@ public class KafkaTargetConfig {
       description = "Method used to serialize the Kafka message key. Set to Confluent to embed the Avro schema ID in each message the destination writes.",
       defaultValue = "STRING",
       displayPosition = 440,
-      dependsOn = "dataFormat",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      dependsOn = "messageKeyFormat",
       triggeredByValue = "AVRO",
       group = "KAFKA"
   )
@@ -209,6 +228,7 @@ public class KafkaTargetConfig {
       description = "Method used to serialize the Kafka message value. Set to Confluent to embed the Avro schema ID in each message the destination writes.",
       defaultValue = "DEFAULT",
       displayPosition = 450,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       dependsOn = "dataFormat",
       triggeredByValue = "AVRO",
       group = "KAFKA"
@@ -217,15 +237,48 @@ public class KafkaTargetConfig {
   public Serializer valueSerializer = Serializer.DEFAULT;
 
   @ConfigDef(
-    required = false,
-    type = ConfigDef.Type.MAP,
-    defaultValue = "",
-    label = "Kafka Configuration",
-    description = "Additional Kafka properties to pass to the underlying Kafka producer",
-    displayPosition = 60,
-    group = "#0"
+      required = false,
+      type = ConfigDef.Type.MAP,
+      defaultValue = "",
+      label = "Kafka Configuration",
+      description = "Additional Kafka properties to pass to the underlying Kafka producer",
+      displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "#0"
   )
   public Map<String, String> kafkaProducerConfigs = new HashMap<>();
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.STRING,
+      defaultValue = "${avro:decode(record:attribute('avroKeySchema'),base64:decodeBytes(record:attribute('kafkaMessageKey')))}",
+      label = "Kafka Message Key",
+      description = "The Kafka message key",
+      displayPosition = 90,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      dependsOn = "messageKeyFormat",
+      triggeredByValue = "AVRO",
+      group = "#0",
+      elDefs = {AvroEL.class, RecordEL.class, Base64EL.class},
+      evaluation = ConfigDef.Evaluation.EXPLICIT
+  )
+  public String avroMessageKey;
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.STRING,
+      defaultValue = "${record:attribute('kafkaMessageKey')}",
+      label = "Kafka Message Key",
+      description = "The Kafka message key",
+      displayPosition = 100,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "#0",
+      dependsOn = "messageKeyFormat",
+      triggeredByValue = "STRING",
+      elDefs = {RecordEL.class},
+      evaluation = ConfigDef.Evaluation.EXPLICIT
+  )
+  public String stringMessageKey;
 
 
   // Private members
@@ -236,6 +289,8 @@ public class KafkaTargetConfig {
   private ELVars partitionVars;
   private ELEval topicEval;
   private ELVars topicVars;
+  private ELVars messageKeyVars;
+  private ELEval messageKeyEval;
   private Set<String> allowedTopics;
   private boolean allowAllTopics;
   private List<HostAndPort> kafkaBrokers;
@@ -247,6 +302,8 @@ public class KafkaTargetConfig {
   private int messageSendMaxRetries;
   // holds the value of 'retry.backoff.ms' supplied by the user or the default value
   private long retryBackoffMs;
+  private String keytabFileName;
+  private KafkaKerberosUtil kafkaKerberosUtil;
 
   public void init(Stage.Context context, List<Stage.ConfigIssue> issues) {
     init(context, this.dataFormat, false, issues);
@@ -257,6 +314,8 @@ public class KafkaTargetConfig {
   }
 
   public void init(Stage.Context context, DataFormat dataFormat, boolean sendResponse, List<Stage.ConfigIssue> issues) {
+    kafkaKerberosUtil = new KafkaKerberosUtil(context.getConfiguration());
+    Utils.checkNotNull(kafkaKerberosUtil, "kafkaKerberosUtil");
     dataGeneratorFormatConfig.init(
         context,
         dataFormat,
@@ -264,6 +323,9 @@ public class KafkaTargetConfig {
         KAFKA_CONFIG_BEAN_PREFIX + "dataGeneratorFormatConfig.",
         issues
     );
+
+    validateMessageKeySerializerConfig(context, issues);
+    validateMessageKeyExpression(context, issues);
 
     if (valueSerializer == CONFLUENT || keySerializer == CONFLUENT) {
       validateConfluentSerializerConfigs(context, issues);
@@ -274,18 +336,26 @@ public class KafkaTargetConfig {
     kafkaProducerConfigs.put(KafkaConstants.VALUE_SERIALIZER_CLASS_CONFIG, valueSerializer.getValueClass());
 
     List<String> schemaRegistryUrls = new ArrayList<>();
+    String userInfo = "";
     if (dataGeneratorFormatConfig.avroSchemaSource == REGISTRY &&
         !dataGeneratorFormatConfig.schemaRegistryUrls.isEmpty()) {
       schemaRegistryUrls = dataGeneratorFormatConfig.schemaRegistryUrls;
+      userInfo = dataGeneratorFormatConfig.basicAuthUserInfo.get();
     } else if (dataGeneratorFormatConfig.registerSchema &&
         !dataGeneratorFormatConfig.schemaRegistryUrlsForRegistration.isEmpty()) {
       schemaRegistryUrls = dataGeneratorFormatConfig.schemaRegistryUrlsForRegistration;
+      userInfo = dataGeneratorFormatConfig.basicAuthUserInfoForRegistration.get();
     }
 
     kafkaProducerConfigs.put(
         KafkaConstants.CONFLUENT_SCHEMA_REGISTRY_URL_CONFIG,
         Joiner.on(",").join(schemaRegistryUrls)
     );
+
+    if (userInfo != null && !userInfo.isEmpty()) {
+      kafkaProducerConfigs.put(KafkaConstants.BASIC_AUTH_CREDENTIAL_SOURCE, KafkaConstants.USER_INFO);
+      kafkaProducerConfigs.put(KafkaConstants.BASIC_AUTH_USER_INFO, userInfo);
+    }
 
     this.topicPartitionMap = new HashMap<>();
     this.allowedTopics = new HashSet<>();
@@ -295,11 +365,32 @@ public class KafkaTargetConfig {
     //metadata broker list should be one or more <host>:<port> separated by a comma
     kafkaBrokers = kafkaValidationUtil.validateKafkaBrokerConnectionString(
         issues,
-        metadataBrokerList,
+        connectionConfig.connection.metadataBrokerList,
         KafkaDestinationGroups.KAFKA.name(),
-        KAFKA_CONFIG_BEAN_PREFIX + "metadataBrokerList",
+         KAFKA_CONNECTION_CONFIG_BEAN_PREFIX + "metadataBrokerList",
         context
     );
+
+    KafkaSecurityUtil.validateAdditionalProperties(
+        connectionConfig.connection.securityConfig,
+        kafkaProducerConfigs,
+        KafkaOriginGroups.KAFKA.name(),
+        KAFKA_CONFIG_BEAN_PREFIX + "kafkaProducerConfigs",
+        issues,
+        context
+    );
+
+    KafkaSecurityUtil.addSecurityConfigs(connectionConfig.connection.securityConfig, kafkaProducerConfigs);
+
+    if (connectionConfig.connection.securityConfig.provideKeytab && kafkaValidationUtil.isProvideKeytabAllowed(issues, context)) {
+      keytabFileName = kafkaKerberosUtil.saveUserKeytab(
+          connectionConfig.connection.securityConfig.userKeytab.get(),
+          connectionConfig.connection.securityConfig.userPrincipal,
+          kafkaProducerConfigs,
+          issues,
+          context
+      );
+    }
 
     //check if the topic contains EL expression with record: functions
     //If yes, then validate the EL expression. Do not validate for existence of topic
@@ -360,7 +451,7 @@ public class KafkaTargetConfig {
       ProducerFactorySettings settings = new ProducerFactorySettings(
           new HashMap<String, Object>(kafkaProducerConfigs),
           partitionStrategy,
-          metadataBrokerList,
+          connectionConfig.connection.metadataBrokerList,
           dataFormat,
           sendResponse
       );
@@ -370,6 +461,20 @@ public class KafkaTargetConfig {
       } catch (StageException ex) {
         issues.add(context.createConfigIssue(null, null, ex.getErrorCode(), ex.getParams()));
       }
+    }
+  }
+
+  private void validateMessageKeySerializerConfig(Stage.Context context, List<Stage.ConfigIssue> issues){
+
+    if(messageKeyFormat == ProducerKeyFormat.AVRO && keySerializer != CONFLUENT){
+      issues.add(
+          context.createConfigIssue(
+              KafkaOriginGroups.KAFKA.name(),
+              KAFKA_CONFIG_BEAN_PREFIX + "keySerializer",
+              KafkaErrors.KAFKA_77,
+              keySerializer
+          )
+      );
     }
   }
 
@@ -429,6 +534,11 @@ public class KafkaTargetConfig {
     }
   }
 
+  public void destroy(Stage.Context context) {
+    kafkaKerberosUtil.deleteUserKeytabIfExists(keytabFileName, context);
+    destroy();
+  }
+
   private void validatePartitionExpression(Stage.Context context, List<Stage.ConfigIssue> issues) {
     if (partitionStrategy == PartitionStrategy.EXPRESSION || partitionStrategy == PartitionStrategy.DEFAULT) {
       partitionEval = context.createELEval("partition");
@@ -465,7 +575,7 @@ public class KafkaTargetConfig {
         KafkaDestinationGroups.KAFKA.name(),
         KAFKA_CONFIG_BEAN_PREFIX + "topic",
         kafkaBrokers,
-        metadataBrokerList,
+        connectionConfig.connection.metadataBrokerList,
         topic,
         new HashMap<String, Object>(kafkaProducerConfigs),
         issues,
@@ -474,7 +584,7 @@ public class KafkaTargetConfig {
     if(valid) {
       try {
         int partitionCount = kafkaValidationUtil.getPartitionCount(
-            metadataBrokerList,
+            connectionConfig.connection.metadataBrokerList,
             topic,
             new HashMap<String, Object>(kafkaProducerConfigs),
             messageSendMaxRetries,
@@ -491,7 +601,7 @@ public class KafkaTargetConfig {
                 "topic",
                 KafkaErrors.KAFKA_11,
                 topic,
-                metadataBrokerList,
+                connectionConfig.connection.metadataBrokerList,
                 e.toString(),
                 e
             )
@@ -621,6 +731,53 @@ public class KafkaTargetConfig {
     return partitionKey;
   }
 
+  private void validateMessageKeyExpression(Stage.Context context, List<Stage.ConfigIssue> issues) {
+    messageKeyVars = context.createELVars();
+
+    if (messageKeyFormat == ProducerKeyFormat.STRING){
+      messageKeyEval = context.createELEval(stringMessageKey, RecordEL.class);
+      ELUtils.validateExpression(
+          stringMessageKey,
+          context,
+          KafkaDestinationGroups.KAFKA.name(),
+          KAFKA_CONFIG_BEAN_PREFIX + "stringMessageKey",
+          KafkaErrors.KAFKA_53,
+          issues
+      );
+    }
+    else if(messageKeyFormat == ProducerKeyFormat.AVRO){
+      messageKeyEval = context.createELEval(avroMessageKey, RecordEL.class, Base64EL.class, AvroEL.class);
+      ELUtils.validateExpression(
+          avroMessageKey,
+          context,
+          KafkaDestinationGroups.KAFKA.name(),
+          KAFKA_CONFIG_BEAN_PREFIX + "avroMessageKey",
+          KafkaErrors.KAFKA_53,
+          issues
+      );
+    }
+  }
+
+  Object getMessageKey(Record record) throws StageException {
+    Object messageKey = null;
+    RecordEL.setRecordInContext(messageKeyVars, record);
+
+    if (messageKeyFormat == ProducerKeyFormat.STRING) {
+      try {
+         messageKey = messageKeyEval.eval(messageKeyVars, stringMessageKey, String.class);
+      } catch (ELEvalException e) {
+        throw new StageException(KafkaErrors.KAFKA_52, stringMessageKey, record.getHeader().getSourceId(), e.getMessage(), e);
+      }
+    } else if (messageKeyFormat == ProducerKeyFormat.AVRO) {
+      try {
+        messageKey = messageKeyEval.eval(messageKeyVars, avroMessageKey, GenericRecord.class);
+      } catch (ELEvalException e) {
+        throw new StageException(KafkaErrors.KAFKA_52, avroMessageKey, record.getHeader().getSourceId(), e.getMessage(), e);
+      }
+    }
+    return messageKey;
+  }
+
 
   /**
    * Returns the topic given the record.
@@ -665,9 +822,9 @@ public class KafkaTargetConfig {
           //Never seen this topic name before
           try {
             Map<String, Object> kafkaConfigs = new HashMap<>(kafkaProducerConfigs);
-            kafkaValidationUtil.createTopicIfNotExists(result, kafkaConfigs, metadataBrokerList);
+            kafkaValidationUtil.createTopicIfNotExists(result, kafkaConfigs, connectionConfig.connection.metadataBrokerList);
             int partitionCount = kafkaValidationUtil.getPartitionCount(
-                metadataBrokerList,
+                connectionConfig.connection.metadataBrokerList,
                 result,
                 kafkaConfigs,
                 messageSendMaxRetries,

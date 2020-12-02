@@ -33,14 +33,24 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class HiveConfigBean {
   private static final Logger LOG = LoggerFactory.getLogger(HiveConfigBean.class);
   private static final String KERBEROS_JDBC_REGEX = "jdbc:.*;principal=.*@.*";
-  private  static final String HIVE_JDBC_URL = "hiveJDBCUrl";
+  private static final String HIVE_JDBC_URL = "hiveJDBCUrl";
+  private static final String APACHE_HIVE_JDBC_DRIVER = "org.apache.hive.jdbc.HiveDriver";
+  private static final String CLOUDERA_HIVE_JDBC_DRIVER = "com.cloudera.hive.jdbc4.HS2Driver";
+  private static final String HIVE_PROXY_USER_KEY = "hive.server2.proxy.user";
+  private static final String DELEGATION_UID_KEY = "DelegationUID";
+  private static final String PROPERTY_SEPARATOR = ";";
+  private static final String PROPERTY_KEY_VALUE_SEPARATOR = "=";
+  private static final String IMPERSONATE_CURRENT_USER_KEY = "com.streamsets.pipeline.stage.hive.impersonate.current.user";
+
 
   @ConfigDef(
       required = true,
@@ -50,6 +60,7 @@ public class HiveConfigBean {
           "Use a valid JDBC URL format, such as: jdbc:hive2://<host>:<port>/<dbname>.",
       defaultValue = "jdbc:hive2://<host>:<port>/default",
       displayPosition= 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       evaluation = ConfigDef.Evaluation.IMPLICIT,
       group = "HIVE"
   )
@@ -62,6 +73,7 @@ public class HiveConfigBean {
       label = "JDBC Driver Name",
       description = "The fully-qualified JDBC driver class name",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HIVE"
   )
   public String hiveJDBCDriver;
@@ -72,6 +84,7 @@ public class HiveConfigBean {
       defaultValue = "false",
       label = "Use Credentials",
       displayPosition = 21,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HIVE"
   )
   public boolean useCredentials;
@@ -83,6 +96,7 @@ public class HiveConfigBean {
       triggeredByValue = "true",
       label = "Username",
       displayPosition = 22,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HIVE"
   )
   public CredentialValue username;
@@ -94,6 +108,7 @@ public class HiveConfigBean {
       triggeredByValue = "true",
       label = "Password",
       displayPosition = 23,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HIVE"
   )
   public CredentialValue password;
@@ -105,6 +120,7 @@ public class HiveConfigBean {
       label = "Additional JDBC Configuration Properties",
       description = "Additional properties to pass to the underlying JDBC driver.",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "HIVE"
   )
   @ListBeanModel
@@ -118,6 +134,7 @@ public class HiveConfigBean {
       description = "An absolute path or a directory under SDC resources directory to load core-site.xml," +
           " hdfs-site.xml and hive-site.xml files.",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HIVE"
   )
   public String confDir;
@@ -128,6 +145,7 @@ public class HiveConfigBean {
       label = "Additional Hadoop Configuration",
       description = "Additional configuration properties. Values here override values loaded from config files.",
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HIVE"
   )
   public Map<String, String> additionalConfigProperties;
@@ -140,6 +158,7 @@ public class HiveConfigBean {
       description = "Configures the cache size for storing table related information." +
           " Use -1 for unlimited number of table entries in the cache.",
       displayPosition = 80,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED"
   )
   public long maxCacheSize = -1L;
@@ -167,6 +186,14 @@ public class HiveConfigBean {
   public Connection getHiveConnection() throws StageException {
     if(!HiveMetastoreUtil.isHiveConnectionValid(hiveConnection, loginUgi)) {
       LOG.info("Connection to Hive become stale, reconnecting.");
+      if(hiveConnection != null) {
+        try {
+          hiveConnection.close();
+          LOG.info("Closed stale connection");
+        } catch(SQLException ex) {
+          LOG.info("Error closing stale connection {}", ex.getMessage(), ex);
+        }
+      }
       hiveConnection = HiveMetastoreUtil.getHiveConnection(hiveJDBCUrl, loginUgi, driverProperties);
     }
     return hiveConnection;
@@ -254,6 +281,11 @@ public class HiveConfigBean {
       return;
     }
     try {
+
+      if(!validateHiveImpersonation(context, prefix, issues)){
+        return;
+      }
+
       if (hiveJDBCUrl.matches(KERBEROS_JDBC_REGEX)) {
         LOG.info("Authentication: Kerberos");
         if (loginUgi.getAuthenticationMethod() != UserGroupInformation.AuthenticationMethod.KERBEROS) {
@@ -313,6 +345,14 @@ public class HiveConfigBean {
     }
   }
 
+  private Map<String, String> getDriverNamesToProperty(){
+    Map<String, String> driverNameToProperty = new HashMap<>();
+
+    driverNameToProperty.put(APACHE_HIVE_JDBC_DRIVER, HIVE_PROXY_USER_KEY);
+    driverNameToProperty.put(CLOUDERA_HIVE_JDBC_DRIVER, DELEGATION_UID_KEY);
+    return driverNameToProperty;
+  }
+
   public String jdbcUrlSafeForUser() {
     // Return all before ";" - all sensitive information is in the params afterwards
     return hiveJDBCUrl.split(";")[0];
@@ -326,5 +366,26 @@ public class HiveConfigBean {
         LOG.error("Error with closing Hive Connection", e);
       }
     }
+  }
+
+  boolean validateHiveImpersonation(Stage.Context context, String prefix, List<Stage.ConfigIssue> issues) {
+
+    boolean useCurrentUser = Boolean.valueOf(context.getConfiguration().get(IMPERSONATE_CURRENT_USER_KEY,
+        "false"));
+
+    if(useCurrentUser){
+      if (hiveJDBCUrl.contains(HIVE_PROXY_USER_KEY) || hiveJDBCUrl.contains(DELEGATION_UID_KEY)) {
+        LOG.error("Current user impersonation is enabled. Hive proxy user property in the JDBC URL {} is not required"
+            , hiveJDBCUrl);
+        issues.add(context.createConfigIssue("HIVE", JOINER.join(prefix, HIVE_JDBC_URL), Errors.HIVE_42,
+            hiveJDBCUrl));
+        return false;
+      }
+
+      hiveJDBCUrl += PROPERTY_SEPARATOR + getDriverNamesToProperty().getOrDefault(hiveJDBCDriver,HIVE_PROXY_USER_KEY)
+          + PROPERTY_KEY_VALUE_SEPARATOR + context.getUserContext().getAliasName();
+
+    }
+    return true;
   }
 }

@@ -31,6 +31,7 @@ import com.streamsets.pipeline.api.base.configurablestage.DProcessor;
     description = "Serializes a field to a string field in JSON format",
     icon = "json.png",
     flags = StageBehaviorFlags.PURE_FUNCTION,
+    upgraderDef = "upgrader/JsonGeneratorDProcessor.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_kgk_3w1_h1b"
 )
 @ConfigGroups(Groups.class)
@@ -43,6 +44,7 @@ public class JsonGeneratorDProcessor extends DProcessor {
       label = "Field to Serialize",
       description = "Map or List field to serialize to JSON",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "JSON"
   )
   @FieldSelectorModel(singleValued = true)
@@ -54,6 +56,7 @@ public class JsonGeneratorDProcessor extends DProcessor {
       label = "Target Field",
       description="Name of the field in which to place the serialized JSON string",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "JSON"
   )
   public String outputFieldPath;

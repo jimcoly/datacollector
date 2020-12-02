@@ -20,6 +20,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.RateLimiter;
 import com.streamsets.datacollector.record.RecordImpl;
 import com.streamsets.pipeline.api.Record;
+import com.streamsets.pipeline.api.SourceResponseSink;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.StageType;
 import com.streamsets.pipeline.api.impl.Utils;
@@ -37,7 +38,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class FullPipeBatch implements PipeBatch {
   private static final Logger LOG = LoggerFactory.getLogger(FullPipeBatch.class);
@@ -70,7 +70,7 @@ public class FullPipeBatch implements PipeBatch {
     errorSink = new ErrorSink();
     eventSink = new EventSink();
     processedSink = new ProcessedSink();
-    sourceResponseSink = new SourceResponseSink();
+    sourceResponseSink = new SourceResponseSinkImpl();
   }
 
   @VisibleForTesting
@@ -329,9 +329,15 @@ public class FullPipeBatch implements PipeBatch {
   public void moveLaneCopying(String inputLane, List<String> outputLanes) {
     List<Record> records = Preconditions.checkNotNull(fullPayload.remove(inputLane), Utils.formatL(
         "Stream '{}' does not exist", inputLane));
+    boolean firstOutputLane = true;
     for (String lane : outputLanes) {
       Preconditions.checkState(!fullPayload.containsKey(lane), Utils.formatL("Lane '{}' already exists", lane));
-      fullPayload.put(lane, createCopy(records));
+      if(firstOutputLane) {
+        fullPayload.put(lane, records);
+        firstOutputLane = false;
+      } else {
+        fullPayload.put(lane, createCopy(records));
+      }
     }
   }
 
@@ -340,12 +346,6 @@ public class FullPipeBatch implements PipeBatch {
     for (Record record : records) {
       list.add(((RecordImpl) record).clone());
     }
-    return list;
-  }
-
-  private List<String> remove(List<String> from, Collection<String> values) {
-    List<String> list = new ArrayList<>(from);
-    list.removeAll(values);
     return list;
   }
 

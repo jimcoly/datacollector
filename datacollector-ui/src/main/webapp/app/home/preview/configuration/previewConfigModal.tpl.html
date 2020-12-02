@@ -1,4 +1,4 @@
-<form class="preview-config-modal-form" role="form">
+<form class="preview-config-modal-form fs-unmask" role="form">
   <div class="modal-header">
     <button type="button" class="close" ng-click="cancel()">
       <span aria-hidden="true">&times;</span>
@@ -9,7 +9,14 @@
   <div class="modal-body">
 
     <div class="form-group">
-      <label class="control-label" translate="home.previewPane.previewSource">Preview Source</label>
+      <label class="control-label">
+        <span translate="home.previewPane.previewSource">Preview Source</span>
+        <i class="fa fa-info-circle help-icon"
+        tooltip-placement="right"
+        tooltip-append-to-body="false"
+        tooltip="{{'home.previewPane.previewSourceTooltip' | translate}}"
+        tooltip-trigger="mouseenter"></i>
+      </label>
       <select class="form-control"
               name="previewSource"
               ng-model="previewConfig.previewSource">
@@ -26,7 +33,14 @@
     </div>
 
     <div class="form-group" ng-if="previewConfig.previewSource !== pipelineConstant.USER_PROVIDED">
-      <label class="control-label" translate="home.previewPane.batchSize">Preview Batch Size</label>
+      <label class="control-label">
+        <span translate="home.previewPane.batchSize">Preview Batch Size</span>
+        <i class="fa fa-info-circle help-icon"
+        tooltip-placement="right"
+        tooltip-append-to-body="false"
+        tooltip="{{'home.previewPane.batchSizeTooltip' | translate}}"
+        tooltip-trigger="mouseenter"></i>
+      </label>
       <input type="text" class="form-control" name="batchSize"
              ng-model="previewConfig.batchSize">
     </div>
@@ -74,7 +88,7 @@
 
     <div class="form-group" ng-if="snapshotsInfo && snapshotsInfo.length && previewConfig.previewSource === pipelineConstant.SNAPSHOT_SOURCE">
       <label class="control-label" translate="home.previewPane.snapshotSource">Snapshot</label>
-      <select class="form-control"
+      <select class="form-control fs-mask"
               name="snapshotInfo"
               ng-model="previewConfig.snapshotInfo"
               ng-options="snapshotInfo.label group by snapshotInfo.name for snapshotInfo in snapshotsInfo track by snapshotInfo.timeStamp">

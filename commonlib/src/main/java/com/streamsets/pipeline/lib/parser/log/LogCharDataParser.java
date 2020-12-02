@@ -38,6 +38,7 @@ public abstract class LogCharDataParser extends AbstractDataParser {
 
   static final String TEXT_FIELD_NAME = "originalLine";
   static final String TRUNCATED_FIELD_NAME = "truncated";
+  static final String PARSED_FIELD_NAME = "parsedLine";
 
   private final ProtoConfigurableEntity.Context context;
   private final String readerId;
@@ -79,6 +80,7 @@ public abstract class LogCharDataParser extends AbstractDataParser {
     this.currentLineBuilderPool = currentLineBuilderPool;
     try {
       this.currentLine = currentLineBuilderPool.borrowObject();
+      this.currentLine.setLength(0);
       LOG.debug(
           "Borrowed current line string builder from pool. Num Active {}, Num Idle {}",
           this.currentLineBuilderPool.getNumActive(),
@@ -97,6 +99,7 @@ public abstract class LogCharDataParser extends AbstractDataParser {
     this.previousLineBuilderPool = previousLineBuilderPool;
     try {
       this.previousLine = previousLineBuilderPool.borrowObject();
+      this.previousLine.setLength(0);
       LOG.debug(
         "Borrowed previous line string builder from pool. Num Active {}, Num Idle {}",
         this.previousLineBuilderPool.getNumActive(),
@@ -156,7 +159,7 @@ public abstract class LogCharDataParser extends AbstractDataParser {
     int read = readAhead(fieldsFromLogLine, stackTrace);
 
     //Use the data from the read line if there is no saved data from the previous round.
-    if(record == null && !fieldsFromLogLine.isEmpty()) {
+    if(record == null) {
       record = context.createRecord(readerId + "::" + currentOffset);
       //create field for the record
       Map<String, Field> map = new HashMap<>();
@@ -166,7 +169,14 @@ public abstract class LogCharDataParser extends AbstractDataParser {
       if (isTruncated(read)) {
         map.put(TRUNCATED_FIELD_NAME, Field.create(true));
       }
-      map.putAll(fieldsFromLogLine);
+
+      // If parsed line returned and empty map this means the line was already parsed before trying to parse it
+      if (fieldsFromLogLine.isEmpty()) {
+        map.put(PARSED_FIELD_NAME, Field.create(currentLine.toString()));
+      } else {
+        map.putAll(fieldsFromLogLine);
+      }
+
       record.set(Field.create(map));
       //Since there was no previously saved line, the current offset must be updated to the current reader position
       currentOffset = reader.getPos();

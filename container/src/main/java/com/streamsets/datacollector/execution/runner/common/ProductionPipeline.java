@@ -16,6 +16,7 @@
 package com.streamsets.datacollector.execution.runner.common;
 
 import com.streamsets.datacollector.config.PipelineConfiguration;
+import com.streamsets.datacollector.execution.AbstractRunner;
 import com.streamsets.datacollector.execution.PipelineStatus;
 import com.streamsets.datacollector.execution.StateListener;
 import com.streamsets.datacollector.main.RuntimeModule;
@@ -31,6 +32,7 @@ import com.streamsets.datacollector.validation.Issues;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.StageException;
+import com.streamsets.pipeline.api.base.OnRecordErrorException;
 import com.streamsets.pipeline.api.impl.ClusterSource;
 import com.streamsets.pipeline.api.impl.ErrorMessage;
 import org.slf4j.Logger;
@@ -83,6 +85,7 @@ public class ProductionPipeline {
     boolean finishing = false;
     boolean errorWhileInitializing = false;
     boolean errorWhileRunning = false;
+    Throwable runningException = null;
     boolean errorWhileDestroying = false;
     boolean isRecoverable = true;
     executionFailed = false;
@@ -116,18 +119,32 @@ public class ProductionPipeline {
             if (!wasStopped()) {
               runningErrorMsg = e.toString();
               LOG.warn("Error while running: {}", runningErrorMsg, e);
-              stateChanged(PipelineStatus.RUNNING_ERROR, runningErrorMsg, null);
+
+              // Make sure that the whole error is serialized in the status file
+              Map<String, Object> extraAttributes = new HashMap<>();
+              if(e instanceof StageException) {
+                extraAttributes.put(AbstractRunner.ANTENNA_DOCTOR_MESSAGES_ATTR, ((StageException) e).getAntennaDoctorMessages());
+                runningErrorMsg = e.getMessage();
+              }
+              extraAttributes.put(AbstractRunner.ERROR_MESSAGE_ATTR, e.getMessage());
+              extraAttributes.put(AbstractRunner.ERROR_STACKTRACE_ATTR, ErrorMessage.toStackTrace(e));
+
+              stateChanged(PipelineStatus.RUNNING_ERROR, runningErrorMsg, extraAttributes);
               errorWhileRunning = true;
+              runningException = e;
               isRecoverable = isRecoverableThrowable(e);
             }
             throw e;
           }
         } else {
-          LOG.debug("Stopped due to validation error");
-          PipelineRuntimeException e = new PipelineRuntimeException(ContainerError.CONTAINER_0800, name,
-            issues.get(0).getMessage());
+          LOG.info("Stopped due to validation error");
+          issues.forEach(i -> LOG.info("\tValidation issue: {}", i.getMessage()));
+          PipelineRuntimeException e = new PipelineRuntimeException(ContainerError.CONTAINER_0800, issues.size(), issues.get(0).getMessage());
           Map<String, Object> attributes = new HashMap<>();
           attributes.put("issues", new IssuesJson(new Issues(issues)));
+          attributes.put(AbstractRunner.ANTENNA_DOCTOR_MESSAGES_ATTR, issues.get(0).getAntennaDoctorMessages());
+          attributes.put(AbstractRunner.ERROR_MESSAGE_ATTR, e.getMessage());
+          attributes.put(AbstractRunner.ERROR_STACKTRACE_ATTR, ErrorMessage.toStackTrace(e));
           // We need to store the error in runningErrorMsg, so that it gets propagated to START_ERROR terminal state
           runningErrorMsg = issues.get(0).getMessage();
           stateChanged(PipelineStatus.STARTING_ERROR, runningErrorMsg, attributes);
@@ -137,11 +154,10 @@ public class ProductionPipeline {
         }
       } finally {
         LOG.debug("Destroying");
-
         try {
           // Determine the reason why we got all the way here
           PipelineStopReason stopReason;
-          if(errorWhileRunning) {
+          if(errorWhileRunning || errorWhileInitializing) {
             stopReason = PipelineStopReason.FAILURE;
           } else if(wasStopped()) {
             stopReason = PipelineStopReason.USER_ACTION;
@@ -162,11 +178,19 @@ public class ProductionPipeline {
           throw e;
         } finally {
           if(errorWhileInitializing || errorWhileRunning || errorWhileDestroying) {
+              boolean retry = true;
+            // Check if the exception is an onRecordErrorException
+            // The DefaultErrorRecordHandler throws this exception back when the value is set to STOP PIPELINE.
+            // In such case, do not retry the pipeline. Let it transition to a error state and stop.
+            if (errorWhileRunning && runningException instanceof OnRecordErrorException) {
+              retry = false;
+            }
+
             // In case of any error, persist that information
             executionFailed = true;
 
             // If there was any problem, we will consider retry
-            if (shouldRetry && !pipeline.shouldStopOnStageError() && !isExecutingInSlave && isRecoverable && !wasStopped()) {
+            if (shouldRetry && retry && !isExecutingInSlave && isRecoverable && !wasStopped()) {
               stateChanged(PipelineStatus.RETRY, runningErrorMsg, null);
             } else if(errorWhileInitializing) {
               stateChanged(PipelineStatus.START_ERROR, runningErrorMsg, null);

@@ -66,7 +66,9 @@ import java.util.concurrent.Future;
     execution = {ExecutionMode.STANDALONE, ExecutionMode.EDGE},
     icon= "dev.png",
     producesEvents = true,
+    recordsByRef = true,
     upgrader = RandomDataGeneratorSourceUpgrader.class,
+    upgraderDef = "upgrader/RandomDataGeneratorSource.yaml",
     onlineHelpRefUrl ="index.html#datacollector/UserGuide/Pipeline_Design/DevStages.html"
 )
 @ConfigGroups(value = RandomDataGeneratorGroups.class)
@@ -88,6 +90,7 @@ public class RandomDataGeneratorSource extends BasePushSource {
       type = ConfigDef.Type.MODEL,
       defaultValue="",
       description="Fields to generate of the indicated type",
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_GENERATOR"
   )
   @ListBeanModel
@@ -99,6 +102,7 @@ public class RandomDataGeneratorSource extends BasePushSource {
       type = ConfigDef.Type.MODEL,
       defaultValue = "MAP",
       description = "Field Type for root object",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_GENERATOR"
   )
   @ValueChooserModel(RootTypeChooserValueProvider.class)
@@ -109,6 +113,7 @@ public class RandomDataGeneratorSource extends BasePushSource {
       type = ConfigDef.Type.MAP,
       label = "Header Attributes",
       description = "Attributes to be put in the generated record header",
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_GENERATOR"
   )
   public Map<String, String> headerAttributes;
@@ -121,6 +126,7 @@ public class RandomDataGeneratorSource extends BasePushSource {
       description = "Milliseconds to wait before sending the next batch",
       min = 0,
       max = Integer.MAX_VALUE,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_GENERATOR"
   )
   public int delay;
@@ -133,6 +139,7 @@ public class RandomDataGeneratorSource extends BasePushSource {
       description = "Number of records that will be generated for single batch.",
       min = 1,
       max = Integer.MAX_VALUE,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_GENERATOR"
   )
   public int batchSize;
@@ -145,6 +152,7 @@ public class RandomDataGeneratorSource extends BasePushSource {
       description = "Number of concurrent threads that will be generating data in parallel.",
       min = 1,
       max = Integer.MAX_VALUE,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_GENERATOR"
   )
   public int numThreads;
@@ -155,6 +163,7 @@ public class RandomDataGeneratorSource extends BasePushSource {
       defaultValue = "generated-event",
       label = "Event name",
       description = "Name of event that should be used when generating events.",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "DATA_GENERATOR"
   )
   public String eventName;
@@ -595,13 +604,21 @@ public class RandomDataGeneratorSource extends BasePushSource {
 
   public static class DataGeneratorConfig {
 
-    @ConfigDef(required = true, type = ConfigDef.Type.STRING,
-        label = "Field Name")
+    @ConfigDef(
+        required = true,
+        type = ConfigDef.Type.STRING,
+        label = "Field Name",
+        displayMode = ConfigDef.DisplayMode.BASIC
+    )
     public String field;
 
-    @ConfigDef(required = true, type = ConfigDef.Type.MODEL,
+    @ConfigDef(
+        required = true,
+        type = ConfigDef.Type.MODEL,
         label = "Field Type",
-        defaultValue = "STRING")
+        defaultValue = "STRING",
+        displayMode = ConfigDef.DisplayMode.BASIC
+    )
     @ValueChooserModel(TypeChooserValueProvider.class)
     public Type type;
 
@@ -613,6 +630,7 @@ public class RandomDataGeneratorSource extends BasePushSource {
         description = "Precision of the generated decimal.",
         min = 0,
         dependsOn = "type",
+        displayMode = ConfigDef.DisplayMode.BASIC,
         triggeredByValue = "DECIMAL"
     )
     public long precision;
@@ -625,6 +643,7 @@ public class RandomDataGeneratorSource extends BasePushSource {
         description = "Scale of the generated decimal.",
         min = 0,
         dependsOn = "type",
+        displayMode = ConfigDef.DisplayMode.BASIC,
         triggeredByValue = "DECIMAL"
     )
     public int scale;

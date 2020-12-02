@@ -15,33 +15,32 @@
  */
 package com.streamsets.datacollector.http;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.net.URL;
-import java.net.UnknownHostException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
-import java.security.Principal;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import javax.security.auth.Subject;
-import javax.security.auth.login.AppConfigurationEntry;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
+import com.codahale.metrics.jetty9.InstrumentedHandler;
+import com.codahale.metrics.jetty9.InstrumentedQueuedThreadPool;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.streamsets.datacollector.activation.Activation;
+import com.streamsets.datacollector.activation.ActivationAuthenticator;
+import com.streamsets.datacollector.main.BuildInfo;
+import com.streamsets.datacollector.main.RuntimeInfo;
+import com.streamsets.datacollector.restapi.WebServerAgentCondition;
+import com.streamsets.datacollector.task.AbstractTask;
+import com.streamsets.datacollector.util.Configuration;
+import com.streamsets.lib.security.RegistrationResponseJson;
+import com.streamsets.lib.security.http.DisconnectedSSOManager;
+import com.streamsets.lib.security.http.DisconnectedSSOService;
+import com.streamsets.lib.security.http.FailoverSSOService;
+import com.streamsets.lib.security.http.LimitedMethodServer;
+import com.streamsets.lib.security.http.ProxySSOService;
+import com.streamsets.lib.security.http.RegistrationResponseDelegate;
+import com.streamsets.lib.security.http.RemoteSSOService;
+import com.streamsets.lib.security.http.SSOAuthenticator;
+import com.streamsets.lib.security.http.SSOConstants;
+import com.streamsets.lib.security.http.SSOService;
+import com.streamsets.lib.security.http.SSOUtils;
+import com.streamsets.pipeline.api.impl.Utils;
 import org.eclipse.jetty.alpn.server.ALPNServerConnectionFactory;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http2.HTTP2Cipher;
@@ -81,29 +80,32 @@ import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.streamsets.datacollector.activation.Activation;
-import com.streamsets.datacollector.activation.ActivationAuthenticator;
-import com.streamsets.datacollector.main.BuildInfo;
-import com.streamsets.datacollector.main.RuntimeInfo;
-import com.streamsets.datacollector.restapi.WebServerAgentCondition;
-import com.streamsets.datacollector.task.AbstractTask;
-import com.streamsets.datacollector.util.Configuration;
-import com.streamsets.lib.security.RegistrationResponseJson;
-import com.streamsets.lib.security.http.DisconnectedSSOManager;
-import com.streamsets.lib.security.http.DisconnectedSSOService;
-import com.streamsets.lib.security.http.FailoverSSOService;
-import com.streamsets.lib.security.http.ProxySSOService;
-import com.streamsets.lib.security.http.RegistrationResponseDelegate;
-import com.streamsets.lib.security.http.RemoteSSOService;
-import com.streamsets.lib.security.http.SSOAuthenticator;
-import com.streamsets.lib.security.http.SSOConstants;
-import com.streamsets.lib.security.http.SSOService;
-import com.streamsets.lib.security.http.SSOUtils;
-import com.streamsets.pipeline.api.impl.Utils;
+import javax.security.auth.Subject;
+import javax.security.auth.login.AppConfigurationEntry;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.File;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URL;
+import java.net.UnknownHostException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
+import java.security.Principal;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Automatic security configuration based on URL paths:
@@ -190,6 +192,7 @@ public abstract class WebServerTask extends AbstractTask implements Registration
   private Server redirector;
   private SessionHandler sessionHandler;
   Map<String, Set<String>> roleMapping;
+  AsterContext asterContext;
 
   public WebServerTask(
       BuildInfo buildInfo,
@@ -197,9 +200,10 @@ public abstract class WebServerTask extends AbstractTask implements Registration
       Configuration conf,
       Activation activation,
       Set<ContextConfigurator> contextConfigurators,
-      Set<WebAppProvider> webAppProviders
+      Set<WebAppProvider> webAppProviders,
+      AsterContext asterContext
   ) {
-    this("webserver", buildInfo, runtimeInfo, conf, activation, contextConfigurators, webAppProviders);
+    this("webserver", buildInfo, runtimeInfo, conf, activation, contextConfigurators, webAppProviders, asterContext);
   }
 
   public WebServerTask(
@@ -209,7 +213,8 @@ public abstract class WebServerTask extends AbstractTask implements Registration
       Configuration conf,
       Activation activation,
       Set<ContextConfigurator> contextConfigurators,
-      Set<WebAppProvider> webAppProviders
+      Set<WebAppProvider> webAppProviders,
+      AsterContext asterContext
   ) {
     super("webServer");
     this.serverName = serverName;
@@ -219,6 +224,7 @@ public abstract class WebServerTask extends AbstractTask implements Registration
     this.activation = activation;
     this.webAppProviders = webAppProviders;
     this.contextConfigurators = contextConfigurators;
+    this.asterContext = asterContext;
   }
 
   protected RuntimeInfo getRuntimeInfo() {
@@ -265,13 +271,26 @@ public abstract class WebServerTask extends AbstractTask implements Registration
 
       appHandler.setSecurityHandler(createSecurityHandler(server, appConf, appHandler, contextPath));
       contextPaths.add(contextPath);
-      appHandlers.addHandler(appHandler);
+      final InstrumentedHandler instrumentedAppHandler = new InstrumentedHandler(
+          getRuntimeInfo().getMetrics(),
+          appHandler.getClass().getPackage().getName() + appHandler.getContextPath().replace('/', '.')
+      );
+      instrumentedAppHandler.setHandler(appHandler);
+      instrumentedAppHandler.setServer(server);
+
+      appHandlers.addHandler(instrumentedAppHandler);
     }
 
     ServletContextHandler appHandler = configureRootContext(sessionHandler);
     appHandler.setSecurityHandler(createSecurityHandler(server, conf, appHandler, "/"));
     Handler handler = configureRedirectionRules(appHandler);
-    appHandlers.addHandler(handler);
+    final InstrumentedHandler instrumentedHandler = new InstrumentedHandler(
+        getRuntimeInfo().getMetrics(),
+        String.format("%s.%s.%s", handler.getClass().getPackage().getName(), serverName, "root")
+    );
+    instrumentedHandler.setHandler(handler);
+    instrumentedHandler.setServer(server);
+    appHandlers.addHandler(instrumentedHandler);
 
     server.setHandler(appHandlers);
 
@@ -318,6 +337,11 @@ public abstract class WebServerTask extends AbstractTask implements Registration
 
     uiRewriteRule = new RewriteRegexRule();
     uiRewriteRule.setRegex("^/sch/.*");
+    uiRewriteRule.setReplacement("/");
+    handler.addRule(uiRewriteRule);
+
+    uiRewriteRule = new RewriteRegexRule();
+    uiRewriteRule.setRegex("^/onBoarding/.*");
     uiRewriteRule.setReplacement("/");
     handler.addRule(uiRewriteRule);
 
@@ -411,7 +435,7 @@ public abstract class WebServerTask extends AbstractTask implements Registration
     ConstraintSecurityHandler securityHandler;
     String auth = conf.get(AUTHENTICATION_KEY, AUTHENTICATION_DEFAULT);
     boolean isDPMEnabled = runtimeInfo.isDPMEnabled();
-    if (isDPMEnabled) {
+    if (isDPMEnabled && !runtimeInfo.isRemoteSsoDisabled()) {
       securityHandler = configureSSO(appConf, appHandler, appContext);
     } else {
       switch (auth) {
@@ -424,6 +448,19 @@ public abstract class WebServerTask extends AbstractTask implements Registration
           break;
         case "form":
           securityHandler = configureForm(appConf, server, auth);
+          break;
+        case "aster":
+          if (runtimeInfo.isEmbedded()) {
+            // For Transformer  if it is the driver (i.e runtimeInfo.isEmbedded() == true)
+            // then we disable ASTER (embedded attributed only used by TF)
+            LOG.trace("Aster configured but disabled because - this is an embedded instance");
+            conf.set(WebServerTask.AUTHENTICATION_KEY, "form");
+            // fallback to form
+            securityHandler = configureForm(appConf, server, "form");
+          } else {
+            // Aster should be configured
+            securityHandler = configureAsterSSO(appConf);
+          }
           break;
         default:
           throw new RuntimeException(Utils.format("Invalid authentication mode '{}', must be one of '{}'",
@@ -543,8 +580,44 @@ public abstract class WebServerTask extends AbstractTask implements Registration
     // registering ssoService with runtime, to enable cache flushing
     ((List)getRuntimeInfo().getAttribute(SSO_SERVICES_ATTR)).add(proxySsoService);
     appHandler.getServletContext().setAttribute(SSOService.SSO_SERVICE_KEY, proxySsoService);
-    security.setAuthenticator(injectActivationCheck(new SSOAuthenticator(appContext, proxySsoService, appConf)));
+    security.setAuthenticator(injectActivationCheck(new SSOAuthenticator(
+        appContext,
+        proxySsoService,
+        appConf,
+        runtimeInfo.getProductName()
+    )));
     return security;
+  }
+
+  URL convertFileToUrl(File file) {
+    try {
+      return file.toURI().toURL();
+    } catch (MalformedURLException ex) {
+      throw new IllegalArgumentException(ex);
+    }
+  }
+
+  // As this plays with classloaders created from dist locations it is not possible to unit test easily.
+  @SuppressWarnings("unchecked")
+  @VisibleForTesting
+  ConstraintSecurityHandler configureAsterSSO(final Configuration appConf) {
+    LOG.debug("Configure Aster integration");
+    if (asterContext.isEnabled()) {
+      ConstraintSecurityHandler security = new ConstraintSecurityHandler();
+      // Set the Aster authenticator in the Jetty security constraint handler and return the handler.
+      Authenticator authenticator = asterContext.getAuthenticator();
+      if (runtimeInfo.isClusterSlave()) {
+        // Bypass activation check, anyway slaves can't be started without a valid activation
+        // on the gateway SDC
+        security.setAuthenticator(authenticator);
+      } else {
+        // Inject activation check mainly for non slave SDC
+        security.setAuthenticator(injectActivationCheck(authenticator));
+      }
+      return security;
+    } else {
+      throw new RuntimeException("Aster not enabled");
+    }
   }
 
   protected Authenticator injectActivationCheck(Authenticator authenticator) {
@@ -579,7 +652,8 @@ public abstract class WebServerTask extends AbstractTask implements Registration
     return security;
   }
 
-  private ConstraintSecurityHandler configureForm(Configuration conf, Server server, String mode) {
+  @VisibleForTesting
+  ConstraintSecurityHandler configureForm(Configuration conf, Server server, String mode) {
     ConstraintSecurityHandler securityHandler = new ConstraintSecurityHandler();
 
     LoginService loginService = getLoginService(conf, mode);
@@ -621,10 +695,13 @@ public abstract class WebServerTask extends AbstractTask implements Registration
 
     String hostname = conf.get(HTTP_BIND_HOST, HTTP_BIND_HOST_DEFAULT);
 
-    QueuedThreadPool qtp = new QueuedThreadPool(conf.get(HTTP_MAX_THREADS, HTTP_MAX_THREADS_DEFAULT));
+    QueuedThreadPool qtp = new InstrumentedQueuedThreadPool(
+        getRuntimeInfo().getMetrics(),
+        conf.get(HTTP_MAX_THREADS, HTTP_MAX_THREADS_DEFAULT)
+    );
     qtp.setName(serverName);
     qtp.setDaemon(true);
-    Server server = new Server(qtp);
+    Server server = new LimitedMethodServer(qtp);
 
     httpConf = configureForwardRequestCustomizer(httpConf);
 
@@ -639,7 +716,7 @@ public abstract class WebServerTask extends AbstractTask implements Registration
       HttpConfiguration httpsConf = new HttpConfiguration(httpConf);
       httpsConf.addCustomizer(new SecureRequestCustomizer());
 
-      SslContextFactory sslContextFactory = createSslContextFactory();
+      SslContextFactory.Server sslContextFactory = createSslContextFactory();
       SslConnectionFactory ssl;
       ServerConnector httpsConnector;
 
@@ -663,8 +740,8 @@ public abstract class WebServerTask extends AbstractTask implements Registration
     return server;
   }
 
-  protected SslContextFactory createSslContextFactory() {
-    SslContextFactory sslContextFactory = new SslContextFactory();
+  protected SslContextFactory.Server createSslContextFactory() {
+    SslContextFactory.Server sslContextFactory = new SslContextFactory.Server();
     File keyStore = getHttpsKeystore(conf, runtimeInfo.getConfigDir());
     if (!keyStore.exists()) {
       throw new RuntimeException(Utils.format("KeyStore file '{}' does not exist", keyStore.getPath()));
@@ -742,7 +819,7 @@ public abstract class WebServerTask extends AbstractTask implements Registration
     QueuedThreadPool qtp = new QueuedThreadPool(25);
     qtp.setName(serverName + "Redirector");
     qtp.setDaemon(true);
-    Server server = new Server(qtp);
+    Server server = new LimitedMethodServer(qtp);
     InetSocketAddress addr = new InetSocketAddress(hostname, unsecurePort);
     ServerConnector connector = new ServerConnector(server);
     connector.setHost(addr.getHostName());
@@ -788,6 +865,9 @@ public abstract class WebServerTask extends AbstractTask implements Registration
 
   @Override
   protected void runTask() {
+    if (runtimeInfo.isEmbedded()) {
+      return;
+    }
     runTaskInternal();
     try {
       WebServerAgentCondition.waitForCredentials();
@@ -804,21 +884,28 @@ public abstract class WebServerTask extends AbstractTask implements Registration
       server.start();
       port = server.getURI().getPort();
       sessionHandler.setSessionCookie(JSESSIONID_COOKIE + port);
-      if(runtimeInfo.getBaseHttpUrl().equals(RuntimeInfo.UNDEF)) {
-        try {
-          String baseHttpUrl = "http://";
-          if (isSSLEnabled()) {
-            baseHttpUrl = "https://";
-          }
-          String hostname = conf.get(HTTP_BIND_HOST, HTTP_BIND_HOST_DEFAULT);
-          baseHttpUrl += !"0.0.0.0".equals(hostname) ? hostname : InetAddress.getLocalHost().getCanonicalHostName();
-          baseHttpUrl += ":" + port;
-          runtimeInfo.setBaseHttpUrl(baseHttpUrl);
-        } catch(UnknownHostException ex) {
-          LOG.debug("Exception during hostname resolution: {}", ex);
-          runtimeInfo.setBaseHttpUrl(server.getURI().toString());
+
+      try {
+        String baseHttpUrl = "http://";
+        if (isSSLEnabled()) {
+          baseHttpUrl = "https://";
         }
+        String hostname = conf.get(HTTP_BIND_HOST, HTTP_BIND_HOST_DEFAULT);
+        baseHttpUrl += !"0.0.0.0".equals(hostname) ? hostname : InetAddress.getLocalHost().getCanonicalHostName();
+        baseHttpUrl += ":" + port;
+        if (runtimeInfo.getBaseHttpUrl().equals(RuntimeInfo.UNDEF)) {
+          runtimeInfo.setBaseHttpUrl(baseHttpUrl);
+        }
+        runtimeInfo.setOriginalHttpUrl(baseHttpUrl);
+      } catch(UnknownHostException ex) {
+        LOG.debug("Exception during hostname resolution: {0}", ex);
+        String baseHttpUrl = server.getURI().toString();
+        if (runtimeInfo.getBaseHttpUrl().equals(RuntimeInfo.UNDEF)) {
+          runtimeInfo.setBaseHttpUrl(baseHttpUrl);
+        }
+        runtimeInfo.setOriginalHttpUrl(baseHttpUrl);
       }
+
       System.out.println(Utils.format("Running on URI : '{}'", getHttpUrl()));
       LOG.info("Running on URI : '{}'", getHttpUrl());
       for (Connector connector : server.getConnectors()) {
@@ -854,7 +941,9 @@ public abstract class WebServerTask extends AbstractTask implements Registration
   @Override
   protected void stopTask() {
     try {
-      server.stop();
+      if(server != null) {
+        server.stop();
+      }
     } catch (Exception ex) {
       LOG.error("Error while stopping Jetty, {}", ex.toString(), ex);
     } finally {

@@ -16,7 +16,10 @@
 package com.streamsets.pipeline.lib.tls;
 
 import com.google.common.base.Strings;
+import com.streamsets.datacollector.security.KeyStoreBuilder;
 import com.streamsets.pipeline.api.ConfigDef;
+import com.streamsets.pipeline.api.Dependency;
+import com.streamsets.pipeline.api.ListBeanModel;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageException;
 import com.streamsets.pipeline.api.ValueChooserModel;
@@ -40,12 +43,14 @@ import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class TlsConfigBean {
 
@@ -76,9 +81,24 @@ public class TlsConfigBean {
       label = "Use TLS",
       description = "Enable transport layer security for this stage.",
       displayPosition = DISPLAY_POSITION_OFFSET + 0,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   public boolean tlsEnabled;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "Use Remote Keystore",
+      description = "Use a keystore built from a specified private key and certificate chain instead of loading from a local file",
+      displayPosition = DISPLAY_POSITION_OFFSET + 15,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "#0",
+      dependsOn = "tlsEnabled",
+      triggeredByValue = "true"
+  )
+  public boolean useRemoteKeyStore;
 
   @ConfigDef(
       required = false,
@@ -87,22 +107,59 @@ public class TlsConfigBean {
           + "directory.",
       label = "Keystore File",
       displayPosition = DISPLAY_POSITION_OFFSET + 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
-      dependsOn = "tlsEnabled",
-      triggeredByValue = "true"
+      dependencies = {
+          @Dependency(configName = "tlsEnabled", triggeredByValues = "true"),
+          @Dependency(configName = "useRemoteKeyStore", triggeredByValues = "false")
+      }
   )
   public String keyStoreFilePath;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.CREDENTIAL,
+      description = "Private key used in the keystore",
+      label = "Private Key",
+      displayPosition = DISPLAY_POSITION_OFFSET + 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "#0",
+      dependencies = {
+          @Dependency(configName = "tlsEnabled", triggeredByValues = "true"),
+          @Dependency(configName = "useRemoteKeyStore", triggeredByValues = "true")
+      }
+  )
+  public CredentialValue privateKey;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      description = "Certificate chain used in the keystore",
+      label = "Certificate Chain",
+      displayPosition = DISPLAY_POSITION_OFFSET + 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "#0",
+      dependencies = {
+          @Dependency(configName = "tlsEnabled", triggeredByValues = "true"),
+          @Dependency(configName = "useRemoteKeyStore", triggeredByValues = "true")
+      }
+  )
+  @ListBeanModel
+  public List<CredentialValueBean> certificateChain = new ArrayList<>();
 
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.MODEL,
       defaultValue = "JKS",
       label = "Keystore Type",
-      description = "The type of certificate/key scheme to use for the key tore.",
-      displayPosition = DISPLAY_POSITION_OFFSET + 50,
+      description = "The type of certificate/key scheme to use for the keystore.",
+      displayPosition = DISPLAY_POSITION_OFFSET + 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
-      dependsOn = "tlsEnabled",
-      triggeredByValue = "true"
+      dependencies = {
+          @Dependency(configName = "tlsEnabled", triggeredByValues = "true"),
+          @Dependency(configName = "useRemoteKeyStore", triggeredByValues = "false")
+      }
   )
   @ValueChooserModel(KeyStoreTypeChooserValues.class)
   public KeyStoreType keyStoreType = KeyStoreType.JKS;
@@ -113,10 +170,13 @@ public class TlsConfigBean {
       description = "The password to the keystore file, if applicable.  Using a password is highly recommended for "
           + "security reasons.",
       label = "Keystore Password",
-      displayPosition = DISPLAY_POSITION_OFFSET + 70,
+      displayPosition = DISPLAY_POSITION_OFFSET + 80,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
-      dependsOn = "tlsEnabled",
-      triggeredByValue = "true"
+      dependencies = {
+          @Dependency(configName = "tlsEnabled", triggeredByValues = "true"),
+          @Dependency(configName = "useRemoteKeyStore", triggeredByValues = "false")
+      }
   )
   public CredentialValue keyStorePassword = () -> "";
 
@@ -126,7 +186,8 @@ public class TlsConfigBean {
       label = "Keystore Key Algorithm",
       description = "The key manager algorithm to use with the keystore.",
       defaultValue = DEFAULT_KEY_MANAGER_ALGORITHM,
-      displayPosition = DISPLAY_POSITION_OFFSET + 80,
+      displayPosition = DISPLAY_POSITION_OFFSET + 90,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
       dependsOn = "tlsEnabled",
       triggeredByValue = "true"
@@ -135,16 +196,48 @@ public class TlsConfigBean {
 
   @ConfigDef(
       required = false,
+      type = ConfigDef.Type.BOOLEAN,
+      description = "Use a truststore built from a specified private key and certificate chain instead of loading from a local file",
+      label = "Use Remote Truststore",
+      displayPosition = DISPLAY_POSITION_OFFSET + 110,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "#0",
+      dependsOn = "tlsEnabled",
+      triggeredByValue = "true"
+  )
+  public boolean useRemoteTrustStore;
+
+  @ConfigDef(
+      required = false,
       type = ConfigDef.Type.STRING,
       description = "The path to the truststore file.  Absolute path, or relative to the Data Collector resources "
           + "directory.",
       label = "Truststore File",
       displayPosition = DISPLAY_POSITION_OFFSET + 120,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
-      dependsOn = "tlsEnabled",
-      triggeredByValue = "true"
+      dependencies = {
+          @Dependency(configName = "tlsEnabled", triggeredByValues = "true"),
+          @Dependency(configName = "useRemoteTrustStore", triggeredByValues = "false")
+      }
   )
   public String trustStoreFilePath;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.MODEL,
+      description = "Trusted certificates used in the truststore",
+      label = "Trusted Certificates",
+      displayPosition = DISPLAY_POSITION_OFFSET + 130,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "#0",
+      dependencies = {
+          @Dependency(configName = "tlsEnabled", triggeredByValues = "true"),
+          @Dependency(configName = "useRemoteTrustStore", triggeredByValues = "true")
+      }
+  )
+  @ListBeanModel
+  public List<CredentialValueBean> trustedCertificates = new ArrayList<>();
 
   @ConfigDef(
       required = true,
@@ -153,9 +246,12 @@ public class TlsConfigBean {
       label = "Truststore Type",
       description = "The type of certificate/key scheme to use for the truststore.",
       displayPosition = DISPLAY_POSITION_OFFSET + 150,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
-      dependsOn = "tlsEnabled",
-      triggeredByValue = "true"
+      dependencies = {
+          @Dependency(configName = "tlsEnabled", triggeredByValues = "true"),
+          @Dependency(configName = "useRemoteTrustStore", triggeredByValues = "false")
+      }
   )
   @ValueChooserModel(KeyStoreTypeChooserValues.class)
   public KeyStoreType trustStoreType = KeyStoreType.JKS;
@@ -167,9 +263,12 @@ public class TlsConfigBean {
           + "security reasons.",
       label = "Truststore Password",
       displayPosition = DISPLAY_POSITION_OFFSET + 170,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
-      dependsOn = "tlsEnabled",
-      triggeredByValue = "true"
+      dependencies = {
+          @Dependency(configName = "tlsEnabled", triggeredByValues = "true"),
+          @Dependency(configName = "useRemoteTrustStore", triggeredByValues = "false")
+      }
   )
   public CredentialValue trustStorePassword;
 
@@ -180,6 +279,7 @@ public class TlsConfigBean {
       description = "The key manager algorithm to use with the truststore.",
       defaultValue = DEFAULT_KEY_MANAGER_ALGORITHM,
       displayPosition = DISPLAY_POSITION_OFFSET + 180,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
       dependsOn = "tlsEnabled",
       triggeredByValue = "true"
@@ -194,6 +294,7 @@ public class TlsConfigBean {
           "can be overridden if special circumstances require it.",
       defaultValue = "true",
       displayPosition = DISPLAY_POSITION_OFFSET + 300,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
       dependsOn = "tlsEnabled",
       triggeredByValue = "true"
@@ -206,8 +307,8 @@ public class TlsConfigBean {
       label = "Transport Protocols",
       description = "The transport protocols to enable for connections (ex: TLSv1.2, TLSv1.1, etc.).",
       displayPosition = DISPLAY_POSITION_OFFSET + 310,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
-      defaultValue = "[]",
       dependsOn = "useDefaultProtocols",
       triggeredByValue = "false"
   )
@@ -221,6 +322,7 @@ public class TlsConfigBean {
           "overridden if special circumstances require it.",
       defaultValue = "true",
       displayPosition = DISPLAY_POSITION_OFFSET + 350,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
       dependsOn = "tlsEnabled",
       triggeredByValue = "true"
@@ -233,8 +335,8 @@ public class TlsConfigBean {
       label = "Cipher Suites",
       description = "The cipher suites for connections (ex: TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, etc.).",
       displayPosition = DISPLAY_POSITION_OFFSET + 360,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0",
-      defaultValue = "[]",
       dependsOn = "useDefaultCiperSuites",
       triggeredByValue = "false"
   )
@@ -283,11 +385,11 @@ public class TlsConfigBean {
   }
 
   public boolean hasKeyStore() {
-    return !Strings.isNullOrEmpty(keyStoreFilePath);
+    return !Strings.isNullOrEmpty(keyStoreFilePath) || useRemoteKeyStore;
   }
 
   public boolean hasTrustStore() {
-    return !Strings.isNullOrEmpty(trustStoreFilePath);
+    return !Strings.isNullOrEmpty(trustStoreFilePath) || useRemoteTrustStore;
   }
 
   public boolean isEnabled() {
@@ -413,21 +515,40 @@ public class TlsConfigBean {
       String configPrefix,
       List<Stage.ConfigIssue> issues
   ) {
-    final Path keyStorePath = getFilePath(
-        context.getResourcesDirectory(),
-        keyStoreFilePath,
-        pathRelativeToResourcesDir
-    );
 
-    keyStore = initializeKeyStoreFromConfig(context,
-        groupName,
-        configPrefix,
-        issues,
-        keyStorePath,
-        keyStorePassword,
-        keyStoreType,
-        "Key"
-    );
+    if (useRemoteKeyStore) {
+      if (certificateChain.isEmpty()) {
+        issues.add(context.createConfigIssue(
+            groupName,
+            configPrefix + "certificateChain",
+            TlsConfigErrors.TLS_60
+        ));
+      } else {
+        keyStore = new KeyStoreBuilder()
+            .addCertificatePem(certificateChain.get(0).get())
+            .addPrivateKey(
+                privateKey.get(),
+                "",
+                certificateChain.stream().map(CredentialValue::get).collect(Collectors.toList())
+            ).build();
+      }
+    } else {
+      final Path keyStorePath = getFilePath(context.getResourcesDirectory(),
+          keyStoreFilePath,
+          pathRelativeToResourcesDir
+      );
+
+      keyStore = initializeKeyStoreFromConfig(context,
+          groupName,
+          configPrefix,
+          issues,
+          keyStorePath,
+          keyStorePassword,
+          keyStoreType,
+          "Key"
+      );
+    }
+
     if (keyStore == null) {
       return null;
     }
@@ -468,22 +589,27 @@ public class TlsConfigBean {
       String configPrefix,
       List<Stage.ConfigIssue> issues
   ) {
-    final Path trustStorePath = getFilePath(
-        context.getResourcesDirectory(),
-        trustStoreFilePath,
-        pathRelativeToResourcesDir
-    );
 
-    trustStore = initializeKeyStoreFromConfig(
-        context,
-        groupName,
-        configPrefix,
-        issues,
-        trustStorePath,
-        trustStorePassword,
-        trustStoreType,
-        "Trust"
-    );
+    if (useRemoteTrustStore) {
+      KeyStoreBuilder builder = new KeyStoreBuilder();
+      trustedCertificates.forEach(cert -> builder.addCertificatePem(cert.get()));
+      trustStore = builder.build();
+    } else {
+      final Path trustStorePath = getFilePath(context.getResourcesDirectory(),
+          trustStoreFilePath,
+          pathRelativeToResourcesDir
+      );
+
+      trustStore = initializeKeyStoreFromConfig(context,
+          groupName,
+          configPrefix,
+          issues,
+          trustStorePath,
+          trustStorePassword,
+          trustStoreType,
+          "Trust"
+      );
+    }
     if (trustStore == null) {
       return null;
     }
@@ -555,6 +681,16 @@ public class TlsConfigBean {
       KeyStoreType type,
       String storeCategory
   ) {
+    if (keyStorePath.toString().contains(" ")) {
+      issues.add(context.createConfigIssue(
+          groupName,
+          configPrefix + storeCategory.toLowerCase() + "StoreFilePath",
+          TlsConfigErrors.TLS_02,
+          keyStorePath,
+          storeCategory.toLowerCase()
+      ));
+      return null;
+    }
     if (!keyStorePath.toFile().exists()) {
       issues.add(context.createConfigIssue(
           groupName,

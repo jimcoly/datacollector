@@ -53,10 +53,10 @@ public class Configs {
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.LIST,
-      defaultValue = "[]",
       label = "SDC RPC Connection",
       description = "Connection information for the destination pipeline. Use the format <host>:<port>.",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "RPC"
   )
   public List<String> hostPorts;
@@ -67,6 +67,7 @@ public class Configs {
       label = "SDC RPC ID",
       description = "User-defined ID. Must match the SDC RPC ID used in the SDC RPC origin of the destination pipeline.",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "RPC"
   )
   public CredentialValue appId;
@@ -78,6 +79,7 @@ public class Configs {
       label = "Verify Host In Server Certificate",
       description = "Disables server certificate hostname verification",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "RPC",
       dependsOn = "tlsConfigBean.tlsEnabled",
       triggeredByValue = "true"
@@ -90,6 +92,7 @@ public class Configs {
       defaultValue = "3",
       label = "Retries per Batch",
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED",
       min = 0,
       max = Integer.MAX_VALUE
@@ -105,6 +108,7 @@ public class Configs {
         " done after 10 milliseconds, second retry after additional 100 milliseconds, third retry after additional second, ..." +
         " The maximum wait time is 5 minutes.",
       displayPosition = 80,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED",
       min=0
   )
@@ -116,6 +120,7 @@ public class Configs {
       defaultValue = "5000",
       label = "Connection Timeout (ms)",
       displayPosition = 90,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED",
       min = 100
   )
@@ -127,6 +132,7 @@ public class Configs {
       defaultValue = "2000",
       label = "Read Timeout (ms)",
       displayPosition = 100,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED",
       min = 100
   )
@@ -138,6 +144,7 @@ public class Configs {
       defaultValue = "true",
       label = "Use Compression",
       displayPosition = 110,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED"
   )
   public boolean compression;

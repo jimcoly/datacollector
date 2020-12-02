@@ -32,7 +32,8 @@ import java.util.List;
     description = "IP address geolocation using a Maxmind GeoIP2 database file",
     icon="globe.png",
     onlineHelpRefUrl ="index.html?contextID=task_wpz_nhs_ns",
-    upgrader = GeolocationProcessorUpgrader.class
+    upgrader = GeolocationProcessorUpgrader.class,
+    upgraderDef = "upgrader/GeolocationDProcessor.yaml"
 )
 @ConfigGroups(Groups.class)
 @GenerateResourceBundle
@@ -45,6 +46,7 @@ public class GeolocationDProcessor extends DProcessor {
       label = "GeoIP2 Databases",
       description = "MaxMind GeoIP2 database file paths and database types.",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "GEOLOCATION"
   )
   @ListBeanModel
@@ -57,6 +59,7 @@ public class GeolocationDProcessor extends DProcessor {
     label = "Database Field Mappings",
     description = "Mappings of database fields to record fields.",
     displayPosition = 20,
+    displayMode = ConfigDef.DisplayMode.BASIC,
     group = "GEOLOCATION"
   )
   @ListBeanModel
@@ -69,6 +72,7 @@ public class GeolocationDProcessor extends DProcessor {
       label = "Missing Address Action",
       description = "Action to perform on record if IP address is missing from database",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "GEOLOCATION"
   )
   @ValueChooserModel(GeolocationMissingAddressEnumChooserValues.class)

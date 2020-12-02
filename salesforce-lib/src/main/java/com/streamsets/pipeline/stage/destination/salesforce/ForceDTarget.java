@@ -25,11 +25,12 @@ import com.streamsets.pipeline.api.base.configurablestage.DTarget;
 import com.streamsets.pipeline.lib.salesforce.ForceTargetConfigBean;
 
 @StageDef(
-    version = 1,
+    version = 3,
     label = "Salesforce",
     description = "Writes data to Salesforce",
     icon = "salesforce.png",
     recordsByRef = true,
+    upgraderDef = "upgrader/ForceDTarget.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_ncv_153_rx"
 )
 

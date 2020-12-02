@@ -20,17 +20,20 @@ import com.icegreen.greenmail.util.GreenMail;
 import com.icegreen.greenmail.util.GreenMailUtil;
 import com.streamsets.datacollector.event.dto.PipelineStartEvent;
 import com.streamsets.datacollector.execution.AbstractRunner;
-import com.streamsets.datacollector.execution.Manager;
 import com.streamsets.datacollector.execution.PipelineState;
 import com.streamsets.datacollector.execution.PipelineStateStore;
 import com.streamsets.datacollector.execution.PipelineStatus;
+import com.streamsets.datacollector.execution.PreviewStatus;
+import com.streamsets.datacollector.execution.Previewer;
 import com.streamsets.datacollector.execution.Runner;
 import com.streamsets.datacollector.execution.Snapshot;
 import com.streamsets.datacollector.execution.SnapshotInfo;
 import com.streamsets.datacollector.execution.StartPipelineContextBuilder;
 import com.streamsets.datacollector.execution.StateListener;
 import com.streamsets.datacollector.execution.common.ExecutorConstants;
+import com.streamsets.datacollector.execution.manager.PreviewerProvider;
 import com.streamsets.datacollector.execution.manager.standalone.StandaloneAndClusterPipelineManager;
+import com.streamsets.datacollector.execution.metrics.MetricsEventRunnable;
 import com.streamsets.datacollector.execution.runner.common.AsyncRunner;
 import com.streamsets.datacollector.execution.runner.common.PipelineRunnerException;
 import com.streamsets.datacollector.execution.runner.standalone.StandaloneRunner;
@@ -39,7 +42,9 @@ import com.streamsets.datacollector.main.RuntimeModule;
 import com.streamsets.datacollector.main.StandaloneRuntimeInfo;
 import com.streamsets.datacollector.record.RecordImpl;
 import com.streamsets.datacollector.runner.MockStages;
+import com.streamsets.datacollector.runner.PipelineRuntimeException;
 import com.streamsets.datacollector.runner.production.OffsetFileUtil;
+import com.streamsets.datacollector.usagestats.StatsCollector;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.datacollector.util.ContainerError;
 import com.streamsets.datacollector.util.PipelineDirectoryUtil;
@@ -55,10 +60,14 @@ import dagger.ObjectGraph;
 import dagger.Provides;
 import org.apache.commons.io.FileUtils;
 import org.awaitility.Duration;
+import org.awaitility.core.ConditionTimeoutException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Matchers;
+import org.mockito.Mockito;
+import org.mockito.internal.util.reflection.Whitebox;
 
 import javax.inject.Singleton;
 import java.io.File;
@@ -70,6 +79,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ScheduledFuture;
 
 import static com.streamsets.datacollector.util.AwaitConditionUtil.desiredPipelineState;
 import static org.awaitility.Awaitility.await;
@@ -78,14 +88,17 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class TestStandaloneRunner {
 
   private static final String DATA_DIR_KEY = RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.DATA_DIR;
 
   private File dataDir;
-  private Manager pipelineManager;
+  private ObjectGraph objectGraph;
+  private StandaloneAndClusterPipelineManager pipelineManager;
   private PipelineStateStore pipelineStateStore;
+  private StatsCollector statsCollector;
 
   @Before
   public void setUp() throws IOException {
@@ -95,13 +108,18 @@ public class TestStandaloneRunner {
     System.setProperty(DATA_DIR_KEY, dataDir.getAbsolutePath());
     TestUtil.captureStagesForProductionRun();
     TestUtil.EMPTY_OFFSET = false;
-    RuntimeInfo info = new StandaloneRuntimeInfo(RuntimeModule.SDC_PROPERTY_PREFIX, new MetricRegistry(),
-        Arrays.asList(getClass().getClassLoader()));
+    RuntimeInfo info = new StandaloneRuntimeInfo(
+        RuntimeInfo.SDC_PRODUCT,
+        RuntimeModule.SDC_PROPERTY_PREFIX,
+        new MetricRegistry(),
+        Arrays.asList(getClass().getClassLoader())
+    );
     Files.createDirectories(PipelineDirectoryUtil.getPipelineDir(info, TestUtil.MY_PIPELINE, "0").toPath());
     OffsetFileUtil.saveOffsets(info, TestUtil.MY_PIPELINE, "0", Collections.singletonMap(Source.POLL_SOURCE_OFFSET_KEY, "dummy"));
-    ObjectGraph objectGraph = ObjectGraph.create(new TestUtil.TestPipelineManagerModule());
+    objectGraph = ObjectGraph.create(new TestUtil.TestPipelineManagerModule());
     pipelineStateStore = objectGraph.get(PipelineStateStore.class);
     pipelineManager = new StandaloneAndClusterPipelineManager(objectGraph);
+    statsCollector = objectGraph.get(StatsCollector.class);
     pipelineManager.init();
     pipelineManager.run();
   }
@@ -109,12 +127,15 @@ public class TestStandaloneRunner {
   @After
   public void tearDown() throws Exception {
     TestUtil.EMPTY_OFFSET = false;
-    if (pipelineManager != null) {
-      pipelineManager.stop();
+    try {
+      if (pipelineManager != null) {
+        pipelineManager.stop();
+      }
+    } finally {
+      TestUtil.EMPTY_OFFSET = false;
+      System.getProperties().remove(DATA_DIR_KEY);
+      await().atMost(Duration.ONE_MINUTE).until(() -> FileUtils.deleteQuietly(dataDir));
     }
-    TestUtil.EMPTY_OFFSET = false;
-    System.getProperties().remove(DATA_DIR_KEY);
-    await().atMost(Duration.ONE_MINUTE).until(() -> FileUtils.deleteQuietly(dataDir));
   }
 
   @Test(timeout = 20000)
@@ -122,9 +143,13 @@ public class TestStandaloneRunner {
     Runner runner = pipelineManager.getRunner( TestUtil.MY_PIPELINE, "0");
     runner.start(new StartPipelineContextBuilder("admin").build());
     waitForState(runner, PipelineStatus.RUNNING);
+    Assert.assertNotNull(statsCollector);
+    // Once from StandaloneRunner, another time from ProductionPipeline, since state is not centrally managed or reported
+    Mockito.verify(statsCollector).pipelineStatusChanged(Matchers.eq(PipelineStatus.RUNNING), Matchers.any(), Matchers.any());
     runner.getRunner(AsyncRunner.class).getDelegatingRunner().prepareForStop("admin");
     runner.getRunner(AsyncRunner.class).getDelegatingRunner().stop("admin");
     waitForState(runner, PipelineStatus.STOPPED);
+    Mockito.verify(statsCollector).pipelineStatusChanged(Matchers.eq(PipelineStatus.STOPPED), Matchers.any(), Matchers.any());
   }
 
   @Test(timeout = 20000)
@@ -219,17 +244,37 @@ public class TestStandaloneRunner {
       ExecutionMode.STANDALONE, null, 0, 0);
     runner.prepareForDataCollectorStart("admin");
     assertEquals(PipelineStatus.DISCONNECTED, runner.getState().getStatus());
-    pipelineStateStore.saveState("admin", TestUtil.MY_PIPELINE, "0", PipelineStatus.STOPPED, null, null,
+    pipelineStateStore.saveState("admin", TestUtil.MY_PIPELINE, "0", PipelineStatus.STOPPED, "test save STOPPED", null,
       ExecutionMode.STANDALONE, null, 0, 0);
     runner.start(new StartPipelineContextBuilder("admin").build());
     assertEquals(PipelineStatus.STARTING, runner.getState().getStatus());
+    /* TODO wait for RUNNING below should not be necessary. Without it, however, the following events occur:
+     * Start thread                                     Stop thread (via async runner)
+     * 1. ProductionPipeline transitions to STARTING
+     *                                                  2. In main thread, transitions state to STOPPING.
+     *
+     * 3. PP tries to transition to RUNNING, fails
+     * 4. PP checks PipelineRunner.stop, gets false.
+     *    Has no handle to the current status (ie
+     *    cannot observe that #2 occurred)
+     * 5. PP transitions to RUN_ERROR (forced) when
+     *    it is supposed to transition to STOPPED
+     *                                                  6. Asynchronously, sets PipelineRunner.stop (too late!)
+     *
+     * We have a race condition between start and stop and no locking to protect it. Though PipelineRunner.stop is
+     * volatile, it is set after the transition to STOPPING so it doesn't help in this race. If the stop thread
+     * completes both steps atomically then there is never a problem, but these are two separate interface methods.
+     */
+    waitForState(runner, PipelineStatus.RUNNING);
+    runner.stop("admin");
+    waitForState(runner, PipelineStatus.STOPPED);
     pipelineStateStore.saveState("admin", TestUtil.MY_PIPELINE, "0", PipelineStatus.STOPPED, null, null,
       ExecutionMode.STANDALONE, null, 0, 0);
     assertNull(runner.getState().getMetrics());
     pipelineStateStore.saveState("admin", TestUtil.MY_PIPELINE, "0", PipelineStatus.RETRY, null, null,
       ExecutionMode.STANDALONE, null, 0, 0);
     runner.start(new StartPipelineContextBuilder("admin").build());
-    assertTrue("Unexpectd state: " + runner.getState().getStatus(), runner.getState().getStatus().isOneOf(PipelineStatus.STARTING, PipelineStatus.RUNNING));
+    assertTrue("Unexpected state: " + runner.getState().getStatus(), runner.getState().getStatus().isOneOf(PipelineStatus.STARTING, PipelineStatus.RUNNING));
   }
 
   @Test
@@ -356,6 +401,34 @@ public class TestStandaloneRunner {
   }
 
   @Test(timeout = 20000)
+  public void testStopDcWhenPipelineInRetry() throws Exception {
+    Runner runner = Mockito.spy(pipelineManager.getRunner( TestUtil.MY_PIPELINE, "0"));
+    ScheduledFuture<Void> retryFutureMock = Mockito.mock(ScheduledFuture.class);
+    Whitebox.setInternalState(runner.getRunner(AsyncRunner.class).getDelegatingRunner(), "retryFuture", retryFutureMock);
+    pipelineStateStore.saveState("admin", TestUtil.MY_PIPELINE, "0", PipelineStatus.RETRY, "test set RETRY", null,
+            ExecutionMode.STANDALONE, null, 0, 0);
+    runner.onDataCollectorStop("admin");
+    assertEquals(PipelineStatus.DISCONNECTED, runner.getState().getStatus());
+
+    // test forced transition
+    pipelineStateStore.saveState("admin", TestUtil.MY_PIPELINE, "0", PipelineStatus.RETRY, "test set RETRY", null,
+            ExecutionMode.STANDALONE, null, 0, 0);
+    // make it so when cancel is called, it simulates a concurrent thread transitioning to RUNNING_ERROR, which would
+    // cause failures if not for forcing the transition
+    Mockito.when(retryFutureMock.cancel(Mockito.anyBoolean())).thenAnswer(i -> {
+      try {
+        pipelineStateStore.saveState("admin", TestUtil.MY_PIPELINE, "0", PipelineStatus.RUNNING_ERROR,
+                "test concurrent STARTING", null, ExecutionMode.STANDALONE, null, 0, 0);
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+      return true;
+    });
+    runner.onDataCollectorStop("admin");
+    assertEquals(PipelineStatus.DISCONNECTED, runner.getState().getStatus());
+  }
+
+  @Test(timeout = 20000)
   public void testMultiplePipelineStartStop() throws Exception {
     Runner runner1 = pipelineManager.getRunner( TestUtil.MY_PIPELINE, "0");
     Runner runner2 = pipelineManager.getRunner( TestUtil.MY_SECOND_PIPELINE, "0");
@@ -429,8 +502,13 @@ public class TestStandaloneRunner {
     assertNotNull(runner2.getState().getMetrics());
   }
 
-  private void waitForState(Runner runner, PipelineStatus pipelineStatus) {
-    await().until(desiredPipelineState(runner, pipelineStatus));
+  private void waitForState(Runner runner, PipelineStatus pipelineStatus) throws Exception {
+    try {
+      await().until(desiredPipelineState(runner, pipelineStatus));
+    } catch (ConditionTimeoutException e) {
+      fail(String.format("Failed to transition to status %s, current status is %s",
+              pipelineStatus, runner.getState().getStatus()));
+    }
   }
 
   @Test(timeout = 20000)
@@ -664,6 +742,106 @@ public class TestStandaloneRunner {
     Assert.assertNotNull(GreenMailUtil.getBody(mailServer.getReceivedMessages()[0]));
 
     mailServer.reset();
+  }
+
+  @Test(timeout = 20000)
+  public void testMetricsEventRunnableCalledOnFinishPipeline() throws Exception {
+    Runner runner = Mockito.spy(pipelineManager.getRunner( TestUtil.PIPELINE_WITH_EMAIL, "0"));
+    StandaloneRunner standaloneRunner = Mockito.spy(runner.getRunner(StandaloneRunner.class));
+    MetricsEventRunnable metricsEventRunnable =  Mockito.mock(MetricsEventRunnable.class);
+    Mockito.doNothing().when(metricsEventRunnable).run();
+    Whitebox.setInternalState(standaloneRunner, "metricsEventRunnable", metricsEventRunnable);
+    standaloneRunner.stateChanged(PipelineStatus.STARTING, "", Collections.emptyMap());
+    standaloneRunner.stateChanged(PipelineStatus.RUNNING, "", Collections.emptyMap());
+    standaloneRunner.stateChanged(PipelineStatus.FINISHING, "", Collections.emptyMap());
+    standaloneRunner.stateChanged(PipelineStatus.FINISHED, "", Collections.emptyMap());
+    Mockito.verify(metricsEventRunnable, Mockito.times(1)).onStopOrFinishPipeline();
+  }
+
+  @Test
+  public void testPreviewRegistersCorrectListener() throws Exception {
+    // the previewer is mocked, so we can only test registration and invoking the listener method separately
+    PreviewerProvider previewerProvider = objectGraph.get(PreviewerProvider.class);
+
+    pipelineManager.createPreviewer(
+        "user", TestUtil.MY_PIPELINE, "0", Collections.emptyList(), x -> null, false, new HashMap<>());
+
+    Mockito.verify(previewerProvider).createPreviewer(
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.anyString(),
+        Mockito.same(pipelineManager),
+        Mockito.same(objectGraph),
+        Mockito.anyListOf(PipelineStartEvent.InterceptorConfiguration.class),
+        Mockito.any(),
+        Mockito.anyBoolean(),
+        Mockito.anyMap()
+    );
+  }
+
+  @Test
+  public void testPreviewStateChangeUpdatesStats() throws Exception {
+    // the previewer is mocked, so we can only test registration and invoking the listener method separately
+    Previewer previewer = pipelineManager.createPreviewer(
+        "user", TestUtil.MY_PIPELINE, "0", Collections.emptyList(), x -> null, false, new HashMap<>());
+
+    pipelineManager.statusChange(previewer.getId(), PreviewStatus.VALIDATING);
+    Mockito.verify(statsCollector).previewStatusChanged(PreviewStatus.VALIDATING, previewer);
+  }
+
+  @Test
+  public void testTransitionValidation() throws Exception {
+    Runner runner = pipelineManager.getRunner( TestUtil.MY_PIPELINE, "0");
+    pipelineStateStore.saveState("admin", TestUtil.MY_PIPELINE, "0", PipelineStatus.FINISHED, null, null,
+            ExecutionMode.STANDALONE, null, 0, 0);
+    StandaloneRunner standaloneRunner = runner.getRunner(StandaloneRunner.class);
+    assertEquals(PipelineStatus.FINISHED, runner.getState().getStatus());
+    // can't transition from inactive state
+    try {
+      standaloneRunner.stateChanged(PipelineStatus.RUN_ERROR, "failed direct transition test", null);
+      fail("Expected exception due to invalid transition");
+    } catch (PipelineRuntimeException e) {
+      Assert.assertEquals(ContainerError.CONTAINER_0102, e.getErrorCode());
+    }
+    assertEquals(PipelineStatus.FINISHED, standaloneRunner.getState().getStatus());
+
+    // verify all public methods that do transitions that should be validated, but allowed when made directly
+    testTransitionHelper(standaloneRunner, PipelineStatus.STARTING,
+            () -> standaloneRunner.prepareForStart(new StartPipelineContextBuilder("admin").build()));
+    testTransitionHelper(standaloneRunner, PipelineStatus.RUNNING,
+            () -> standaloneRunner.start(new StartPipelineContextBuilder("admin").build()));
+    testTransitionHelper(standaloneRunner, PipelineStatus.RUNNING,
+            () -> standaloneRunner.startAndCaptureSnapshot(new StartPipelineContextBuilder("admin").build(),
+                    null, null, 1, 1));
+    testTransitionHelper(standaloneRunner, PipelineStatus.STOPPING,
+            () -> standaloneRunner.prepareForStop("admin"));
+    testTransitionHelper(standaloneRunner, PipelineStatus.STOPPED,
+            () -> standaloneRunner.stop("admin"));
+  }
+
+  private void testTransitionHelper(StandaloneRunner standaloneRunner,
+                                    PipelineStatus finalStatus,
+                                    TestRunnable callThatFails) throws Exception {
+    // can't transition from DISCONNECTING to anything but DISCONNECTED in public methods
+    pipelineStateStore.saveState("admin", TestUtil.MY_PIPELINE, "0", PipelineStatus.DISCONNECTING, null, null,
+            ExecutionMode.STANDALONE, null, 0, 0);
+    assertEquals(PipelineStatus.DISCONNECTING, standaloneRunner.getState().getStatus());
+    try {
+      callThatFails.run();
+      fail("Expected exception due to invalid transition");
+    } catch (PipelineRunnerException e) {
+      Assert.assertEquals(ContainerError.CONTAINER_0102, e.getErrorCode());
+    }
+    assertEquals(PipelineStatus.DISCONNECTING, standaloneRunner.getState().getStatus());
+
+    // internal transitions should go through
+    standaloneRunner.stateChanged(finalStatus, "successful direct transition", null);
+    assertEquals(finalStatus, standaloneRunner.getState().getStatus());
+  }
+
+  @FunctionalInterface
+  interface TestRunnable {
+    void run() throws Exception;
   }
 
   @Module(overrides = true, library = true)

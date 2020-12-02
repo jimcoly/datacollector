@@ -23,12 +23,12 @@
   <parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-stage-lib-parent</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <relativePath>../stage-lib-parent</relativePath>
   </parent>
   <groupId>com.streamsets</groupId>
   <artifactId>streamsets-datacollector-mapr_6_0-mep4-lib</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector MapR 6.0.0 MEP 4Lib</description>
   <name>StreamSets Data Collector MapR 6.0.0 MEP 4 Lib</name>
   <packaging>jar</packaging>
@@ -40,6 +40,7 @@
     <hive.version>2.1.1-mapr-1710</hive.version>
     <zookeeper.version>3.4.5-mapr-1710</zookeeper.version>
     <spark.version>2.1.0-mapr-1707</spark.version>
+    <jackson.version>2.6.5</jackson.version>
  </properties>
 
   <dependencies>
@@ -192,6 +193,10 @@
           <groupId>javax.servlet</groupId>
           <artifactId>servlet-api</artifactId>
         </exclusion>
+        <exclusion>
+          <groupId>jdk.tools</groupId>
+          <artifactId>jdk.tools</artifactId>
+        </exclusion>
       </exclusions>
     </dependency>
 
@@ -292,7 +297,6 @@
     <dependency>
       <groupId>com.streamsets</groupId>
       <artifactId>streamsets-datacollector-spark-api</artifactId>
-      <version>${project.version}</version>
       <scope>compile</scope>
       <exclusions>
         <exclusion>
@@ -319,24 +323,12 @@
       <artifactId>streamsets-datacollector-spark-processor-protolib</artifactId>
       <version>${project.version}</version>
       <scope>compile</scope>
-      <exclusions>
-        <exclusion>
-          <artifactId>jackson-mapper-asl</artifactId>
-          <groupId>org.codehaus.jackson</groupId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.fasterxml.jackson.core</groupId>
-          <artifactId>jackson-core</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.fasterxml.jackson.core</groupId>
-          <artifactId>jackson-annotations</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.fasterxml.jackson.core</groupId>
-          <artifactId>jackson-databind</artifactId>
-        </exclusion>
-      </exclusions>
+    </dependency>
+
+    <dependency>
+      <groupId>com.fasterxml.jackson.module</groupId>
+      <artifactId>jackson-module-scala_2.11</artifactId>
+      <version>${jackson.version}</version>
     </dependency>
 
     <dependency>
@@ -362,6 +354,11 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-sql_2.11</artifactId>
+      <version>${spark.version}</version>
+    </dependency>
 
   </dependencies>
 
@@ -373,13 +370,6 @@
         <version>2.8.2</version>
         <configuration>
           <skip>true</skip>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <configuration>
-            <argLine>-Xmx1g</argLine>
         </configuration>
       </plugin>
     </plugins>

@@ -22,11 +22,13 @@ import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 /**
  * A {@link URLClassLoader} for application isolation. There are two
@@ -45,7 +47,8 @@ public class SDCClassLoader extends BlackListURLClassLoader {
       "com.streamsets.pipeline.api.",
       "com.streamsets.pipeline.container.",
       "org.slf4j.",
-      "org.apache.log4j."
+      "org.apache.log4j.",
+      "org.bouncycastle."
   };
 
   /**
@@ -145,7 +148,7 @@ public class SDCClassLoader extends BlackListURLClassLoader {
   }
 
   /**
-   * Arranges the urls in the following order:
+   * Sorts and arranges the urls in the following order:
    * <ul>
    *   <li>stage lib jars</li>
    *   <li>protolib jars</li>
@@ -160,6 +163,7 @@ public class SDCClassLoader extends BlackListURLClassLoader {
     List<URL> otherJars = new ArrayList<>();
     List<URL> protolibJars = new ArrayList<>();
     List<URL> stageLibjars = new ArrayList<>();
+    urls = urls.stream().sorted(Comparator.comparing(URL::toExternalForm)).collect(Collectors.toList());
     for (URL url : urls) {
       String str = url.toExternalForm();
       if (str.endsWith(".jar")) {
@@ -320,7 +324,8 @@ public class SDCClassLoader extends BlackListURLClassLoader {
   protected synchronized Class<?> loadClass(String name, boolean resolve)
     throws ClassNotFoundException {
     if (debug) {
-      System.err.println(getClass().getSimpleName() + " " + getName() + ": Loading class: " + name);
+      System.err.println("Thread " + Thread.currentThread().getId() + ": " + getClass().getSimpleName() + " " +
+          getName() + ": Loading class: " + name);
     }
 
     Class<?> c = findLoadedClass(name);
@@ -333,11 +338,13 @@ public class SDCClassLoader extends BlackListURLClassLoader {
       try {
         c = findClass(name);
         if (debug && c != null) {
-          System.err.println(getClass().getSimpleName() + " " + getName() + ": Loaded class: " + name + " ");
+          System.err.println("Thread " + Thread.currentThread().getId() + ": " + getClass().getSimpleName() + " " +
+              getName() + ": Loaded class: " + name + " ");
         }
       } catch (ClassNotFoundException e) {
         if (debug) {
-          System.err.println(getClass().getSimpleName() + " " + getName() + ": " + e);
+          System.err.println("Thread " + Thread.currentThread().getId() + ": " + getClass().getSimpleName() + " " +
+              getName() + ": " + e);
         }
         ex = e;
       }
@@ -352,7 +359,8 @@ public class SDCClassLoader extends BlackListURLClassLoader {
     if (c == null && (isSystemPackage || parentIsAPIClassLoader || !applicationPackage.isApplication(name))) {
       c = parent.loadClass(name);
       if (debug && c != null) {
-        System.err.println(getClass().getSimpleName() + " " + getName() + ": Loaded class from parent: " + name + " ");
+        System.err.println("Thread " + Thread.currentThread().getId() + ": " + getClass().getSimpleName() + " " +
+            getName() + ": Loaded class from parent: " + name + " ");
       }
     }
 
@@ -376,6 +384,13 @@ public class SDCClassLoader extends BlackListURLClassLoader {
     return new ContainerClassLoader("container-lib", "Container", containerURLs, apiCL,
       null, new SystemPackage(SYSTEM_API_CHILDREN_CLASSES),
       ApplicationPackage.get(apiCL.getParent()), false, true, false);
+
+  }
+
+  public static SDCClassLoader getAsterClassLoader(List<URL> asterJars, ClassLoader containerClassLoader) {
+    return new ContainerClassLoader("aster-client-lib", "Aster Client", asterJars, containerClassLoader,
+        null, new SystemPackage(SYSTEM_API_CHILDREN_CLASSES),
+        ApplicationPackage.get(containerClassLoader.getParent()), false, true, false);
 
   }
 

@@ -18,8 +18,11 @@ package com.streamsets.pipeline.stage.lib.kinesis;
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.client.builder.AwsClientBuilder;
+import com.amazonaws.regions.Regions;
+import com.amazonaws.services.dynamodbv2.model.BillingMode;
 import com.amazonaws.services.kinesis.AmazonKinesis;
 import com.amazonaws.services.kinesis.AmazonKinesisClientBuilder;
+import com.amazonaws.services.kinesis.clientlibrary.lib.worker.KinesisClientLibConfiguration;
 import com.amazonaws.services.kinesis.clientlibrary.types.UserRecord;
 import com.amazonaws.services.kinesis.model.GetRecordsRequest;
 import com.amazonaws.services.kinesis.model.GetRecordsResult;
@@ -30,11 +33,12 @@ import com.amazonaws.services.kinesis.model.Shard;
 import com.amazonaws.services.kinesis.model.StreamDescription;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageException;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
+import com.streamsets.pipeline.api.impl.Utils;
 import com.streamsets.pipeline.lib.parser.DataParser;
 import com.streamsets.pipeline.lib.parser.DataParserException;
 import com.streamsets.pipeline.lib.parser.DataParserFactory;
-import com.streamsets.pipeline.stage.lib.aws.AWSUtil;
+import com.streamsets.pipeline.stage.lib.aws.AWSKinesisUtil;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
 import com.streamsets.pipeline.stage.origin.kinesis.Groups;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +46,8 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -50,22 +56,27 @@ public class KinesisUtil {
 
   public static final int KB = 1024; // KiB
   public static final int ONE_MB = 1024 * KB; // MiB
+  private static final int MILLIS = 1000;
   public static final String KINESIS_CONFIG_BEAN = "kinesisConfig";
+  public static final String KINESIS_CONFIG_BEAN_CONNECTION = KINESIS_CONFIG_BEAN + ".connection";
   public static final String LEASE_TABLE_BEAN = "leaseTable";
+
+  public static final Pattern REGION_PATTERN = Pattern.compile(
+      "(?:https?://)?[\\w-]*\\.?kinesis\\.([\\w-]+)(?:\\.vpce)?\\.amazonaws\\.com");
 
   private KinesisUtil() {}
 
   /**
    * Checks for existence of the requested stream and adds
    * any configuration issues to the list.
-   * @param conf
+   * @param kinesisConnection
    * @param streamName
    * @param issues
    * @param context
    */
   public static long checkStreamExists(
       ClientConfiguration awsClientConfig,
-      KinesisConfigBean conf,
+      AwsKinesisStreamConnection kinesisConnection,
       String streamName,
       List<Stage.ConfigIssue> issues,
       Stage.Context context
@@ -73,22 +84,22 @@ public class KinesisUtil {
     long numShards = 0;
 
     try {
-      numShards = getShardCount(awsClientConfig, conf, streamName);
+      numShards = getShardCount(awsClientConfig, kinesisConnection, streamName, context);
     } catch (AmazonClientException|StageException e) {
       LOG.error(Errors.KINESIS_01.getMessage(), e.toString(), e);
-      issues.add(context.createConfigIssue(
-          Groups.KINESIS.name(),
-          KINESIS_CONFIG_BEAN + ".streamName", Errors.KINESIS_01, e.toString()
+      issues.add(context.createConfigIssue(Groups.KINESIS.name(),
+          KINESIS_CONFIG_BEAN + ".streamName",
+          Errors.KINESIS_01,
+          e.toString()
       ));
     }
     return numShards;
   }
 
   public static long getShardCount(
-    ClientConfiguration awsClientConfig,
-    KinesisConfigBean conf, String streamName
-  ) throws StageException {
-    AmazonKinesis kinesisClient = getKinesisClient(awsClientConfig, conf);
+      ClientConfiguration awsClientConfig, AwsKinesisStreamConnection conn, String streamName, Stage.Context context
+  ) {
+    AmazonKinesis kinesisClient = getKinesisClient(awsClientConfig, conn, context);
 
     try {
       long numShards = 0;
@@ -122,35 +133,42 @@ public class KinesisUtil {
     }
   }
 
-  private static AmazonKinesis getKinesisClient(ClientConfiguration awsClientConfig, KinesisConfigBean conf) throws StageException {
+  private static AmazonKinesis getKinesisClient(ClientConfiguration awsClientConfig, KinesisStreamConfigBean conf, Stage.Context context) {
+    return getKinesisClient(awsClientConfig, conf.connection, context);
+  }
 
-    AmazonKinesisClientBuilder builder = AmazonKinesisClientBuilder
-        .standard()
-        .withClientConfiguration(checkNotNull(awsClientConfig))
-        .withCredentials(AWSUtil.getCredentialsProvider(conf.awsConfig));
+  private static AmazonKinesis getKinesisClient(
+      ClientConfiguration awsClientConfig, AwsKinesisStreamConnection connection, Stage.Context context
+  ) {
+    AmazonKinesisClientBuilder builder = AmazonKinesisClientBuilder.standard().withClientConfiguration(checkNotNull(
+        awsClientConfig));
 
-    if (AwsRegion.OTHER == conf.region) {
-      builder.withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(conf.endpoint, null));
+    Regions region = Regions.DEFAULT_REGION;
+    if (AwsRegion.OTHER == connection.region) {
+      builder.withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(connection.endpoint, null));
     } else {
-      builder.withRegion(conf.region.getId());
+      region = Regions.fromName(connection.region.getId().toLowerCase());
+      builder.withRegion(region);
     }
 
-    return builder.build();
+    return builder.withCredentials(AWSKinesisUtil.getCredentialsProvider(connection.awsConfig, context, region)).build();
   }
 
   /**
    * Get the last shard Id in the given stream
    * In preview mode, kinesis source uses the last Shard Id to get records from kinesis
+   *
    * @param awsClientConfig generic AWS client configuration
    * @param conf
    * @param streamName
    */
   public static String getLastShardId(
       ClientConfiguration awsClientConfig,
-      KinesisConfigBean conf,
-      String streamName
-  ) throws StageException {
-    AmazonKinesis kinesisClient = getKinesisClient(awsClientConfig, conf);
+      KinesisStreamConfigBean conf,
+      String streamName,
+      Stage.Context context
+  ) {
+    AmazonKinesis kinesisClient = getKinesisClient(awsClientConfig, conf, context);
 
     String lastShardId = null;
     try {
@@ -176,11 +194,12 @@ public class KinesisUtil {
 
   public static List<com.amazonaws.services.kinesis.model.Record> getPreviewRecords(
       ClientConfiguration awsClientConfig,
-      KinesisConfigBean conf,
+      KinesisStreamConfigBean conf,
       int maxBatchSize,
-      GetShardIteratorRequest getShardIteratorRequest
-  ) throws StageException {
-    AmazonKinesis kinesisClient = getKinesisClient(awsClientConfig, conf);
+      GetShardIteratorRequest getShardIteratorRequest,
+      Stage.Context context
+  ) {
+    AmazonKinesis kinesisClient = getKinesisClient(awsClientConfig, conf, context);
 
     GetShardIteratorResult getShardIteratorResult = kinesisClient.getShardIterator(getShardIteratorRequest);
     String shardIterator = getShardIteratorResult.getShardIterator();
@@ -194,9 +213,7 @@ public class KinesisUtil {
   }
 
   public static List<com.streamsets.pipeline.api.Record> processKinesisRecord(
-      String shardId,
-      Record kRecord,
-      DataParserFactory parserFactory
+      String shardId, Record kRecord, DataParserFactory parserFactory
   ) throws DataParserException, IOException {
     final String recordId = createKinesisRecordId(shardId, kRecord);
     DataParser parser = parserFactory.getParser(recordId, kRecord.getData().array());
@@ -211,7 +228,76 @@ public class KinesisUtil {
   }
 
   public static String createKinesisRecordId(String shardId, com.amazonaws.services.kinesis.model.Record record) {
-    return shardId + "::" + record.getPartitionKey() + "::" + record.getSequenceNumber() + "::" + ((UserRecord)
-        record).getSubSequenceNumber();
+    return shardId + "::" + record.getPartitionKey() + "::" + record.getSequenceNumber() + "::" + (
+        (UserRecord) record
+    ).getSubSequenceNumber();
+  }
+
+  public static void addAdditionalKinesisClientConfiguration(
+      KinesisClientLibConfiguration conf, Map<String, String> additionalConfiguration, List<Stage.ConfigIssue> issues,
+      Stage.Context context
+  ) {
+    for (Map.Entry<String, String> property : additionalConfiguration.entrySet()) {
+      try {
+        switch (AdditionalClientConfiguration.getName(property.getKey())) {
+          case FAIL_OVER_TIME_MILLIS:
+            conf.withFailoverTimeMillis(Long.parseLong(property.getValue()));
+            break;
+          case TASK_BACKOFF_TIME_MILLIS:
+            conf.withTaskBackoffTimeMillis(Long.parseLong(property.getValue()));
+            break;
+          case METRICS_BUFFER_TIME_MILLIS:
+            conf.withMetricsBufferTimeMillis(Long.parseLong(property.getValue()));
+            break;
+          case METRICS_MAX_QUEUE_SIZE:
+            conf.withMetricsMaxQueueSize(Integer.parseInt(property.getValue()));
+            break;
+          case VALIDATE_SEQUENCE_NUMBER_BEFORE_CHECK_POINTING:
+            conf.withValidateSequenceNumberBeforeCheckpointing(Boolean.parseBoolean(property.getValue()));
+            break;
+          case SHUTDOWN_GRACE_MILLIS:
+            conf.withShutdownGraceMillis(Long.parseLong(property.getValue()));
+            break;
+          case BILLING_MODE:
+            BillingMode billingMode = BillingMode.fromValue(property.getValue());
+            conf.withBillingMode(billingMode);
+            break;
+          case TIME_OUT_IN_SECONDS:
+            conf.withTimeoutInSeconds(Integer.parseInt(property.getValue()));
+            break;
+          case RETRY_GET_RECORDS_IN_SECONDS:
+            conf.withRetryGetRecordsInSeconds(Integer.parseInt(property.getValue()));
+            break;
+          case MAX_GET_RECORDS_THREAD_POOL:
+            conf.withMaxGetRecordsThreadPool(Integer.parseInt(property.getValue()));
+            break;
+          case MAX_LEASE_RENEWAL_THREADS:
+            conf.withMaxLeaseRenewalThreads(Integer.parseInt(property.getValue()));
+            break;
+          case LOG_WARNING_FOR_TASK_AFTER_MILLIS:
+            conf.withLogWarningForTaskAfterMillis(Long.parseLong(property.getValue()));
+            break;
+          case LIST_SHARDS_BACK_OFF_TIME_IN_MILLIS:
+            conf.withListShardsBackoffTimeInMillis(Long.parseLong(property.getValue()));
+            break;
+          case MAX_LIST_SHARDS_RETRY_ATTEMPTS:
+            conf.withMaxListShardsRetryAttempts(Integer.parseInt(property.getValue()));
+            break;
+          case CLEAN_UP_LEASES_UPON_SHARD_COMPLETION:
+            conf.withCleanupLeasesUponShardCompletion(Boolean.parseBoolean(property.getValue()));
+            break;
+          default:
+            LOG.error(Errors.KINESIS_21.getMessage(), property.getKey());
+            break;
+        }
+      } catch (IllegalArgumentException ex) {
+        LOG.error(Utils.format(Errors.KINESIS_25.getMessage(), ex.toString()), ex);
+        issues.add(context.createConfigIssue(Groups.KINESIS.name(),
+            KINESIS_CONFIG_BEAN + ".kinesisConsumerConfigs",
+            Errors.KINESIS_25,
+            ex.toString()
+        ));
+      }
+    }
   }
 }

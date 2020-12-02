@@ -22,6 +22,7 @@ import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.PipelineFragmentConfiguration;
 import com.streamsets.datacollector.config.RuleDefinitions;
 import com.streamsets.datacollector.execution.StateEventListener;
+import com.streamsets.datacollector.restapi.bean.PipelineEnvelopeJson;
 import com.streamsets.datacollector.restapi.bean.UserJson;
 import com.streamsets.datacollector.store.AclStoreTask;
 import com.streamsets.datacollector.store.PipelineInfo;
@@ -91,10 +92,11 @@ public class AclPipelineStoreTask implements PipelineStoreTask {
       String pipelineTitle,
       String description,
       boolean isRemote,
-      boolean draft
+      boolean draft,
+      Map<String, Object> metadata
   ) throws PipelineException {
     PipelineConfiguration pipelineConf = pipelineStore
-        .create(user, pipelineId, pipelineTitle, description, isRemote, draft);
+        .create(user, pipelineId, pipelineTitle, description, isRemote, draft, metadata);
     if (!draft) {
       aclStore.createAcl(pipelineId, ResourceType.PIPELINE, System.currentTimeMillis(), user);
     }
@@ -131,10 +133,11 @@ public class AclPipelineStoreTask implements PipelineStoreTask {
       String name,
       String tag,
       String tagDescription,
-      PipelineConfiguration pipeline
+      PipelineConfiguration pipeline,
+      boolean encryptCredentials
   ) throws PipelineException {
     aclStore.validateWritePermission(name, currentUser);
-    return pipelineStore.save(user, name, tag, tagDescription, pipeline);
+    return pipelineStore.save(user, name, tag, tagDescription, pipeline, encryptCredentials);
   }
 
   @Override
@@ -162,7 +165,9 @@ public class AclPipelineStoreTask implements PipelineStoreTask {
       RuleDefinitions ruleDefinitions,
       boolean draft
   ) throws PipelineException {
-    aclStore.validateWritePermission(pipelineName, currentUser);
+    if (!draft) {
+      aclStore.validateWritePermission(pipelineName, currentUser);
+    }
     return pipelineStore.storeRules(pipelineName, tag, ruleDefinitions, draft);
   }
 
@@ -227,5 +232,15 @@ public class AclPipelineStoreTask implements PipelineStoreTask {
       boolean draft
   ) throws PipelineException {
     return pipelineStore.createPipelineFragment(user, pipelineId, pipelineTitle, description, draft);
+  }
+
+  @Override
+  public List<PipelineInfo> getSamplePipelines() throws PipelineStoreException {
+    return pipelineStore.getSamplePipelines();
+  }
+
+  @Override
+  public PipelineEnvelopeJson loadSamplePipeline(String samplePipelineId) throws PipelineException {
+    return pipelineStore.loadSamplePipeline(samplePipelineId);
   }
 }

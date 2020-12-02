@@ -34,7 +34,8 @@ import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.service.dataformats.DataFormatGeneratorService;
 import com.streamsets.pipeline.api.service.dataformats.WholeFileChecksumAlgorithm;
 import com.streamsets.pipeline.config.ChecksumAlgorithm;
-import com.streamsets.pipeline.lib.aws.AwsRegion;
+import com.streamsets.pipeline.stage.lib.aws.AwsRegion;
+import com.streamsets.pipeline.lib.event.WholeFileProcessedEvent;
 import com.streamsets.pipeline.lib.hashing.HashingUtil;
 import com.streamsets.pipeline.lib.io.fileref.FileRefUtil;
 import com.streamsets.pipeline.lib.io.fileref.LocalFileRef;
@@ -43,6 +44,7 @@ import com.streamsets.pipeline.sdk.TargetRunner;
 import com.streamsets.pipeline.sdk.service.SdkWholeFileDataFormatGeneratorService;
 import com.streamsets.pipeline.stage.common.AmazonS3TestSuite;
 import com.streamsets.pipeline.stage.common.TestUtil;
+import com.streamsets.pipeline.stage.common.s3.AwsS3Connection;
 import com.streamsets.pipeline.stage.lib.aws.AWSConfig;
 import com.streamsets.pipeline.stage.lib.aws.ProxyConfig;
 import com.streamsets.pipeline.stage.lib.aws.TransferManagerConfig;
@@ -268,15 +270,18 @@ public class TestAmazonS3TargetForWholeFile extends AmazonS3TestSuite {
 
   private AmazonS3Target createS3targetWithWholeFile() {
     S3ConnectionTargetConfig s3Config = new S3ConnectionTargetConfig();
-    s3Config.region = AwsRegion.OTHER;
-    s3Config.endpoint = "http://localhost:" + port;
+    s3Config.connection = new AwsS3Connection();
+    s3Config.connection.useRegion = true;
+    s3Config.connection.region = AwsRegion.OTHER;
+    s3Config.connection.endpoint = "http://localhost:" + port;
     s3Config.bucketTemplate = "${record:attribute('bucket')}";
-    s3Config.awsConfig = new AWSConfig();
-    s3Config.awsConfig.awsAccessKeyId = () -> "foo";
-    s3Config.awsConfig.awsSecretAccessKey = () -> "bar";
-    s3Config.awsConfig.disableChunkedEncoding = true;
+    s3Config.connection.awsConfig = new AWSConfig();
+    s3Config.connection.awsConfig.awsAccessKeyId = () -> "foo";
+    s3Config.connection.awsConfig.awsSecretAccessKey = () -> "bar";
+    s3Config.connection.awsConfig.disableChunkedEncoding = true;
     s3Config.commonPrefix = "";
     s3Config.delimiter = DELIMITER;
+    s3Config.connection.proxyConfig = new ProxyConfig();
 
     S3TargetConfigBean s3TargetConfigBean = new S3TargetConfigBean();
     s3TargetConfigBean.partitionTemplate = "";
@@ -285,11 +290,10 @@ public class TestAmazonS3TargetForWholeFile extends AmazonS3TestSuite {
     s3TargetConfigBean.timeZoneID = "UTC";
     s3TargetConfigBean.s3Config = s3Config;
     s3TargetConfigBean.sseConfig = new S3TargetSSEConfigBean();
-    s3TargetConfigBean.proxyConfig = new ProxyConfig();
     s3TargetConfigBean.tmConfig = new TransferManagerConfig();
     s3TargetConfigBean.tmConfig.threadPoolSize = 3;
 
-    return new AmazonS3Target(s3TargetConfigBean);
+    return new AmazonS3Target(s3TargetConfigBean, false);
   }
 
   private static void verifyStreamCorrectness(InputStream is1, InputStream is2) throws Exception {
@@ -358,11 +362,11 @@ public class TestAmazonS3TargetForWholeFile extends AmazonS3TestSuite {
             .getValueAsMap();
         Assert.assertEquals(targetFileInfo.get("bucket").getValueAsString(), TARGET_BUCKET_NAME);
 
-        Assert.assertTrue(eventRecord.has("/" + FileRefUtil.WHOLE_FILE_CHECKSUM_ALGO));
-        Assert.assertTrue(eventRecord.has("/" + FileRefUtil.WHOLE_FILE_CHECKSUM));
+        Assert.assertTrue(eventRecord.has("/" + WholeFileProcessedEvent.CHECKSUM_ALGORITHM));
+        Assert.assertTrue(eventRecord.has("/" + WholeFileProcessedEvent.CHECKSUM));
 
         Assert.assertEquals(checksumAlgorithm.name(),
-            eventRecord.get("/" + FileRefUtil.WHOLE_FILE_CHECKSUM_ALGO).getValueAsString()
+            eventRecord.get("/" + WholeFileProcessedEvent.CHECKSUM_ALGORITHM).getValueAsString()
         );
 
         //strip out the filePrefix sdc-
@@ -376,7 +380,7 @@ public class TestAmazonS3TargetForWholeFile extends AmazonS3TestSuite {
 
         String checksum = HashingUtil.getHasher(ChecksumAlgorithm.forApi(checksumAlgorithm).getHashType()).hashString(SAMPLE_TEXT_FOR_FILE.get(
             objectKey), Charset.defaultCharset()).toString();
-        Assert.assertEquals(checksum, eventRecord.get("/" + FileRefUtil.WHOLE_FILE_CHECKSUM).getValueAsString());
+        Assert.assertEquals(checksum, eventRecord.get("/" + WholeFileProcessedEvent.CHECKSUM).getValueAsString());
       }
     } finally {
       targetRunner.runDestroy();

@@ -24,8 +24,10 @@ import com.codahale.metrics.Timer;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.streamsets.datacollector.blobstore.BlobStoreRuntime;
+import com.streamsets.datacollector.creation.PipelineBeanCreator;
 import com.streamsets.datacollector.email.EmailSender;
 import com.streamsets.datacollector.lineage.LineagePublisherDelegator;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.metrics.MetricsConfigurator;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
@@ -60,9 +62,9 @@ public class InterceptorContext implements Interceptor.Context {
   private final Stage.UserContext userContext;
   private final boolean isPreview;
   private final MetricRegistry metrics;
-  private final long pipelineMaxMemory;
   private final ExecutionMode executionMode;
   private final DeliveryGuarantee deliveryGuarantee;
+  private final BuildInfo buildInfo;
   private final RuntimeInfo runtimeInfo;
   private final EmailSender emailSender;
   private final long startTime;
@@ -115,9 +117,9 @@ public class InterceptorContext implements Interceptor.Context {
     boolean isPreview,
     Stage.UserContext userContext,
     MetricRegistry metrics,
-    long pipelineMaxMemory,
     ExecutionMode executionMode,
     DeliveryGuarantee deliveryGuarantee,
+    BuildInfo buildInfo,
     RuntimeInfo runtimeInfo,
     EmailSender emailSender,
     long startTime,
@@ -137,13 +139,14 @@ public class InterceptorContext implements Interceptor.Context {
     this.rev = rev;
     this.userContext = userContext;
     this.metrics = metrics;
-    this.pipelineMaxMemory = pipelineMaxMemory;
     this.executionMode = executionMode;
     this.deliveryGuarantee = deliveryGuarantee;
+    this.buildInfo = buildInfo;
     this.runtimeInfo = runtimeInfo;
     this.emailSender = emailSender;
     this.startTime = startTime;
     this.lineagePublisherDelegator = lineagePublisherDelegator;
+    PipelineBeanCreator.prepareForConnections(configuration, runtimeInfo);
   }
 
   @Override
@@ -271,9 +274,9 @@ public class InterceptorContext implements Interceptor.Context {
           rev,
           userContext,
           metrics,
-          pipelineMaxMemory,
           executionMode,
           deliveryGuarantee,
+          buildInfo,
           runtimeInfo,
           emailSender,
           configuration,

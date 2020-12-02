@@ -18,6 +18,7 @@ package com.streamsets.pipeline.stage.destination.influxdb;
 import com.streamsets.pipeline.api.ConfigDef;
 import com.streamsets.pipeline.api.ConfigDefBean;
 import com.streamsets.pipeline.api.ValueChooserModel;
+import com.streamsets.pipeline.api.credential.CredentialValue;
 import org.influxdb.InfluxDB;
 
 public class InfluxConfigBean {
@@ -28,33 +29,37 @@ public class InfluxConfigBean {
       label = "URL",
       description = "InfluxDB HTTP API URL",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   public String url = "";
 
   @ConfigDef(
       required = true,
-      type = ConfigDef.Type.STRING,
+      type = ConfigDef.Type.CREDENTIAL,
       label = "Username",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
-  public String username = "";
+  public CredentialValue username = () -> "";
 
   @ConfigDef(
       required = true,
-      type = ConfigDef.Type.STRING,
+      type = ConfigDef.Type.CREDENTIAL,
       label = "Password",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
-  public String password = ""; // NOSONAR
+  public CredentialValue password = () -> ""; // NOSONAR
 
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.STRING,
       label = "Database Name",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   public String dbName = "";
@@ -66,6 +71,7 @@ public class InfluxConfigBean {
       description = "Automatically create a new database with the specified name if it does not already exist.",
       defaultValue = "false",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0"
   )
   public boolean autoCreate = false;
@@ -75,6 +81,7 @@ public class InfluxConfigBean {
       type = ConfigDef.Type.STRING,
       label = "Retention Policy",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   public String retentionPolicy = "";
@@ -85,6 +92,7 @@ public class InfluxConfigBean {
       label = "Consistency Level",
       defaultValue = "ALL",
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   @ValueChooserModel(ConsistencyLevelChooserValues.class)
@@ -96,6 +104,7 @@ public class InfluxConfigBean {
       label = "Record Mapping",
       description = "Converters take incoming records and transform them to an InfluxDB measurement.",
       displayPosition = 80,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   @ValueChooserModel(RecordConverterChooserValues.class)

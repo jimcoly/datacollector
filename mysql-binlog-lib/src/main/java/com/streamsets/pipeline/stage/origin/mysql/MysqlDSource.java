@@ -15,7 +15,11 @@
  */
 package com.streamsets.pipeline.stage.origin.mysql;
 
-import com.streamsets.pipeline.api.*;
+import com.streamsets.pipeline.api.ConfigDefBean;
+import com.streamsets.pipeline.api.ConfigGroups;
+import com.streamsets.pipeline.api.ExecutionMode;
+import com.streamsets.pipeline.api.GenerateResourceBundle;
+import com.streamsets.pipeline.api.StageDef;
 
 @StageDef(
     version = 2,
@@ -26,6 +30,7 @@ import com.streamsets.pipeline.api.*;
     resetOffset = true,
     recordsByRef = true,
     upgrader = MySqlSourceUpgrader.class,
+    upgraderDef = "upgrader/MysqlDSource.yaml",
     onlineHelpRefUrl = "index.html?contextID=task_qbt_kyh_xx"
 )
 @ConfigGroups(value = Groups.class)

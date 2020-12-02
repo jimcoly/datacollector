@@ -15,6 +15,7 @@
  */
 package com.streamsets.datacollector.stagelibrary;
 
+import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.streamsets.datacollector.config.ConfigDefinition;
@@ -26,12 +27,12 @@ import com.streamsets.datacollector.definition.StageLibraryDefinitionExtractor;
 import com.streamsets.datacollector.el.ElConstantDefinition;
 import com.streamsets.datacollector.el.ElFunctionDefinition;
 import com.streamsets.datacollector.main.BuildInfo;
-import com.streamsets.datacollector.main.DataCollectorBuildInfo;
+import com.streamsets.datacollector.main.ProductBuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.SdcConfiguration;
 import com.streamsets.datacollector.util.Configuration;
-
 import com.streamsets.pipeline.ApplicationPackage;
+import com.streamsets.pipeline.BootstrapMain;
 import com.streamsets.pipeline.SDCClassLoader;
 import com.streamsets.pipeline.SystemPackage;
 import org.junit.Assert;
@@ -92,11 +93,16 @@ public class TestClassLoaderStageLibraryTask {
     ClassLoader cl = new SDCClassLoader("library", "lib", Collections.<URL>emptyList(), getClass().getClassLoader(),
                                         new String[0], new SystemPackage(new String[0]),
                                         new ApplicationPackage(new TreeSet<String>()), false, false, false);
-    RuntimeInfo runtimeInfo = Mockito.mock(RuntimeInfo.class);
-    Mockito.when(runtimeInfo.getConfigDir()).thenReturn(configDir.getAbsolutePath());
+    RuntimeInfo runtimeInfo = mockRuntimeInfo(configDir);
     Mockito.when(runtimeInfo.getStageLibraryClassLoaders()).thenReturn((List) ImmutableList.of(cl));
+    Mockito.when(runtimeInfo.getMetrics()).thenReturn(new MetricRegistry());
+    final BuildInfo buildInfo = ProductBuildInfo.getDefault();
 
-    ClassLoaderStageLibraryTask library = new ClassLoaderStageLibraryTask(runtimeInfo, new DataCollectorBuildInfo(), new Configuration());
+    ClassLoaderStageLibraryTask library = new ClassLoaderStageLibraryTask(
+        runtimeInfo,
+        buildInfo,
+        new Configuration()
+    );
     library.initTask();
 
     Assert.assertEquals(1, library.getStages().size());
@@ -130,8 +136,7 @@ public class TestClassLoaderStageLibraryTask {
     Answer<InputStream> answer = invocation -> new ByteArrayInputStream("min.sdc.version=3.1.0.0\n".getBytes());
     Mockito.when(cl.getResourceAsStream(StageLibraryDefinitionExtractor.DATA_COLLECTOR_LIBRARY_PROPERTIES)).thenAnswer(answer);
 
-    RuntimeInfo runtimeInfo = Mockito.mock(RuntimeInfo.class);
-    Mockito.when(runtimeInfo.getConfigDir()).thenReturn(configDir.getAbsolutePath());
+    RuntimeInfo runtimeInfo = mockRuntimeInfo(configDir);
     Mockito.when(runtimeInfo.getStageLibraryClassLoaders()).thenReturn((List) ImmutableList.of(cl));
 
     BuildInfo buildInfo = Mockito.mock(BuildInfo.class);
@@ -141,8 +146,8 @@ public class TestClassLoaderStageLibraryTask {
     try {
       library.initTask();
       Assert.fail("Expected exception to be thrown");
-    } catch (IllegalArgumentException e) {
-      Assert.assertEquals("Can't load stage library 'default' as it requires at least SDC version 3.1.0.0 whereas current version is 3.0.0", e.getMessage());
+    } catch (RuntimeException e) {
+      Assert.assertEquals("At least one of the stage libraries failed to load.", e.getMessage());
     }
   }
 
@@ -161,6 +166,28 @@ public class TestClassLoaderStageLibraryTask {
 
     List<String> stageListWithIgnores = ImmutableList.of("a", "bar", "b", "c", "foo");
     Assert.assertEquals(stageList, library.removeIgnoreStagesFromList(libDef, stageListWithIgnores));
+  }
+
+  @Test
+  public void testIgnoreStagesCloud() throws Exception {
+    try {
+      System.setProperty("streamsets.cloud", "true");
+      ClassLoaderStageLibraryTask library = new ClassLoaderStageLibraryTask(null, null, new Configuration());
+
+      StageLibraryDefinition libDef = Mockito.mock(StageLibraryDefinition.class);
+      Mockito.when(libDef.getClassLoader()).thenReturn(Thread.currentThread().getContextClassLoader());
+      Set<String> ignoreList = library.loadIgnoreStagesList(libDef);
+
+      Assert.assertEquals(ImmutableSet.of("FOO", "BAR"), ignoreList);
+
+      List<String> stageList = ImmutableList.of("a", "b", "c");
+      Assert.assertEquals(stageList, library.removeIgnoreStagesFromList(libDef, stageList));
+
+      List<String> stageListWithIgnores = ImmutableList.of("a", "BAR", "b", "c", "FOO");
+      Assert.assertEquals(stageList, library.removeIgnoreStagesFromList(libDef, stageListWithIgnores));
+    } finally {
+      System.getProperties().remove("streamsets.cloud");
+    }
   }
 
   @Test(expected = RuntimeException.class)
@@ -208,5 +235,14 @@ public class TestClassLoaderStageLibraryTask {
     ClassLoaderStageLibraryTask library = new ClassLoaderStageLibraryTask(null, null, new Configuration());
 
     library.validateRequiredStageLibraries();
+  }
+
+  private static RuntimeInfo mockRuntimeInfo(File configDir) {
+    RuntimeInfo runtimeInfo = Mockito.mock(RuntimeInfo.class);
+    Mockito.when(runtimeInfo.getConfigDir()).thenReturn(configDir.getAbsolutePath());
+    Mockito.when(runtimeInfo.getProductName()).thenReturn("sdc");
+    Mockito.when(runtimeInfo.getPropertyPrefix()).thenReturn("sdc");
+    Mockito.when(runtimeInfo.getPropertiesFile()).thenCallRealMethod();
+    return runtimeInfo;
   }
 }

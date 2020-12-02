@@ -37,6 +37,7 @@ import com.streamsets.pipeline.api.impl.Utils;
 import com.streamsets.pipeline.lib.el.VaultEL;
 import org.apache.commons.lang3.StringUtils;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayDeque;
@@ -46,6 +47,7 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -75,11 +77,25 @@ public abstract class ConfigDefinitionExtractor {
     return cycles;
   }
 
+  /**
+   * We remove all shadowed fields, taking always the first one. The first is  the last shadowed occurrence
+   * as the Field.getFields() method traverses recursively first current then parent class (while the Javadocs
+   * clearly state the order is no guaranteed, given the implementation it is (we ride on that, if necessary we
+   * could do an implementation that does the class-superclass ordering).
+   */
+  List<Field> removeShadowedProperties(Field[] fields) {
+    Map<String, Field> map = new LinkedHashMap<>();
+    for (Field field : fields) {
+      map.putIfAbsent(field.getName(), field);
+    }
+    return new ArrayList<>(map.values());
+  }
+
   private List<ErrorMessage> validate(String configPrefix, Class klass, List<String> stageGroups,
       boolean validateDependencies, boolean isBean, boolean isComplexField, Object contextMsg) {
     List<ErrorMessage> errors = new ArrayList<>();
     boolean noConfigs = true;
-    for (Field field : klass.getFields()) {
+    for (Field field : removeShadowedProperties(klass.getFields())) {
       if (field.getAnnotation(ConfigDef.class) != null && field.getAnnotation(ConfigDefBean.class) != null) {
         errors.add(new ErrorMessage(DefinitionError.DEF_152, contextMsg, field.getName()));
       } else {
@@ -109,7 +125,7 @@ public abstract class ConfigDefinitionExtractor {
       errors.add(new ErrorMessage(DefinitionError.DEF_160, contextMsg));
     }
     if (errors.isEmpty() & validateDependencies) {
-      errors.addAll(validateDependencies(getConfigDefinitions(configPrefix, klass, stageGroups, contextMsg),
+      errors.addAll(validateDependencies(getConfigDefinitions(configPrefix, klass, stageGroups, contextMsg, null),
                                          contextMsg));
     }
     return errors;
@@ -156,16 +172,29 @@ public abstract class ConfigDefinitionExtractor {
   }
 
   private List<ConfigDefinition> getConfigDefinitions(String configPrefix, Class klass, List<String> stageGroups,
-      Object contextMsg) {
+      Object contextMsg, Dependency[] parentDependency) {
     List<ConfigDefinition> defs = new ArrayList<>();
-    for (Field field : klass.getFields()) {
+    for (Field field : removeShadowedProperties(klass.getFields())) {
       if (field.getAnnotation(ConfigDef.class) != null) {
         defs.add(extractConfigDef(configPrefix, stageGroups, field, Utils.formatL("{} Field='{}'", contextMsg,
-                                                                                  field.getName())));
+                                                                                  field.getName()), parentDependency));
       } else if (field.getAnnotation(ConfigDefBean.class) != null) {
         List<String> beanGroups = getGroups(field, stageGroups, contextMsg, new ArrayList<ErrorMessage>());
+
+        ConfigDefBean configDefBean = field.getAnnotation(ConfigDefBean.class);
+        Dependency[] dependency = configDefBean.dependencies();
+        // Propagate forward any grandparent (or higher) dependencies
+        if (parentDependency != null && parentDependency.length > 0) {
+          dependency = Arrays.copyOf(dependency, dependency.length + parentDependency.length);
+          for (int i = 0 ; i < parentDependency.length; i++) {
+            dependency[dependency.length - parentDependency.length + i] = createDependency(
+                    parentDependency[i].configName() + "^",
+                    parentDependency[i].triggeredByValues());
+          }
+        }
+
         defs.addAll(extract(configPrefix + field.getName() + ".", field.getType(), beanGroups, true,
-            Utils.formatL("{} BeanField='{}'", contextMsg, field.getName())));
+            Utils.formatL("{} BeanField='{}'", contextMsg, field.getName()), dependency));
       }
     }
     return defs;
@@ -176,16 +205,16 @@ public abstract class ConfigDefinitionExtractor {
   }
 
   public List<ConfigDefinition> extract(String configPrefix, Class klass, List<String> stageGroups, Object contextMsg) {
-    List<ConfigDefinition> defs = extract(configPrefix, klass, stageGroups, false, contextMsg);
+    List<ConfigDefinition> defs = extract(configPrefix, klass, stageGroups, false, contextMsg, null);
     resolveDependencies("", defs, contextMsg);
     return defs;
   }
 
   private List<ConfigDefinition> extract(String configPrefix, Class klass, List<String> stageGroups, boolean isBean,
-      Object contextMsg) {
+      Object contextMsg, Dependency[] parentDependency) {
     List<ErrorMessage> errors = validate(configPrefix, klass, stageGroups, false, isBean, false, contextMsg);
     if (errors.isEmpty()) {
-      return getConfigDefinitions(configPrefix, klass, stageGroups, contextMsg);
+      return getConfigDefinitions(configPrefix, klass, stageGroups, contextMsg, parentDependency);
     } else {
       throw new IllegalArgumentException(Utils.format("Invalid ConfigDefinition: {}", errors));
     }
@@ -421,7 +450,7 @@ public abstract class ConfigDefinitionExtractor {
   }
 
   @SuppressWarnings("unchecked")
-  ConfigDefinition extractConfigDef(String configPrefix, List<String> stageGroups, Field field, Object contextMsg) {
+  ConfigDefinition extractConfigDef(String configPrefix, List<String> stageGroups, Field field, Object contextMsg, Dependency[] parentDependency) {
     List<ErrorMessage> errors = validateConfigDef(configPrefix, stageGroups, field, false, contextMsg);
     if (errors.isEmpty()) {
       ConfigDefinition def = null;
@@ -429,9 +458,11 @@ public abstract class ConfigDefinitionExtractor {
       if (annotation != null) {
         String name = field.getName();
         ConfigDef.Type type = annotation.type();
+        ConfigDef.Upload upload = annotation.upload();
         String label = annotation.label();
         String description = annotation.description();
         Object defaultValue = ConfigValueExtractor.get().extract(field, annotation, contextMsg);
+        String defaultValueFromResource = annotation.defaultValueFromResource();
         boolean required = annotation.required();
         String group = annotation.group();
         group = resolveGroup(stageGroups, group, contextMsg, errors);
@@ -445,6 +476,11 @@ public abstract class ConfigDefinitionExtractor {
         for (Dependency dependency : dependencies) {
           if (!StringUtils.isEmpty(dependency.configName())) {
             dependsOnMap.put(resolveDependsOn(configPrefix, dependency.configName()), (List) Arrays.asList(dependency.triggeredByValues()));
+          }
+        }
+        if (parentDependency != null) {
+          for (Dependency parent : parentDependency) {
+            dependsOnMap.put(resolveDependsOn(configPrefix, parent.configName() + "^"), (List) Arrays.asList(parent.triggeredByValues()));
           }
         }
         ModelDefinition model = ModelDefinitionExtractor.get().extract(configPrefix + field.getName() + ".",
@@ -465,11 +501,13 @@ public abstract class ConfigDefinitionExtractor {
         String mode = (annotation.mode() != null) ? getMimeString(annotation.mode()) : null;
         int lines = annotation.lines();
         ConfigDef.Evaluation evaluation = annotation.evaluation();
+        String connectionType = annotation.connectionType();
 
-        def = new ConfigDefinition(field, configPrefix + name, type, label, description, defaultValue, required, group,
+        def = new ConfigDefinition(field, configPrefix + name, type, upload, label, description, defaultValue,
+                                   defaultValueFromResource, required, group,
                                    fieldName, model, dependsOn, triggeredByValues, displayPosition,
                                    elFunctionDefinitions, elConstantDefinitions, min, max, mode, lines, elDefs,
-                                   evaluation, dependsOnMap);
+                                   evaluation, dependsOnMap, annotation.displayMode(), connectionType);
       }
       return def;
     } else {
@@ -634,4 +672,22 @@ public abstract class ConfigDefinitionExtractor {
 
   }
 
+  private Dependency createDependency(String name, String[] triggeredByValues) {
+    return new Dependency() {
+      @Override
+      public String configName() {
+        return name;
+      }
+
+      @Override
+      public String[] triggeredByValues() {
+        return triggeredByValues;
+      }
+
+      @Override
+      public Class<? extends Annotation> annotationType() {
+        return Dependency.class;
+      }
+    };
+  }
 }

@@ -37,7 +37,8 @@ import java.util.List;
     icon="replacer.png",
     onlineHelpRefUrl ="index.html?contextID=task_ihq_ymf_zq",
     flags = StageBehaviorFlags.PURE_FUNCTION,
-    upgrader = FieldValueReplacerUpgrader.class
+    upgrader = FieldValueReplacerUpgrader.class,
+    upgraderDef = "upgrader/FieldValueReplacerDProcessor.yaml"
 )
 @ConfigGroups(Groups.class)
 @GenerateResourceBundle
@@ -51,6 +52,7 @@ public class FieldValueReplacerDProcessor extends DProcessor {
       label = "Fields to Null",
       description="Conditionally Replaces existing values with null values",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "REPLACE"
   )
   @ListBeanModel
@@ -63,6 +65,7 @@ public class FieldValueReplacerDProcessor extends DProcessor {
       label = "Replace Null Values",
       description="Replaces the null values in a field with a specified value.",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "REPLACE"
   )
   @ListBeanModel
@@ -75,6 +78,7 @@ public class FieldValueReplacerDProcessor extends DProcessor {
       label = "Field Does Not Exist",
       description="Action for data that does not contain the specified fields",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "REPLACE"
   )
   @ValueChooserModel(OnStagePreConditionFailureChooserValues.class)
@@ -87,6 +91,7 @@ public class FieldValueReplacerDProcessor extends DProcessor {
       label = "Conditionally Replace Values",
       description="Conditionally replaces values with new specified value.",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "REPLACE"
   )
   @ListBeanModel

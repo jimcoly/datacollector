@@ -16,9 +16,9 @@
 package com.streamsets.datacollector.execution.runner.common;
 
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.streamsets.datacollector.blobstore.BlobStoreTask;
-import com.streamsets.datacollector.config.MemoryLimitConfiguration;
-import com.streamsets.datacollector.config.MemoryLimitExceeded;
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.creation.PipelineConfigBean;
 import com.streamsets.datacollector.execution.PipelineStatus;
@@ -27,10 +27,10 @@ import com.streamsets.datacollector.execution.StateListener;
 import com.streamsets.datacollector.execution.snapshot.common.SnapshotInfoImpl;
 import com.streamsets.datacollector.execution.snapshot.file.FileSnapshotStore;
 import com.streamsets.datacollector.lineage.LineagePublisherTask;
+import com.streamsets.datacollector.main.BuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.RuntimeModule;
 import com.streamsets.datacollector.main.StandaloneRuntimeInfo;
-import com.streamsets.datacollector.memory.TestMemoryUsageCollector;
 import com.streamsets.datacollector.metrics.MetricsConfigurator;
 import com.streamsets.datacollector.runner.MockStages;
 import com.streamsets.datacollector.runner.PipeBatch;
@@ -71,6 +71,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mockito.Mockito;
+import org.powermock.reflect.Whitebox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,8 +100,8 @@ public class TestProductionPipeline {
   private static final String REVISION = "0";
   private static final String SNAPSHOT_NAME = "snapshot";
   private MetricRegistry runtimeInfoMetrics;
-  private MemoryLimitConfiguration memoryLimit;
   private RuntimeInfo runtimeInfo;
+  private BuildInfo buildInfo;
   private ProductionPipelineRunner lastCreatedRunner;
 
   // Private enum for this testcase to figure out which pipeline should be used for test
@@ -118,7 +119,6 @@ public class TestProductionPipeline {
     File f = new File(System.getProperty(RuntimeModule.SDC_PROPERTY_PREFIX + RuntimeInfo.DATA_DIR));
     FileUtils.deleteDirectory(f);
     TestUtil.captureMockStages();
-    TestMemoryUsageCollector.initalizeMemoryUtility();
   }
 
   @AfterClass
@@ -129,11 +129,16 @@ public class TestProductionPipeline {
   @Before
   public void setUp() {
     runtimeInfoMetrics = new MetricRegistry();
-    runtimeInfo = new StandaloneRuntimeInfo(RuntimeModule.SDC_PROPERTY_PREFIX, runtimeInfoMetrics,
-                                  Arrays.asList(getClass().getClassLoader()));
+    runtimeInfo = new StandaloneRuntimeInfo(
+        RuntimeInfo.SDC_PRODUCT,
+        RuntimeModule.SDC_PROPERTY_PREFIX,
+        runtimeInfoMetrics,
+        Arrays.asList(getClass().getClassLoader())
+    );
     runtimeInfo.init();
-    memoryLimit = new MemoryLimitConfiguration();
     MetricsConfigurator.registerJmxMetrics(runtimeInfoMetrics);
+    buildInfo = Mockito.mock(BuildInfo.class);
+    Mockito.when(buildInfo.getVersion()).thenReturn("3.17.0");
 
     MockStages.setSourceCapture(null);
     MockStages.setPushSourceCapture(null);
@@ -282,31 +287,6 @@ public class TestProductionPipeline {
   }
 
   @Test
-  public void testMemoryLimit() throws Exception {
-    memoryLimit = new MemoryLimitConfiguration(MemoryLimitExceeded.STOP_PIPELINE, 1);
-    SourceOffsetTrackerCapture capture = new SourceOffsetTrackerCapture() {
-      @Override
-      public String produce(String lastSourceOffset, int maxBatchSize, BatchMaker batchMaker) throws StageException {
-        try {
-          Thread.sleep(10000); // sleep enough time to get
-        } catch (InterruptedException e) {}
-        return super.produce(lastSourceOffset, maxBatchSize, batchMaker);
-      }
-    };
-    MockStages.setSourceCapture(capture);
-    ProductionPipeline pipeline = createProductionPipeline(DeliveryGuarantee.AT_MOST_ONCE, true, PipelineType.DEFAULT);
-    //Need sleep because the file system could truncate the time to the last second.
-    pipeline.registerStatusListener(new MyStateListener());
-    Thread.sleep(15000);
-    try {
-      pipeline.run();
-      Assert.fail("Expected PipelineRuntimeException");
-    } catch (PipelineRuntimeException e) {
-      Assert.assertEquals(ContainerError.CONTAINER_0011, e.getErrorCode());
-    }
-  }
-
-  @Test
   public void testNoRerunOnJVMError() throws Exception {
     SourceOffsetTrackerCapture capture = new SourceOffsetTrackerCapture() {
       @Override
@@ -410,19 +390,19 @@ public class TestProductionPipeline {
             System.currentTimeMillis(), false, 0, false));
     BlockingQueue<Object> productionObserveRequests = new ArrayBlockingQueue<>(100, true /* FIFO */);
     Configuration config = new Configuration();
-    config.set("monitor.memory", true);
     ProductionPipelineRunner runner = new ProductionPipelineRunner(
       PIPELINE_NAME,
       REVISION,
       null,
       config,
+      buildInfo,
       runtimeInfo,
       new MetricRegistry(),
       snapshotStore,
+      null,
       null
     );
     runner.setObserveRequests(productionObserveRequests);
-    runner.setMemoryLimitConfiguration(memoryLimit);
     runner.setDeliveryGuarantee(deliveryGuarantee);
     if (rateLimit > 0) {
       runner.setRateLimit(rateLimit);
@@ -452,6 +432,7 @@ public class TestProductionPipeline {
       REVISION,
       config,
       runtimeInfo,
+      buildInfo,
       MockStages.createStageLibrary(),
       runner,
       null,
@@ -859,13 +840,14 @@ public class TestProductionPipeline {
         REVISION,
         null,
         config,
+        buildInfo,
         runtimeInfo,
         new MetricRegistry(),
         snapshotStore,
-        null
+        null,
+      null
     );
     runner.setObserveRequests(productionObserveRequests);
-    runner.setMemoryLimitConfiguration(memoryLimit);
     runner.setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE);
     runner.setStatsAggregatorRequests(new ArrayBlockingQueue<>(1));
     runner.setOffsetTracker(tracker);
@@ -939,4 +921,58 @@ public class TestProductionPipeline {
     future.get();
   }
 
+  @Test
+  public void testShutdownTransitions() throws Exception {
+    ProductionPipeline pipeline = createProductionPipeline(DeliveryGuarantee.AT_LEAST_ONCE, false, PipelineType.DEFAULT);
+    List<PipelineStatus> transitionHistory = Lists.newArrayList();
+    StateListener stateListener = new StateListener() {
+      @Override
+      public void stateChanged(PipelineStatus pipelineStatus, String message, Map<String, Object> attributes)
+              throws PipelineRuntimeException {
+        transitionHistory.add(pipelineStatus);
+      }
+    };
+    pipeline.registerStatusListener(stateListener);
+    pipeline.run();
+
+    Assert.assertEquals(ImmutableList.of(
+            PipelineStatus.RUNNING,
+            PipelineStatus.FINISHING,
+            PipelineStatus.FINISHED
+    ), transitionHistory);
+  }
+
+  @Test
+  public void testShutdownTransitionsErrorOnDestroy() throws Exception {
+    ProductionPipeline pipeline = createProductionPipeline(DeliveryGuarantee.AT_LEAST_ONCE, false, PipelineType.DEFAULT);
+    List<PipelineStatus> transitionHistory = Lists.newArrayList();
+    StateListener stateListener = new StateListener() {
+      @Override
+      public void stateChanged(PipelineStatus pipelineStatus, String message, Map<String, Object> attributes)
+              throws PipelineRuntimeException {
+        transitionHistory.add(pipelineStatus);
+      }
+    };
+    pipeline.registerStatusListener(stateListener);
+    Pipeline origInnerPipeline = Whitebox.getInternalState(pipeline, "pipeline");
+    Pipeline spyInnerPipeline = Mockito.spy(origInnerPipeline);
+    RuntimeException testException = new RuntimeException("test exception");
+    try {
+      Whitebox.setInternalState(pipeline, "pipeline", spyInnerPipeline);
+      Mockito.doThrow(testException).when(spyInnerPipeline)
+              .destroy(Mockito.anyBoolean(), Mockito.any());
+      pipeline.run();
+      Assert.fail("expected exception");
+    } catch (RuntimeException e) {
+      Assert.assertSame(testException, e);
+    } finally {
+      Whitebox.setInternalState(pipeline, origInnerPipeline);
+    }
+    Assert.assertEquals(ImmutableList.of(
+            PipelineStatus.RUNNING,
+            PipelineStatus.FINISHING,
+            PipelineStatus.STOPPING_ERROR,
+            PipelineStatus.RETRY
+    ), transitionHistory);
+  }
 }

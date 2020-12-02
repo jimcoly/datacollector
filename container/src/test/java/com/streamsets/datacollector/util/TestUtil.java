@@ -19,6 +19,7 @@ import com.codahale.metrics.MetricRegistry;
 import com.icegreen.greenmail.util.GreenMail;
 import com.icegreen.greenmail.util.ServerSetup;
 import com.streamsets.datacollector.blobstore.BlobStoreTask;
+import com.streamsets.datacollector.config.ConnectionConfiguration;
 import com.streamsets.datacollector.config.DataRuleDefinition;
 import com.streamsets.datacollector.config.DriftRuleDefinition;
 import com.streamsets.datacollector.config.MetricsRuleDefinition;
@@ -28,6 +29,7 @@ import com.streamsets.datacollector.config.ThresholdType;
 import com.streamsets.datacollector.creation.RuleDefinitionsConfigBean;
 import com.streamsets.datacollector.credential.CredentialStoresTask;
 import com.streamsets.datacollector.email.EmailSender;
+import com.streamsets.datacollector.event.dto.PipelineStartEvent;
 import com.streamsets.datacollector.execution.EventListenerManager;
 import com.streamsets.datacollector.execution.PipelineStateStore;
 import com.streamsets.datacollector.execution.Previewer;
@@ -52,7 +54,7 @@ import com.streamsets.datacollector.execution.store.CachePipelineStateStore;
 import com.streamsets.datacollector.execution.store.FilePipelineStateStore;
 import com.streamsets.datacollector.lineage.LineagePublisherTask;
 import com.streamsets.datacollector.main.BuildInfo;
-import com.streamsets.datacollector.main.DataCollectorBuildInfo;
+import com.streamsets.datacollector.main.ProductBuildInfo;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.RuntimeModule;
 import com.streamsets.datacollector.main.StandaloneRuntimeInfo;
@@ -70,6 +72,8 @@ import com.streamsets.datacollector.store.PipelineStoreTask;
 import com.streamsets.datacollector.store.impl.FileAclStoreTask;
 import com.streamsets.datacollector.store.impl.FilePipelineStoreTask;
 import com.streamsets.datacollector.usagestats.StatsCollector;
+import com.streamsets.datacollector.util.credential.PipelineCredentialHandler;
+import com.streamsets.pipeline.BootstrapMain;
 import com.streamsets.pipeline.api.Batch;
 import com.streamsets.pipeline.api.BatchMaker;
 import com.streamsets.pipeline.api.Config;
@@ -102,6 +106,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.function.Function;
 
 public class TestUtil {
   public static final String USER = "user";
@@ -157,6 +162,10 @@ public class TestUtil {
     @Override
     public long getLastBatchTime() {
       return lastBatchTime;
+    }
+
+    @Override
+    public void resetOffset() {
     }
   }
 
@@ -343,8 +352,12 @@ public class TestUtil {
   @Module(
       injects = {PipelineStoreTask.class, Configuration.class},
       library = true,
-      includes = {TestRuntimeModule.class, TestStageLibraryModule.class,  TestCredentialStoreModule
-          .class, TestPipelineStateStoreModule.class }
+      includes = {
+          TestRuntimeModule.class,
+          TestStageLibraryModule.class,
+          TestCredentialStoreModule.class,
+          TestPipelineStateStoreModule.class
+      }
   )
   public static class TestPipelineStoreModuleNew {
 
@@ -353,15 +366,33 @@ public class TestUtil {
     }
 
     @Provides @Singleton
-    public PipelineStoreTask providePipelineStore(RuntimeInfo info, StageLibraryTask stageLibraryTask, PipelineStateStore pipelineStateStore) {
-      FilePipelineStoreTask pipelineStoreTask = new FilePipelineStoreTask(info, stageLibraryTask, pipelineStateStore, new LockCache<String>());
+    public PipelineStoreTask providePipelineStore(
+        BuildInfo buidInfo,
+        Configuration configuration,
+        RuntimeInfo runtimeInfo,
+        StageLibraryTask stageLibraryTask,
+        EventListenerManager eventListenerManager,
+        PipelineStateStore pipelineStateStore
+    ) {
+      FilePipelineStoreTask pipelineStoreTask = new FilePipelineStoreTask(
+          buidInfo,
+          runtimeInfo,
+          stageLibraryTask,
+          pipelineStateStore,
+          eventListenerManager,
+          new LockCache<>(),
+          Mockito.mock(PipelineCredentialHandler.class),
+          configuration
+      );
       pipelineStoreTask.init();
       try {
         //create an invalid pipeline
         //The if check is needed because the tests restart the pipeline manager. In that case the check prevents
         //us from trying to create the same pipeline again
         if(!pipelineStoreTask.hasPipeline("invalid")) {
-          pipelineStoreTask.create(USER, "invalid", "label" ,"invalid its empty", false, false);
+          pipelineStoreTask.create(USER, "invalid", "label" ,"invalid its empty", false, false,
+              new HashMap<String, Object>()
+          );
           PipelineConfiguration pipelineConf = pipelineStoreTask.load("invalid", PIPELINE_REV);
           PipelineConfiguration mockPipelineConf = MockStages.createPipelineConfigurationSourceTarget();
           pipelineConf.setErrorStage(mockPipelineConf.getErrorStage());
@@ -370,7 +401,9 @@ public class TestUtil {
         }
 
         if (!pipelineStoreTask.hasPipeline(MY_PIPELINE)) {
-          pipelineStoreTask.create(USER, MY_PIPELINE, "label" ,"description", false, false);
+          pipelineStoreTask.create(USER, MY_PIPELINE, "label" ,"description", false, false,
+              new HashMap<String, Object>()
+          );
           PipelineConfiguration pipelineConf = pipelineStoreTask.load(MY_PIPELINE, ZERO_REV);
           PipelineConfiguration mockPipelineConf = MockStages.createPipelineConfigurationSourceTarget();
           pipelineConf.setStages(mockPipelineConf.getStages());
@@ -378,7 +411,7 @@ public class TestUtil {
           pipelineConf.setStatsAggregatorStage(mockPipelineConf.getStatsAggregatorStage());
           pipelineConf.getConfiguration().add(new Config("executionMode", ExecutionMode.STANDALONE.name()));
           pipelineConf.getConfiguration().add(new Config("retryAttempts", 3));
-          pipelineStoreTask.save("admin", MY_PIPELINE, ZERO_REV, "description", pipelineConf);
+          pipelineStoreTask.save("admin", MY_PIPELINE, ZERO_REV, "description", pipelineConf, false);
 
           // create a DataRuleDefinition for one of the stages
           DataRuleDefinition dataRuleDefinition =
@@ -402,7 +435,9 @@ public class TestUtil {
         }
 
         if(!pipelineStoreTask.hasPipeline(MY_SECOND_PIPELINE)) {
-          pipelineStoreTask.create("user2", MY_SECOND_PIPELINE, "label" ,"description2", false, false);
+          pipelineStoreTask.create("user2", MY_SECOND_PIPELINE, "label" ,"description2", false, false,
+              new HashMap<String, Object>()
+          );
           PipelineConfiguration pipelineConf = pipelineStoreTask.load(MY_SECOND_PIPELINE, ZERO_REV);
           PipelineConfiguration mockPipelineConf = MockStages.createPipelineConfigurationSourceProcessorTarget();
           pipelineConf.setStages(mockPipelineConf.getStages());
@@ -411,22 +446,25 @@ public class TestUtil {
           pipelineConf.getConfiguration().add(new Config("executionMode",
             ExecutionMode.STANDALONE.name()));
           pipelineStoreTask.save("admin2", MY_SECOND_PIPELINE, ZERO_REV, "description"
-            , pipelineConf);
+            , pipelineConf, false);
         }
 
         if(!pipelineStoreTask.hasPipeline(HIGHER_VERSION_PIPELINE)) {
           PipelineConfiguration pipelineConfiguration = pipelineStoreTask.create("user2", HIGHER_VERSION_PIPELINE,
-              "label" ,"description2", false, false);
+              "label" ,"description2", false, false, new HashMap<String, Object>()
+          );
           PipelineConfiguration mockPipelineConf = MockStages.createPipelineConfigurationSourceProcessorTargetHigherVersion();
           mockPipelineConf.getConfiguration().add(new Config("executionMode",
             ExecutionMode.STANDALONE.name()));
           mockPipelineConf.setUuid(pipelineConfiguration.getUuid());
           pipelineStoreTask.save("admin2", HIGHER_VERSION_PIPELINE, ZERO_REV, "description"
-            , mockPipelineConf);
+            , mockPipelineConf, false);
         }
 
         if(!pipelineStoreTask.hasPipeline(PIPELINE_WITH_EMAIL)) {
-          pipelineStoreTask.create("user2", PIPELINE_WITH_EMAIL, "label" ,"description2", false, false);
+          pipelineStoreTask.create("user2", PIPELINE_WITH_EMAIL, "label" ,"description2", false, false,
+              new HashMap<String, Object>()
+          );
           PipelineConfiguration pipelineConf = pipelineStoreTask.load(PIPELINE_WITH_EMAIL, ZERO_REV);
           PipelineConfiguration mockPipelineConf = MockStages.createPipelineConfigurationSourceProcessorTarget();
           pipelineConf.setStages(mockPipelineConf.getStages());
@@ -437,7 +475,7 @@ public class TestUtil {
           pipelineConf.getConfiguration().add(new Config("notifyOnTermination", true));
           pipelineConf.getConfiguration().add(new Config("emailIDs", Arrays.asList("foo", "bar")));
           pipelineStoreTask.save("admin2", PIPELINE_WITH_EMAIL, ZERO_REV, "description"
-            , pipelineConf);
+            , pipelineConf, false);
         }
 
       } catch (PipelineStoreException e) {
@@ -521,13 +559,17 @@ public class TestUtil {
 
     @Provides @Singleton
     public BuildInfo provideBuildInfo() {
-      return new DataCollectorBuildInfo();
+      return ProductBuildInfo.getDefault();
     }
 
     @Provides @Singleton
     public RuntimeInfo provideRuntimeInfo() {
-      RuntimeInfo info = new StandaloneRuntimeInfo(RuntimeModule.SDC_PROPERTY_PREFIX, new MetricRegistry(),
-        Arrays.asList(getClass().getClassLoader()));
+      RuntimeInfo info = new StandaloneRuntimeInfo(
+          RuntimeInfo.SDC_PRODUCT,
+          RuntimeModule.SDC_PROPERTY_PREFIX,
+          new MetricRegistry(),
+          Arrays.asList(getClass().getClassLoader())
+      );
       return info;
     }
 
@@ -681,25 +723,47 @@ public class TestUtil {
     }
 
     @Provides @Singleton
-    public PipelineRunner provideProductionPipelineRunner(@Named("name") String name,
-                                                                    @Named("rev") String rev, Configuration configuration, RuntimeInfo runtimeInfo,
-                                                                    MetricRegistry metrics, SnapshotStore snapshotStore,
-                                                                    ThreadHealthReporter threadHealthReporter,
-                                                                    SourceOffsetTracker sourceOffsetTracker) {
-      return new com.streamsets.datacollector.execution.runner.common.ProductionPipelineRunner(name, rev, null, configuration, runtimeInfo, metrics, snapshotStore,
-        threadHealthReporter);
+    public PipelineRunner provideProductionPipelineRunner(
+        @Named("name") String name,
+        @Named("rev") String rev,
+        Configuration configuration,
+        BuildInfo buildInfo,
+        RuntimeInfo runtimeInfo,
+        MetricRegistry metrics,
+        SnapshotStore snapshotStore,
+        ThreadHealthReporter threadHealthReporter,
+        SourceOffsetTracker sourceOffsetTracker
+    ) {
+      return new com.streamsets.datacollector.execution.runner.common.ProductionPipelineRunner(
+          name,
+          rev,
+          null,
+          configuration,
+          buildInfo,
+          runtimeInfo,
+          metrics,
+          snapshotStore,
+          threadHealthReporter,
+          null
+      );
     }
 
     @Provides @Singleton
-    public com.streamsets.datacollector.execution.runner.common.ProductionPipelineBuilder provideProductionPipelineBuilder(@Named("name") String name,
-                                                                      @Named("rev") String rev,
-                                                                      RuntimeInfo runtimeInfo, StageLibraryTask stageLib,
-                                                                      PipelineRunner runner, Observer observer) {
+    public com.streamsets.datacollector.execution.runner.common.ProductionPipelineBuilder provideProductionPipelineBuilder(
+        @Named("name") String name,
+        @Named("rev") String rev,
+        RuntimeInfo runtimeInfo,
+        BuildInfo buildInfo,
+        StageLibraryTask stageLib,
+        PipelineRunner runner,
+        Observer observer
+    ) {
       return new com.streamsets.datacollector.execution.runner.common.ProductionPipelineBuilder(
         name,
         rev,
         new Configuration(),
         runtimeInfo,
+        buildInfo,
         stageLib,
         (ProductionPipelineRunner)runner,
         observer,
@@ -712,8 +776,15 @@ public class TestUtil {
 
   /*************** Runner ***************/
 
-  @Module(injects = Runner.class, library = true, includes = {TestExecutorModule.class, TestPipelineStoreModuleNew.class,
-    TestPipelineStateStoreModule.class, TestPipelineProviderModule.class})
+  @Module(
+      injects = Runner.class,
+      library = true,
+      complete = false,
+      includes = {
+          TestExecutorModule.class,
+          TestPipelineStoreModuleNew.class,
+          TestPipelineStateStoreModule.class,
+          TestPipelineProviderModule.class})
   public static class TestRunnerModule {
 
     private final String name;
@@ -728,10 +799,11 @@ public class TestUtil {
 
     @Provides
     public Runner provideRunner(
-      @Named("runnerExecutor") SafeScheduledExecutorService runnerExecutor,
-      @Named("runnerStopExecutor") SafeScheduledExecutorService runnerStopExecutor
+        StatsCollector statsCollector,
+        @Named("runnerExecutor") SafeScheduledExecutorService runnerExecutor,
+        @Named("runnerStopExecutor") SafeScheduledExecutorService runnerStopExecutor
     ) {
-      return new AsyncRunner(new StandaloneRunner(name, rev, objectGraph), runnerExecutor, runnerStopExecutor);
+      return new AsyncRunner(new StandaloneRunner(name, rev, statsCollector, objectGraph), runnerExecutor, runnerStopExecutor);
     }
   }
 
@@ -752,8 +824,10 @@ public class TestUtil {
 
   @Module(
     injects = {
+      PreviewerProvider.class,
       StandaloneAndClusterPipelineManager.class,
-      StandaloneRunner.class
+      StandaloneRunner.class,
+      StatsCollector.class
     },
     library = true,
     includes = {
@@ -772,25 +846,38 @@ public class TestUtil {
 
     @Provides @Singleton
     public PreviewerProvider providePreviewerProvider() {
-      return new PreviewerProvider() {
+      return Mockito.spy(new PreviewerProvider() {
         @Override
-        public Previewer createPreviewer(String user, String name, String rev, PreviewerListener listener,
-                                         ObjectGraph objectGraph) {
+        public Previewer createPreviewer(
+            String user,
+            String name,
+            String rev,
+            PreviewerListener listener,
+            ObjectGraph objectGraph,
+            List<PipelineStartEvent.InterceptorConfiguration> interceptorConfs,
+            Function<Object, Void> afterActionsFunction,
+            boolean remote,
+            Map<String, ConnectionConfiguration> connections
+        ) {
           Previewer mock = Mockito.mock(Previewer.class);
           Mockito.when(mock.getId()).thenReturn(UUID.randomUUID().toString());
           Mockito.when(mock.getName()).thenReturn(name);
           Mockito.when(mock.getRev()).thenReturn(rev);
+          Mockito.when(mock.getInterceptorConfs()).thenReturn(interceptorConfs);
           return mock;
         }
-      };
+      });
     }
 
     @Provides @Singleton
-    public RunnerProvider provideRunnerProvider() {
+    public RunnerProvider provideRunnerProvider(
+        StatsCollector statsCollector
+    ) {
       return (name, rev, objectGraph, executionMode) -> {
         ObjectGraph plus = objectGraph.plus(new TestPipelineProviderModule(name, rev));
         TestRunnerModule testRunnerModule = new TestRunnerModule(name, rev, plus);
         return testRunnerModule.provideRunner(
+            statsCollector,
             new SafeScheduledExecutorService(1, "runnerExecutor"),
             new SafeScheduledExecutorService(1, "runnerStopExecutor")
         );

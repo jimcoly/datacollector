@@ -23,11 +23,11 @@
   <parent>
     <groupId>com.streamsets</groupId>
     <artifactId>streamsets-datacollector-root</artifactId>
-    <version>3.7.0-SNAPSHOT</version>
+    <version>3.21.0-SNAPSHOT</version>
     <relativePath>../root</relativePath>
   </parent>
   <artifactId>streamsets-datacollector-rpm</artifactId>
-  <version>3.7.0-SNAPSHOT</version>
+  <version>3.21.0-SNAPSHOT</version>
   <description>StreamSets Data Collector Release RPMs</description>
   <name>StreamSets Data Collector Release RPMs</name>
   <packaging>pom</packaging>
@@ -181,6 +181,17 @@
                   </sources>
                 </mapping>
                 <mapping>
+                  <directory>${sdc.dir}/aster-client-lib</directory>
+                  <filemode>755</filemode>
+                  <username>root</username>
+                  <groupname>root</groupname>
+                  <sources>
+                    <source>
+                      <location>${sdc.distroot}/aster-client-lib</location>
+                    </source>
+                  </sources>
+                </mapping>
+                <mapping>
                   <directory>${sdc.dir}/libs-common-lib</directory>
                   <filemode>755</filemode>
                   <username>root</username>
@@ -246,6 +257,17 @@
                       <excludes>
                         <exclude>bootstrap-libs</exclude>
                       </excludes>
+                    </source>
+                  </sources>
+                </mapping>
+                <mapping>
+                  <directory>${sdc.dir}/samplePipelines</directory>
+                  <filemode>755</filemode>
+                  <username>root</username>
+                  <groupname>root</groupname>
+                  <sources>
+                    <source>
+                      <location>${sdc.distroot}/samplePipelines</location>
                     </source>
                   </sources>
                 </mapping>
@@ -462,6 +484,17 @@
                   </sources>
                 </mapping>
                 <mapping>
+                  <directory>${sdc.dir}/aster-client-lib</directory>
+                  <filemode>755</filemode>
+                  <username>root</username>
+                  <groupname>root</groupname>
+                  <sources>
+                    <source>
+                      <location>${sdc.distroot}/aster-client-lib</location>
+                    </source>
+                  </sources>
+                </mapping>
+                <mapping>
                   <directory>${sdc.dir}/libs-common-lib</directory>
                   <filemode>755</filemode>
                   <username>root</username>
@@ -527,6 +560,17 @@
                       <excludes>
                         <exclude>bootstrap-libs</exclude>
                       </excludes>
+                    </source>
+                  </sources>
+                </mapping>
+                <mapping>
+                  <directory>${sdc.dir}/samplePipelines</directory>
+                  <filemode>755</filemode>
+                  <username>root</username>
+                  <groupname>root</groupname>
+                  <sources>
+                    <source>
+                      <location>${sdc.distroot}/samplePipelines</location>
                     </source>
                   </sources>
                 </mapping>

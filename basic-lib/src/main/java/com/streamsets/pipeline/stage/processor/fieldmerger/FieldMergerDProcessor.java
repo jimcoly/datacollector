@@ -36,6 +36,7 @@ import java.util.List;
     description = "Merge fields of like types",
     icon="merge.png",
     flags = StageBehaviorFlags.PURE_FUNCTION,
+    upgraderDef = "upgrader/FieldMergerDProcessor.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_ghx_5vl_gt"
 )
 @ConfigGroups(Groups.class)
@@ -49,6 +50,7 @@ public class FieldMergerDProcessor extends DProcessor {
       label = "Fields to merge",
       description = "Fields to merge, and fields to merge into.",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "MERGE"
   )
   @ListBeanModel
@@ -61,6 +63,7 @@ public class FieldMergerDProcessor extends DProcessor {
     label = "Source Field Does Not Exist",
     description="Action for data that does not contain the specified source field",
     displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
     group = "MERGE"
   )
   @ValueChooserModel(OnStagePreConditionFailureChooserValues.class)
@@ -73,6 +76,7 @@ public class FieldMergerDProcessor extends DProcessor {
       label = "Overwrite Fields",
       description="Whether or not to overwrite fields if a target field already exists",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "MERGE"
   )
   public boolean overwriteExisting;

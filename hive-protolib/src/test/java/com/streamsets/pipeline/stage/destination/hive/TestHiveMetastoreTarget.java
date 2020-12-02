@@ -75,7 +75,10 @@ import java.util.Map;
     PartitionInfoCacheSupport.PartitionInfoCacheLoader.class,
     HiveQueryExecutor.class
 })
-@PowerMockIgnore("javax.security.*")
+@PowerMockIgnore({
+    "javax.security.*",
+    "jdk.internal.reflect.*"
+})
 public class TestHiveMetastoreTarget {
   private static final Logger LOG = LoggerFactory.getLogger(TestHiveMetastoreTarget.class);
 
@@ -156,6 +159,7 @@ public class TestHiveMetastoreTarget {
         "sample",
         generatePartitionValueInfo("12-25-2015"),
         "/user/hive/warehouse/sample",
+        true,
         HMPDataFormat.AVRO
     );
     Map<String, Field> fieldMap = f.getValueAsMap();
@@ -294,6 +298,13 @@ public class TestHiveMetastoreTarget {
     runHMSTargetWriteAndValidateResultingAction(
         generateRecordWithMissingField(
             HiveMetastoreUtil.LOCATION_FIELD,
+            HiveMetastoreUtil.MetadataRecordType.PARTITION
+        ),
+        onRecordError
+    );
+    runHMSTargetWriteAndValidateResultingAction(
+        generateRecordWithMissingField(
+            HiveMetastoreUtil.CUSTOM_LOCATION,
             HiveMetastoreUtil.MetadataRecordType.PARTITION
         ),
         onRecordError

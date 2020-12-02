@@ -19,7 +19,10 @@
 
 angular
   .module('dataCollectorApp.home')
-  .controller('CreateModalInstanceController', function ($scope, $modalInstance, $translate, api, pipelineType) {
+  .controller('CreateModalInstanceController', function (
+    $scope, $modalInstance, $translate, api, pipelineType, tracking, trackingEvent
+  ) {
+    api.pipelineAgent.getPipelineLabels().then(function(res) {$scope.pipelineLabels = res.data;});
     angular.extend($scope, {
       common: {
         errors: []
@@ -30,18 +33,24 @@ angular
       newConfig : {
         name: '',
         description: '',
-        pipelineType: pipelineType !== undefined ? pipelineType: 'DATA_COLLECTOR'
+        pipelineType: pipelineType !== undefined ? pipelineType: 'DATA_COLLECTOR',
+        pipelineLabel: '',
       },
+      currentLabel: '',
 
       save : function () {
         if($scope.newConfig.name) {
           api.pipelineAgent.createNewPipelineConfig(
             $scope.newConfig.name,
             $scope.newConfig.description,
-            $scope.newConfig.pipelineType
+            $scope.newConfig.pipelineType,
+            $scope.newConfig.pipelineLabel
           ).then(
             function(res) {
               $modalInstance.close(res.data);
+              tracking.mixpanel.people.set({'Core Journey Stage - Pipeline Created': true});
+              tracking.mixpanel.track(trackingEvent.PIPELINE_CREATED, {'Pipeline ID': res.data.pipelineId});
+              tracking.FS.event(trackingEvent.PIPELINE_CREATED, {'Pipeline ID': res.data.pipelineId});
             },
             function(res) {
               $scope.common.errors = [res.data];
@@ -55,7 +64,27 @@ angular
       },
       cancel : function () {
         $modalInstance.dismiss('cancel');
+      },
+
+      refreshResults : function ($select){
+        var search = $select.search,
+          list = angular.copy($scope.pipelineLabels);
+        //remove last user input
+        list = list.filter(function(item) {
+          return item !== $scope.currentLabel;
+        });
+
+        if (!search) {
+          //use the predefined list
+          $scope.pipelineLabels = list;
+        }
+        else {
+          //manually add user input and set selection
+          $scope.currentLabel = search;
+          $scope.pipelineLabels = [search].concat(list);
+          $select.selected = search;
       }
+    }
     });
 
   });

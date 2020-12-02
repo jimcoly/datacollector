@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 StreamSets Inc.
+ * Copyright 2019 StreamSets Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,9 +28,10 @@ import java.util.List;
 
 @StageDef(
     version=1,
-    label="Email Executor",
+    label="Email",
     description = "Sends emails upon receipt of specific events",
     icon="envelope.png",
+    upgraderDef = "upgrader/EmailDExecutor.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_pyx_tfp_qz"
 )
 
@@ -44,6 +45,7 @@ public class EmailDExecutor extends DExecutor {
       label = "Email Configuration",
       description = "Configure Email Messages",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "EMAILS"
   )
   @ListBeanModel

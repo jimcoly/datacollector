@@ -30,8 +30,10 @@ angular.module('dataCollectorApp', [
   'commonUI.jvmMetrics',
   'commonUI.logs',
   'dataCollectorApp.restapi',
+  'dataCollectorApp.inspectors',
   'ngStorage',
   'ngSanitize',
   'angular-google-analytics',
-  'xeditable'
+  'xeditable',
+  'angular-cron-gen'
 ]);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 StreamSets Inc.
+ * Copyright 2020 StreamSets Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,7 +42,6 @@ angular.module('dataCollectorApp')
     });
 
     $translateProvider.preferredLanguage('en');
-
     $translateProvider.useCookieStorage();
     $translateProvider.useSanitizeValueStrategy('sanitizeParameters');
 
@@ -51,7 +50,7 @@ angular.module('dataCollectorApp')
 
     uiSelectConfig.theme = 'bootstrap';
 
-    //Reload the page when the server is down.
+    // Reload the page when the server is down.
     $httpProvider.interceptors.push(function($q, $rootScope) {
       return {
         response: function(response) {
@@ -63,7 +62,8 @@ angular.module('dataCollectorApp')
             window.location.reload();
           } else if ((rejection.status === 0 || rejection.status === -1 ||
               (rejection.data && (typeof rejection.data.indexOf === 'function') &&
-                rejection.data.indexOf('login.html') !== -1))
+                (rejection.data.indexOf('login.html') !== -1 ||
+                rejection.data.indexOf('resetPassword.html') !== -1)))
           )  {
             // check if the error is related to remote service
             if (rejection.config && rejection.config.headers && rejection.config.headers['X-SS-User-Auth-Token']) {
@@ -88,9 +88,10 @@ angular.module('dataCollectorApp')
 
   })
   .run(function ($location, $rootScope, $modal, api, pipelineConstant, $localStorage, contextHelpService, $modalStack,
-                 $timeout, $translate, authService, userRoles, configuration, Analytics, $q, editableOptions, $http) {
+                 $timeout, $translate, authService, userRoles, configuration, Analytics, $q, editableOptions, $http,
+                 tracking, trackingEvent) {
 
-    var defaultTitle = 'StreamSets | Data Collector';
+    var defaultTitle = 'Data Collector | StreamSets';
     var pipelineStatusTimer;
     var alertsTimer;
     var isWebSocketSupported;
@@ -139,11 +140,13 @@ angular.module('dataCollectorApp')
         showNameColumn: true
       },
       runPreviewForFieldPaths: true,
-      lineWrapping: true
+      lineWrapping: true,
+      dontShowMissingStages: false
     });
 
     $rootScope.common = $rootScope.common || {
       title : defaultTitle,
+      defaultTitle: defaultTitle,
       userName: 'Account',
       authenticationType: 'none',
       apiVersion: api.apiVersion,
@@ -166,9 +169,15 @@ angular.module('dataCollectorApp')
       logEndingOffset: -1,
       fetchingLog: false,
       counters: {},
+      previousInputRecordCount: {},
+      previousBatchCount: {},
       serverTimeDifference: 0,
       remoteServerInfo: {
         registrationStatus: false
+      },
+
+      setToDefaultTitle: function() {
+        $rootScope.common.title = defaultTitle;
       },
 
       /**
@@ -286,12 +295,29 @@ angular.module('dataCollectorApp')
       },
 
       /**
+       * Open the Change Password Modal Dialog
+       */
+      changePassword: function() {
+        $modal.open({
+          templateUrl: 'app/home/usersAndGroups/changePassword/changePassword.tpl.html',
+          controller: 'ChangePasswordModalInstanceController',
+          size: 'sm',
+          backdrop: 'static',
+        });
+      },
+
+      /**
        * Logout header link command handler
        */
       logout: function() {
         api.admin.logout($rootScope.common.authenticationType, $rootScope.common.isDPMEnabled)
-          .then(function() {
-            location.reload();
+          .then(function(resp) {
+            if (resp.data && resp.data.redirect_uri) {
+              // log out of Aster as well
+              window.location = resp.data.redirect_uri;
+            } else {
+              location.reload();
+            }
           });
       },
 
@@ -339,7 +365,11 @@ angular.module('dataCollectorApp')
         });
       },
 
-      showRegistrationModal: function() {
+      /**
+       * Opens the registration modal
+       */
+      showRegistrationModal: function(showKeyEntry) {
+        showKeyEntry = showKeyEntry || false;
         $modal.open({
           templateUrl: 'app/help/register/registerModal.tpl.html',
           controller: 'RegisterModalInstanceController',
@@ -348,8 +378,20 @@ angular.module('dataCollectorApp')
           resolve: {
             activationInfo: function () {
               return $rootScope.common.activationInfo;
+            },
+            showKeyEntry: function() {
+              return showKeyEntry;
             }
           }
+        });
+      },
+
+      showRegistrationPermissionErrorModal: function() {
+        $modal.open({
+          templateUrl: 'app/help/register/registrationPermissionErrorModal.tpl.html',
+          controller: 'RegisterPermissionErrorModalController',
+          size: '',
+          backdrop: 'static'
         });
       },
 
@@ -444,7 +486,6 @@ angular.module('dataCollectorApp')
           });
         }
 
-
         api.pipelineAgent.deleteAlert(triggeredAlert.pipelineName, triggeredAlert.ruleDefinition.id)
           .then(function() {
 
@@ -514,9 +555,17 @@ angular.module('dataCollectorApp')
 
       openGithubTutorial: function() {
         window.open('https://github.com/streamsets/tutorials', '_blank');
-      }
-    };
+      },
 
+      viewSamplePipelines: function() {
+        $modal.open({
+          templateUrl: 'app/home/library/sample_pipelines/samplePipelinesModal.tpl.html',
+          controller: 'SamplePipelinesModalInstanceController',
+          backdrop: 'static',
+          size: 'lg'
+        });
+      },
+    };
 
     api.admin.getServerTime().then(function(res) {
       if (res && res.data) {
@@ -526,44 +575,9 @@ angular.module('dataCollectorApp')
       }
     });
 
-    api.admin.getBuildInfo().then(function(res) {
-      if (res && res.data) {
-        $timeout(
-          function() {
-            Analytics.set('sdcVersion', res.data.version);
-          },
-          1000
-        );
-      }
-    });
-
     api.admin.getRemoteServerInfo().then(function(res) {
       if (res && res.data) {
         $rootScope.common.remoteServerInfo.registrationStatus = res.data.registrationStatus;
-      }
-    });
-
-    api.activation.getActivation().then(function(res) {
-      if (res && res.data) {
-        var activationInfo = $rootScope.common.activationInfo = res.data;
-        if (activationInfo.enabled) {
-          var currentTime = new Date().getTime();
-          var expirationTime = activationInfo.info.expiration;
-          var difDays =  Math.floor(( expirationTime - currentTime ) / 86400000);
-          if (difDays < 0 ) {
-            $rootScope.common.infoList = [{
-              message: 'Activation key expired, you need to get a new one from StreamSets'
-            }];
-          } else if (difDays < 30) {
-            $rootScope.common.infoList = [{
-              message: 'Activation key expires in ' + difDays + '  days'
-            }];
-          } else if (!activationInfo.info.valid) {
-            $rootScope.common.infoList = [{
-              message: 'Activation key is not valid'
-            }];
-          }
-        }
       }
     });
 
@@ -577,8 +591,6 @@ angular.module('dataCollectorApp')
         $rootScope.isAuthorized = authService.isAuthorized;
         $rootScope.common.isUserAdmin = authService.isUserAdmin();
 
-
-
         $rootScope.common.authenticationType = configuration.getAuthenticationType();
         $rootScope.common.isDPMEnabled = configuration.isDPMEnabled();
         $rootScope.common.isACLEnabled = configuration.isACLEnabled();
@@ -587,8 +599,18 @@ angular.module('dataCollectorApp')
         $rootScope.common.sdcClusterManagerURL = configuration.getSDCClusterManagerURL();
         $rootScope.common.isMetricsTimeSeriesEnabled = configuration.isMetricsTimeSeriesEnabled();
         $rootScope.common.headerTitle = configuration.getUIHeaderTitle();
+        $rootScope.common.isChangePasswordEnabled =
+          configuration.getAuthenticationType() == 'form' &&
+          !configuration.isDPMEnabled() &&
+          !configuration.isManagedByClouderaManager();
         if(configuration.isAnalyticsEnabled()) {
           Analytics.createAnalyticsScriptTag();
+          configuration.createFullStoryScriptTag();
+          tracking.mixpanel.opt_in_tracking();
+          tracking.FS.restart();
+        } else {
+          tracking.mixpanel.opt_out_tracking();
+          tracking.FS.shutdown();
         }
 
         if ($rootScope.common.isDPMEnabled && $rootScope.common.userRoles.indexOf('disconnected-sso') !== -1) {
@@ -608,15 +630,65 @@ angular.module('dataCollectorApp')
           window.$rootScope = $rootScope;
         }
 
-        if ($rootScope.isAdmin) {
-          api.system.getStats()
-            .then(function (res) {
-              if (!res.data.opted) {
-                $rootScope.common.onStatOptInClick();
-              }
-            });
-        }
+        $q.all([
+          api.system.getStats(),
+          api.admin.getBuildInfo(),
+          api.activation.getActivation(),
+          api.admin.getSdcId(),
+        ]).then(function (sbaResults) {
+          var statsResult = sbaResults[0];
+          var buildResult = sbaResults[1];
+          var activationResult = sbaResults[2];
+          var sdcIdResult = sbaResults[3];
 
+          var activationInfo;
+          if (activationResult && activationResult.data) {
+            activationInfo = $rootScope.common.activationInfo = activationResult.data;
+          }
+
+          // Tracking initialization
+          tracking.initializeUser(sdcIdResult.data.id, $rootScope.common.userName, activationInfo);
+
+          // Modal (or notification) for activation
+          if (activationInfo && activationInfo.enabled) {
+            var difDays = authService.daysUntilProductExpiration(
+              activationInfo.info.expiration
+            );
+            if (difDays < 0) {
+              // if it is still valid, it is because only core stages are in use
+              if (!activationInfo.info.valid || $location.search().activationKey) {
+                // When activation is not valid, roles other than adminActivation are not returned
+                if ($rootScope.isAdmin || authService.isAuthorized(userRoles.adminActivation)) {
+                  if ($location.search().activationKey) {
+                    $rootScope.common.showRegistrationModal(true);
+                  }
+                } else {
+                  $rootScope.common.showRegistrationPermissionErrorModal();
+                }
+                if (!activationInfo.info.valid) {
+                  $rootScope.common.infoList = [{
+                    message: 'Activation key expired, you need to get a new one from StreamSets'
+                  }];
+                  tracking.mixpanel.track(trackingEvent.ACTIVATION_EXPIRED, {});
+                }
+              }
+            } else if (difDays < 30) {
+              $rootScope.common.infoList = [{
+                message: 'Activation key expires in ' + difDays + '  days'
+              }];
+              tracking.mixpanel.track(trackingEvent.ACTIVATION_EXPIRING_SOON, {'Days': difDays});
+            } else if (!activationInfo.info.valid) {
+              $rootScope.common.infoList = [{
+                message: 'Activation key is not valid'
+              }];
+              tracking.mixpanel.track(trackingEvent.ACTIVATION_INVALID, {});
+            }
+          }
+
+          // Analytics tracking
+          tracking.trackExtraUserInfo(buildResult, statsResult);
+          tracking.mixpanel.track(trackingEvent.LOGIN_COMPLETE, {});
+        });
       });
 
     api.pipelineAgent.getAllAlerts()
@@ -854,11 +926,10 @@ angular.module('dataCollectorApp')
 
     window.onbeforeunload = function (event) {
       //Check if there was any change, if no changes, then simply let the user leave
-
       if($rootScope.common.saveOperationInProgress <= 0){
+        tracking.mixpanel.track('Window Closed', {});
         return;
       }
-
       if (typeof event === 'undefined') {
         event = window.event;
       }

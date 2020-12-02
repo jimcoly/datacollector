@@ -16,7 +16,6 @@
 package com.streamsets.datacollector.util;
 
 import com.streamsets.datacollector.config.ConfigDefinition;
-import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.credential.ClearCredentialValue;
 import com.streamsets.datacollector.definition.ConcreteELDefinitionExtractor;
 import com.streamsets.datacollector.el.ELEvaluator;
@@ -65,7 +64,7 @@ public class ElUtil {
           klass = (Class<?>) genericType;
         }
         if (configDefinition.getType() == ConfigDef.Type.CREDENTIAL) {
-          value = elEvaluator.evaluate(new ELVariables(constants), (String) value, Object.class);
+          value = elEvaluator.eval(new ELVariables(constants), (String) value, Object.class);
           if (value == null || value instanceof String) {
             value = new ClearCredentialValue((String)value);
           } else if (!(value instanceof CredentialValue)) {
@@ -77,7 +76,7 @@ public class ElUtil {
             );
           }
         } else {
-          value = elEvaluator.evaluate(new ELVariables(constants), (String) value, klass);
+          value = elEvaluator.eval(new ELVariables(constants), (String) value, klass);
         }
       }
     }

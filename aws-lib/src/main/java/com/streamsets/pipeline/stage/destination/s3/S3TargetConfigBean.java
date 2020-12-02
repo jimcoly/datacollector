@@ -24,7 +24,6 @@ import com.streamsets.pipeline.config.TimeZoneChooserValues;
 import com.streamsets.pipeline.lib.el.RecordEL;
 import com.streamsets.pipeline.lib.el.TimeEL;
 import com.streamsets.pipeline.lib.el.TimeNowEL;
-import com.streamsets.pipeline.stage.lib.aws.ProxyConfig;
 import com.streamsets.pipeline.stage.lib.aws.TransferManagerConfig;
 
 import java.util.List;
@@ -36,14 +35,11 @@ public class S3TargetConfigBean {
   public static final String S3_SSE_CONFIG_PREFIX = S3_TARGET_CONFIG_BEAN_PREFIX + "sseConfig.";
   public static final String S3_TM_CONFIG_PREFIX = S3_TARGET_CONFIG_BEAN_PREFIX + "tmConfig.";
 
-  @ConfigDefBean(groups = "S3")
+  @ConfigDefBean(groups = {"S3", "ADVANCED"})
   public S3ConnectionTargetConfig s3Config;
 
   @ConfigDefBean(groups = "SSE")
   public S3TargetSSEConfigBean sseConfig;
-
-  @ConfigDefBean(groups = "ADVANCED")
-  public ProxyConfig proxyConfig;
 
   @ConfigDefBean(groups = "ADVANCED")
   public TransferManagerConfig tmConfig;
@@ -68,6 +64,7 @@ public class S3TargetConfigBean {
       label = "Data Time Zone",
       description = "Time zone to use to resolve the date time of a time-based partition prefix",
       displayPosition = 190,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "S3"
   )
   @ValueChooserModel(TimeZoneChooserValues.class)
@@ -83,6 +80,7 @@ public class S3TargetConfigBean {
       description = "Time basis to use for a record. Enter an expression that evaluates to a datetime. To use the " +
           "processing time, enter ${time:now()}. To use field values, use '${record:value(\"<filepath>\")}'.",
       displayPosition = 200,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "S3"
   )
   public String timeDriverTemplate;
@@ -94,6 +92,7 @@ public class S3TargetConfigBean {
     description = "Prefix for object names that will be uploaded on Amazon S3",
     label = "Object Name Prefix",
     displayPosition = 210,
+    displayMode = ConfigDef.DisplayMode.ADVANCED,
     group = "S3"
   )
   public String fileNamePrefix;
@@ -114,19 +113,26 @@ public class S3TargetConfigBean {
     defaultValue = "false",
     label = "Compress with gzip",
     displayPosition = 230,
+    displayMode = ConfigDef.DisplayMode.ADVANCED,
     group = "S3"
   )
   public boolean compress;
 
-  public List<Stage.ConfigIssue> init(Stage.Context context, List<Stage.ConfigIssue> issues) {
-    DataFormatGeneratorService generatorService = context.getService(DataFormatGeneratorService.class);
+  public List<Stage.ConfigIssue> init(Stage.Context context, List<Stage.ConfigIssue> issues, boolean isErrorStage) {
+    boolean isWholeFileFormat;
+    if (isErrorStage) {
+      isWholeFileFormat = false;
+    }
+    else {
+      isWholeFileFormat = context.getService(DataFormatGeneratorService.class).isWholeFileFormat();
+    }
 
     // Don't use amazon s3 client for file transfer error retries (Setting maxErrorRetries to 0)
     // (SDC will retry the file transfer based on AT_LEAST_ONCE/AT_MOST_ONCE SEMANTICS)
-    s3Config.init(context, S3_CONFIG_PREFIX, proxyConfig, issues, generatorService.isWholeFileFormat() ? 0 : -1);
+    s3Config.init(context, S3_CONFIG_PREFIX, issues, isWholeFileFormat ? 0 : -1);
 
     //File prefix should not be empty for non whole file format.
-    if (!generatorService.isWholeFileFormat() && (fileNamePrefix == null || fileNamePrefix.isEmpty())) {
+    if (!isWholeFileFormat && (fileNamePrefix == null || fileNamePrefix.isEmpty())) {
       issues.add(
           context.createConfigIssue(
               Groups.S3.getLabel(),

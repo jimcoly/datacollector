@@ -47,6 +47,7 @@ import java.util.List;
   provides = DataFormatGeneratorService.class,
   version = 1,
   upgrader = GeneratorUpgrader.class,
+  upgraderDef = "upgrader/DataFormatGeneratorUpgrader.yaml",
   label = "DataFormat Generator"
 )
 @ConfigGroups(Groups.class)
@@ -129,24 +130,24 @@ public class DataGeneratorServiceImpl extends BaseService implements DataFormatG
 
   @Override
   public WholeFileExistsAction wholeFileExistsAction() {
-    return null;
+    return dataGeneratorFormatConfig.wholeFileExistsAction.toApi();
   }
 
   @Override
   public boolean wholeFileIncludeChecksumInTheEvents() {
-    return false;
+    return dataGeneratorFormatConfig.includeChecksumInTheEvents;
   }
 
   @Override
   public WholeFileChecksumAlgorithm wholeFileChecksumAlgorithm() {
-    return null;
+    return dataGeneratorFormatConfig.checksumAlgorithm.toApi();
   }
 
   /**
    * Temporary wrapper to change DataGeneratorException from the *.lib.* to *.api.* as it's expected in the
    * service world. This will be removed once all stages gets migrated off the older code to services.
    */
-  class DataGeneratorWraper implements DataGenerator {
+  public static class DataGeneratorWraper implements DataGenerator {
 
     private final com.streamsets.pipeline.lib.generator.DataGenerator generator;
 

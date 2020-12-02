@@ -37,6 +37,7 @@ import java.util.List;
     label="Field Remover",
     description="Removes fields from a record",
     icon="filter.png",
+    upgraderDef = "upgrader/FieldFilterDProcessor.yaml",
     onlineHelpRefUrl ="index.html?contextID=task_c1j_btr_wq",
     flags = StageBehaviorFlags.PURE_FUNCTION,
     execution = {
@@ -61,6 +62,7 @@ public class FieldFilterDProcessor extends DProcessor {
       label = "Action",
       description = "",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "FILTER"
   )
   @ValueChooserModel(FilterOperationChooserValues.class)
@@ -73,6 +75,7 @@ public class FieldFilterDProcessor extends DProcessor {
       label = "Fields",
       description = "",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "FILTER",
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       elDefs = {RecordEL.class, FieldEL.class}
@@ -80,9 +83,23 @@ public class FieldFilterDProcessor extends DProcessor {
   @FieldSelectorModel
   public List<String> fields;
 
+  @ConfigDef(
+      required = true,
+      type = Type.STRING,
+      defaultValue = "",
+      label = "Constant",
+      description = "",
+      displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "FILTER",
+      dependsOn = "filterOperation",
+      triggeredByValue = "REMOVE_CONSTANT"
+  )
+  public String constant;
+
   @Override
   protected Processor createProcessor() {
-    return new FieldFilterProcessor(filterOperation, fields);
+    return new FieldFilterProcessor(filterOperation, fields, constant);
   }
 
 }

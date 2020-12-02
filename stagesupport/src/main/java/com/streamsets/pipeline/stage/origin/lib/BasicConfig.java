@@ -30,21 +30,23 @@ public class BasicConfig {
     description = "Max number of records per batch",
     displayPosition = 1000,
     group = "#0",
+    displayMode = ConfigDef.DisplayMode.ADVANCED,
     min = 1,
     max = Integer.MAX_VALUE
   )
   public int maxBatchSize = 1000;
 
   @ConfigDef(
-    required = true,
-    type = ConfigDef.Type.NUMBER,
-    defaultValue = "2000",
-    label = "Batch Wait Time (ms)",
-    description = "Max time to wait for data before sending a partial or empty batch",
-    displayPosition = 1010,
-    group = "#0",
-    min = 1,
-    max = Integer.MAX_VALUE
+      required = true,
+      type = ConfigDef.Type.NUMBER,
+      defaultValue = "2000",
+      label = "Batch Wait Time (ms)",
+      description = "Max time to wait for data before sending a partial or empty batch",
+      displayPosition = 1010,
+      group = "#0",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      min = 1,
+      max = Integer.MAX_VALUE
   )
   public int maxWaitTime = 2000;
 

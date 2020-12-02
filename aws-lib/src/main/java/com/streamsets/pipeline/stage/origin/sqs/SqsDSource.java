@@ -27,7 +27,7 @@ import com.streamsets.pipeline.api.service.ServiceDependency;
 import com.streamsets.pipeline.api.service.dataformats.DataFormatParserService;
 
 @StageDef(
-    version = 3,
+    version = 6,
     label = "Amazon SQS Consumer",
     description = "Reads messages from Amazon SQS",
     icon = "sqs.png",
@@ -36,6 +36,7 @@ import com.streamsets.pipeline.api.service.dataformats.DataFormatParserService;
     resetOffset = true,
     onlineHelpRefUrl ="index.html?contextID=task_jxn_nnm_5bb",
     upgrader = SqsUpgrader.class,
+    upgraderDef = "upgrader/SqsDSource.yaml",
     services = @ServiceDependency(
       service = DataFormatParserService.class,
       configuration = {

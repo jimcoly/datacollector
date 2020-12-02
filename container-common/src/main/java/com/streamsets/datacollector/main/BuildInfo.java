@@ -18,9 +18,11 @@ package com.streamsets.datacollector.main;
 import com.streamsets.pipeline.api.impl.Utils;
 import org.slf4j.Logger;
 
+import javax.annotation.concurrent.ThreadSafe;
 import java.io.InputStream;
 import java.util.Properties;
 
+@ThreadSafe
 public abstract class BuildInfo {
   private final Properties info;
 
@@ -47,7 +49,10 @@ public abstract class BuildInfo {
   }
 
   public Properties getInfo() {
-    return info;
+    // return new instance to avoid possibility of modification
+    final Properties propertiesClone = new Properties();
+    propertiesClone.putAll(this.info);
+    return propertiesClone;
   }
 
   public String getVersion() {
@@ -70,6 +75,10 @@ public abstract class BuildInfo {
     return info.getProperty("source.md5.checksum", "?");
   }
 
+  public String getScalaBinaryVersion() {
+    return info.getProperty("scala.binary.version", "?");
+  }
+
   public void log(Logger log) {
     log.info("Build info:");
     log.info("  Version        : {}", getVersion());
@@ -77,6 +86,10 @@ public abstract class BuildInfo {
     log.info("  Built by       : {}", getBuiltBy());
     log.info("  Repo SHA       : {}", getBuiltRepoSha());
     log.info("  Source MD5     : {}", getSourceMd5Checksum());
+    if (!getScalaBinaryVersion().equals("?")) {
+      // For Transformer
+      log.info("  Scala Binary Version     : {}", getScalaBinaryVersion());
+    }
   }
 
 }

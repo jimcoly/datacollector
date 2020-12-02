@@ -36,14 +36,15 @@ import java.util.Map;
 import java.util.TimeZone;
 
 @StageDef(
-    version = 2,
+    version = 3,
     label="Hive Metadata",
     description = "Generates Hive metadata and write information for HDFS",
     icon="metadata.png",
     outputStreams = HiveMetadataOutputStreams.class,
     privateClassLoader = true,
     onlineHelpRefUrl ="index.html?contextID=task_hpg_pft_zv",
-    upgrader = HiveMetadataProcessorUpgrader.class
+    upgrader = HiveMetadataProcessorUpgrader.class,
+    upgraderDef = "upgrader/HiveMetadataDProcessor.yaml"
 )
 
 @ConfigGroups(Groups.class)
@@ -59,6 +60,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       defaultValue = "${record:attribute('database')}",
       description = "Use an expression language to obtain database name from record. If not set, \"default\" will be applied",
       displayPosition = 10,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "TABLE",
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       elDefs = {RecordEL.class}
@@ -72,6 +74,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       defaultValue = "${record:attribute('table_name')}",
       description = "Use an expression to obtain the table name from the record. Note that Hive changes the name to lowercase when creating a table.",
       displayPosition = 20,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       elDefs = {RecordEL.class},
       group = "TABLE"
@@ -85,6 +88,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       defaultValue = "",
       description = "Partition information, often used in PARTITION BY clause in CREATE query.",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       elDefs = {RecordEL.class},
       group = "TABLE"
@@ -100,6 +104,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       description = "Will data be stored in external table? If checked, Hive will not use the default location. " +
           "Otherwise, Hive will use the default location at hive.metastore.warehouse.dir in hive-site.xml",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "TABLE"
   )
   public boolean externalTable;
@@ -112,6 +117,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       defaultValue = "/user/hive/warehouse/${record:attribute('database')}.db/${record:attribute('table_name')}",
       description = "Expression for table path",
       displayPosition = 50,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "TABLE",
       dependsOn = "externalTable",
       triggeredByValue = "true",
@@ -127,6 +133,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       defaultValue = "dt=${record:attribute('dt')}",
       description = "Expression for partition path",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "TABLE",
       dependsOn = "externalTable",
       triggeredByValue = "true",
@@ -142,6 +149,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       defaultValue = "",
       description = "Expression that will evaluate to column comment.",
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "TABLE",
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       elDefs = {RecordEL.class, TimeEL.class, TimeNowEL.class, FieldPathEL.class}
@@ -159,6 +167,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       description = "Time basis to use for a record. Enter an expression that evaluates to a datetime. To use the " +
           "processing time, enter ${time:now()}. To use field values, use '${record:value(\"<filepath>\")}'.",
       displayPosition = 100,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED",
       elDefs = {RecordEL.class, TimeEL.class, TimeNowEL.class},
       evaluation = ConfigDef.Evaluation.EXPLICIT
@@ -172,10 +181,23 @@ public class HiveMetadataDProcessor extends DProcessor {
       label = "Data Time Zone",
       description = "Time zone to use for a record.",
       displayPosition = 110,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "ADVANCED"
   )
   @ValueChooserModel(TimeZoneChooserValues.class)
   public String timeZoneID;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.BOOLEAN,
+      defaultValue = "false",
+      label = "Convert Timestamps to String",
+      description = "Set this option to convert DATETIME record fields to String",
+      displayPosition = 115,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "ADVANCED"
+  )
+  public boolean convertTimesToString;
 
   @ConfigDef(
       required = false,
@@ -184,6 +206,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       label = "Header Attribute Expressions",
       description = "Header attributes to insert into the metadata record output",
       displayPosition = 120,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       elDefs = {RecordEL.class, TimeEL.class, TimeNowEL.class},
       evaluation = ConfigDef.Evaluation.EXPLICIT,
       group = "ADVANCED"
@@ -214,6 +237,7 @@ public class HiveMetadataDProcessor extends DProcessor {
       timeDriver,
       decimalDefaultsConfig,
       TimeZone.getTimeZone(ZoneId.of(timeZoneID)),
+      convertTimesToString,
       dataFormat,
       commentExpression,
       metadataHeaderAttributeConfigs

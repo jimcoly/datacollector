@@ -18,9 +18,8 @@ package com.streamsets.datacollector.execution.runner.edge;
 import com.streamsets.datacollector.callback.CallbackInfo;
 import com.streamsets.datacollector.callback.CallbackObjectType;
 import com.streamsets.datacollector.config.PipelineConfiguration;
+import com.streamsets.datacollector.creation.PipelineBeanCreator;
 import com.streamsets.datacollector.execution.AbstractRunner;
-import com.streamsets.datacollector.execution.PipelineState;
-import com.streamsets.datacollector.execution.PipelineStateStore;
 import com.streamsets.datacollector.execution.PipelineStatus;
 import com.streamsets.datacollector.execution.Runner;
 import com.streamsets.datacollector.execution.Snapshot;
@@ -31,8 +30,6 @@ import com.streamsets.datacollector.execution.runner.common.SampledRecord;
 import com.streamsets.datacollector.restapi.bean.BeanHelper;
 import com.streamsets.datacollector.restapi.bean.PipelineStateJson;
 import com.streamsets.datacollector.runner.production.SourceOffset;
-import com.streamsets.datacollector.store.PipelineStoreException;
-import com.streamsets.datacollector.store.PipelineStoreTask;
 import com.streamsets.datacollector.util.EdgeUtil;
 import com.streamsets.datacollector.util.PipelineException;
 import com.streamsets.dc.execution.manager.standalone.ThreadUsage;
@@ -44,7 +41,6 @@ import dagger.ObjectGraph;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.inject.Inject;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +53,7 @@ public class EdgeRunner extends AbstractRunner implements StateListener {
   public EdgeRunner(String name, String rev, ObjectGraph objectGraph) {
     super(name, rev);
     objectGraph.inject(this);
+    PipelineBeanCreator.prepareForConnections(getConfiguration(), getRuntimeInfo());
   }
 
   @Override
@@ -66,7 +63,7 @@ public class EdgeRunner extends AbstractRunner implements StateListener {
 
   @Override
   public void resetOffset(String user) throws PipelineException {
-    PipelineConfiguration pipelineConfiguration = getPipelineConfiguration();
+    PipelineConfiguration pipelineConfiguration = getPipelineConfiguration(user);
     EdgeUtil.resetOffset(pipelineConfiguration);
   }
 
@@ -96,7 +93,7 @@ public class EdgeRunner extends AbstractRunner implements StateListener {
     PipelineStateJson currentState;
     PipelineStateJson toState;
 
-    PipelineConfiguration pipelineConfiguration = getPipelineConfiguration();
+    PipelineConfiguration pipelineConfiguration = getPipelineConfiguration(user);
     currentState = EdgeUtil.getEdgePipelineState(pipelineConfiguration);
     if (currentState != null && !currentState.getPipelineState().getStatus().isActive()) {
       LOG.warn("Pipeline {}:{} is already in stopped state {}",
@@ -106,7 +103,11 @@ public class EdgeRunner extends AbstractRunner implements StateListener {
       );
       toState = currentState;
     } else {
-      toState = EdgeUtil.stopEdgePipeline(pipelineConfiguration, getStartPipelineContext().getRuntimeParameters());
+      StartPipelineContext startPipelineContext = getStartPipelineContext();
+      toState = EdgeUtil.stopEdgePipeline(
+          pipelineConfiguration,
+          startPipelineContext != null ? startPipelineContext.getRuntimeParameters() : null
+      );
     }
 
     if (toState != null) {
@@ -142,7 +143,7 @@ public class EdgeRunner extends AbstractRunner implements StateListener {
     PipelineStateJson toState;
 
     setStartPipelineContext(context);
-    PipelineConfiguration pipelineConfiguration = getPipelineConfiguration();
+    PipelineConfiguration pipelineConfiguration = getPipelineConfiguration(context.getUser());
     currentState = EdgeUtil.getEdgePipelineState(pipelineConfiguration);
     if (currentState != null && currentState.getPipelineState().getStatus().isActive()) {
       LOG.warn("Pipeline {}:{} is already in active state {}",
@@ -231,7 +232,7 @@ public class EdgeRunner extends AbstractRunner implements StateListener {
 
   @Override
   public Object getMetrics() throws PipelineException {
-    PipelineConfiguration pipelineConfiguration = getPipelineConfiguration();
+    PipelineConfiguration pipelineConfiguration = getPipelineConfiguration(null);
     return EdgeUtil.getEdgePipelineMetrics(pipelineConfiguration);
   }
 
@@ -277,12 +278,7 @@ public class EdgeRunner extends AbstractRunner implements StateListener {
   }
 
   @Override
-  public void updateSlaveCallbackInfo(CallbackInfo callbackInfo) {
-
-  }
-
-  @Override
-  public Map getUpdateInfo() {
+  public Map<String, Object> updateSlaveCallbackInfo(CallbackInfo callbackInfo) {
     return null;
   }
 

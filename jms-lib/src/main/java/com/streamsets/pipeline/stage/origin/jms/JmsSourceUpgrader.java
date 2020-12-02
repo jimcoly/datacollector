@@ -56,7 +56,22 @@ public class JmsSourceUpgrader implements StageUpgrader {
       // fall through
       case 5:
         upgradeV5ToV6(configs, context);
-        break;
+        if (context.getToVersion() == 6) {
+          break;
+        }
+        // fall through
+      case 6:
+        upgradeV6ToV7(configs);
+        if (context.getToVersion() == 7) {
+          break;
+        }
+        // fall through
+      case 7:
+        upgradeV7toV8(configs, context);
+        if (context.getToVersion() == 8) {
+          break;
+        }
+        // fall through
       default:
         throw new IllegalStateException(Utils.format("Unexpected fromVersion {}", context.getFromVersion()));
     }
@@ -69,6 +84,7 @@ public class JmsSourceUpgrader implements StageUpgrader {
 
   private static void upgradeV1ToV2(List<Config> configs) {
     configs.add(new Config("dataFormatConfig.compression", "NONE"));
+    configs.add(new Config("dataFormatConfig.useCustomDelimiter", false));
     configs.add(new Config("dataFormatConfig.filePatternInArchive", "*"));
   }
   private static void upgradeV2ToV3(List<Config> configs) {
@@ -92,10 +108,65 @@ public class JmsSourceUpgrader implements StageUpgrader {
     // Remove those configs
     configs.removeAll(dataFormatConfigs);
 
-    // Compression was originally hidden and hence we have to re-add it
-    dataFormatConfigs.add(new Config("dataFormatConfig.compression", "NONE"));
+    // There is an interesting history with compression - at some point (version 2), we explicitly added it, then
+    // we have hidden it. So this config might or might not exists, depending on the version in which the pipeline
+    // was created. However the service is expecting it and thus we need to ensure that it's there.
+    if(dataFormatConfigs.stream().noneMatch(c -> "dataFormatConfig.compression".equals(c.getName()))) {
+      dataFormatConfigs.add(new Config("dataFormatConfig.compression", "NONE"));
+    }
 
     // And finally register new service
     context.registerService(DataFormatParserService.class, dataFormatConfigs);
+  }
+
+  private static void upgradeV6ToV7(List<Config> configs) {
+    configs.add(new Config("jmsConfig.useClientID", false));
+    configs.add(new Config("jmsConfig.clientID", null));
+    configs.add(new Config("jmsConfig.durableSubscription", false));
+    configs.add(new Config("jmsConfig.durableSubscriptionName", null));
+  }
+
+  /**
+   * Adding connection catalog.
+   */
+  private void upgradeV7toV8(List<Config> configs, Context context) {
+    List<Config> configsToRemove = new ArrayList<>();
+    List<Config> configsToAdd = new ArrayList<>();
+
+    for (Config config : configs) {
+      switch (config.getName()) {
+        case "jmsConfig.initialContextFactory":
+          configsToRemove.add(config);
+          configsToAdd.add(new Config("jmsConfig.connection.initialContextFactory", config.getValue()));
+          break;
+        case "jmsConfig.connectionFactory":
+          configsToRemove.add(config);
+          configsToAdd.add(new Config("jmsConfig.connection.connectionFactory", config.getValue()));
+          break;
+        case "jmsConfig.providerURL":
+          configsToRemove.add(config);
+          configsToAdd.add(new Config("jmsConfig.connection.providerURL", config.getValue()));
+          break;
+        case "credentialsConfig.useCredentials":
+          configsToRemove.add(config);
+          configsToAdd.add(new Config("jmsConfig.connection.useCredentials", config.getValue()));
+          break;
+        case "credentialsConfig.username":
+          configsToRemove.add(config);
+          configsToAdd.add(new Config("jmsConfig.connection.username", config.getValue()));
+          break;
+        case "credentialsConfig.password":
+          configsToRemove.add(config);
+          configsToAdd.add(new Config("jmsConfig.connection.password", config.getValue()));
+          break;
+        default:
+          break;
+      }
+    }
+
+    configs.add(new Config("jmsConfig.connection.additionalSecurityProps", null));
+
+    configs.removeAll(configsToRemove);
+    configs.addAll(configsToAdd);
   }
 }

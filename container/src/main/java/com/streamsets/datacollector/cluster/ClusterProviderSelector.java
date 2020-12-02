@@ -17,26 +17,23 @@ package com.streamsets.datacollector.cluster;
 
 import com.streamsets.datacollector.config.PipelineConfiguration;
 import com.streamsets.datacollector.config.RuleDefinitions;
-import com.streamsets.datacollector.config.StageConfiguration;
-import com.streamsets.datacollector.config.StageDefinition;
-import com.streamsets.datacollector.creation.PipelineBean;
 import com.streamsets.datacollector.creation.PipelineBeanCreator;
 import com.streamsets.datacollector.creation.PipelineConfigBean;
-import com.streamsets.datacollector.creation.StageLibraryDelegateCreator;
 import com.streamsets.datacollector.credential.CredentialStoresTask;
 import com.streamsets.datacollector.main.RuntimeInfo;
+import com.streamsets.datacollector.runner.InterceptorCreatorContextBuilder;
 import com.streamsets.datacollector.security.SecurityConfiguration;
 import com.streamsets.datacollector.stagelibrary.StageLibraryTask;
 import com.streamsets.datacollector.util.Configuration;
 import com.streamsets.lib.security.acl.dto.Acl;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.StageException;
-import com.streamsets.pipeline.api.delegate.exported.ClusterJob;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
@@ -108,9 +105,13 @@ public class ClusterProviderSelector implements ClusterProvider {
       File bootstrapDir,
       URLClassLoader apiCL,
       URLClassLoader containerCL,
+      URLClassLoader asterClientCL,
       long timeToWaitForFailure,
       RuleDefinitions ruleDefinitions,
-      Acl acl
+      Acl acl,
+      InterceptorCreatorContextBuilder interceptorCreatorContextBuilder,
+      List<String> blobStoreResources,
+      String user
   ) throws TimeoutException, IOException, StageException {
     return getProvider(pipelineConfiguration).startPipeline(
         tempDir, sourceInfo,
@@ -122,9 +123,13 @@ public class ClusterProviderSelector implements ClusterProvider {
         bootstrapDir,
         apiCL,
         containerCL,
+        asterClientCL,
         timeToWaitForFailure,
         ruleDefinitions,
-        acl
+        acl,
+        interceptorCreatorContextBuilder,
+        blobStoreResources,
+        user
     );
   }
 

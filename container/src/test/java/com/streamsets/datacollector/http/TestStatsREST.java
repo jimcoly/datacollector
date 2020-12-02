@@ -15,6 +15,7 @@
  */
 package com.streamsets.datacollector.http;
 
+import com.streamsets.datacollector.execution.dagger.AsterModuleForTest;
 import com.streamsets.datacollector.json.ObjectMapperFactory;
 import com.streamsets.datacollector.main.MainStandalonePipelineManagerModule;
 import com.streamsets.datacollector.main.RuntimeInfo;
@@ -35,7 +36,6 @@ import java.io.FileWriter;
 import java.io.Writer;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 
@@ -83,7 +83,7 @@ public class TestStatsREST {
           RuntimeInfo.CONFIG_DIR), "sdc.properties"));
       conf.save(writer);
       writer.close();
-      ObjectGraph dagger = ObjectGraph.create(MainStandalonePipelineManagerModule.class);
+      ObjectGraph dagger = ObjectGraph.create(MainStandalonePipelineManagerModule.createForTest(AsterModuleForTest.class));
       server = dagger.get(TaskWrapper.class);
 
       server.init();

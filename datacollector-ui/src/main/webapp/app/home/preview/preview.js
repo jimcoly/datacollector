@@ -18,7 +18,8 @@
 angular
   .module('dataCollectorApp.home')
   .controller('PreviewController', function (
-    $scope, $rootScope, $q, _, api, previewService, pipelineConstant, $timeout, $modal
+    $scope, $rootScope, $q, _, api, previewService, pipelineConstant,
+    $timeout, $modal, tracking, pipelineTracking, trackingEvent
   ) {
     var previewDataBackup, previewStatusTimer, currentPreviewerId, currentStage;
 
@@ -309,6 +310,7 @@ angular
             errorObj: function () {
               return {
                 RemoteException: {
+                  antennaDoctorMessages: errorMessage.antennaDoctorMessages,
                   localizedMessage: errorMessage.localized,
                   stackTrace: errorMessage.errorStackTrace
                 }
@@ -337,8 +339,8 @@ angular
         return;
       }
 
-      var stageInstances = $scope.stageInstances,
-        batchData = $scope.previewData.batchesOutput[0];
+      var stageInstances = $scope.stageInstances;
+      var batchData = $scope.previewData.batchesOutput[0];
 
       $scope.stagePreviewData = previewService.getPreviewDataForStage(batchData, stageInstance);
 
@@ -383,7 +385,6 @@ angular
       }
     };
 
-
     /**
      * Preview Pipeline.
      */
@@ -393,6 +394,8 @@ angular
       var deferList = [];
       var testOrigin = false;
       var firstStageInstance = $scope.stageInstances[0];
+
+      var trackingData = pipelineTracking.getTrackingInfo($scope.pipelineConfig);
 
       $scope.stepExecuted = false;
       $scope.showLoading = true;
@@ -412,7 +415,8 @@ angular
 
                   stageOutputs = [{
                     instanceName: $scope.stageInstances[0].instanceName,
-                    output: {}
+                    output: {},
+                    eventRecords: []
                   }];
 
                   stageOutputs[0].output[$scope.stageInstances[0].outputLanes[0]] =
@@ -480,18 +484,28 @@ angular
               previewService.getPreviewStageErrorCounts($scope.previewData.batchesOutput[0]));
             $rootScope.$broadcast('clearDirtyLaneConnector');
             $scope.showLoading = false;
+
+            trackingData['Preview Successful'] = true;
+            trackingData['Preview Error'] = [];
+            tracking.mixpanel.track(trackingEvent.PREVIEW_COMPLETE, trackingData);
           });
 
         }).catch(function(res) {
           $rootScope.common.errors = [res.data];
           $scope.closePreview();
           $scope.showLoading = false;
+          trackingData['Preview Successful'] = false;
+          trackingData['Preview Error'] = [JSON.stringify(res.data)];
+          tracking.mixpanel.track(trackingEvent.PREVIEW_COMPLETE, trackingData);
         });
 
       }, function(data) {
         $rootScope.common.errors = [data];
         $scope.closePreview();
         $scope.showLoading = false;
+        trackingData['Preview Successful'] = false;
+        trackingData['Preview Error'] = [JSON.stringify(data)];
+        tracking.mixpanel.track(trackingEvent.PREVIEW_COMPLETE, trackingData);
       });
 
 
@@ -607,11 +621,25 @@ angular
       api.pipelineAgent.getPreviewData(pipelineId, previewerId, $scope.edgeHttpUrl)
         .then(function(res) {
           var previewData = res.data;
+          var trackingData = pipelineTracking.getTrackingInfo($scope.pipelineConfig);
           if (previewData.status !== 'FINISHED') {
             if (previewData.issues) {
               $rootScope.common.errors = [previewData.issues];
+              trackingData['Preview Successful'] = false;
+              var issueList = pipelineTracking.getFlatIssueList(previewData.issues);
+              trackingData['Preview Error'] = issueList;
+              tracking.mixpanel.track(trackingEvent.PREVIEW_COMPLETE, trackingData);
             } else if (previewData.message) {
-              $rootScope.common.errors = [previewData.message];
+              $rootScope.common.errors = [{
+                RemoteException: {
+                  antennaDoctorMessages: previewData.antennaDoctorMessages,
+                  localizedMessage: previewData.message,
+                  stackTrace: previewData.errorStackTrace
+                }
+              }];
+              trackingData['Preview Successful'] = false;
+              trackingData['Preview Error'] = [previewData.message];
+              tracking.mixpanel.track(trackingEvent.PREVIEW_COMPLETE, trackingData);
             }
 
             $scope.closePreview();

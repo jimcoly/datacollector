@@ -19,6 +19,7 @@ import com.streamsets.pipeline.api.ConfigDef;
 import com.streamsets.pipeline.api.ConfigDefBean;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.ValueChooserModel;
+import com.streamsets.pipeline.api.credential.CredentialValue;
 import com.streamsets.pipeline.lib.http.logging.RequestLoggingConfigBean;
 import com.streamsets.pipeline.lib.http.oauth2.OAuth2ConfigBean;
 import com.streamsets.pipeline.lib.tls.TlsConfigBean;
@@ -43,6 +44,7 @@ public class JerseyClientConfigBean {
       label = "Request Transfer Encoding",
       defaultValue = "BUFFERED",
       displayPosition = 100,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0"
   )
   @ValueChooserModel(RequestEntityProcessingChooserValues.class)
@@ -55,6 +57,7 @@ public class JerseyClientConfigBean {
       label = "HTTP Compression",
       defaultValue = "NONE",
       displayPosition = 110,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0"
   )
   @ValueChooserModel(HttpCompressionChooserValues.class)
@@ -64,23 +67,27 @@ public class JerseyClientConfigBean {
       required = true,
       type = ConfigDef.Type.NUMBER,
       label = "Connect Timeout",
-      defaultValue = "0",
-      description = "HTTP connection timeout in milliseconds. 0 means no timeout.",
+      min = 1,
+      defaultValue = "250000",
+      description = "HTTP connection timeout in milliseconds. Must be greater than 0.",
       displayPosition = 120,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "HTTP"
   )
-  public int connectTimeoutMillis = 0;
+  public int connectTimeoutMillis = 250000;
 
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.NUMBER,
       label = "Read Timeout",
-      defaultValue = "0",
-      description = "HTTP read timeout in milliseconds. 0 means no timeout.",
+      min = 1,
+      defaultValue = "30000",
+      description = "HTTP read timeout in milliseconds. Must be greater than 0.",
       displayPosition = 130,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "HTTP"
   )
-  public int readTimeoutMillis = 0;
+  public int readTimeoutMillis = 30000;
 
   @ConfigDef(
       required = true,
@@ -99,10 +106,53 @@ public class JerseyClientConfigBean {
       label = "Authentication Type",
       defaultValue = "NONE",
       displayPosition = 150,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HTTP"
   )
   @ValueChooserModel(AuthenticationTypeChooserValues.class)
   public AuthenticationType authType = AuthenticationType.NONE;
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.STRING,
+      label = "Principal",
+      defaultValue = "",
+      description = "Principal to be used to authenticate using Kerberos/SPNEGO",
+      displayPosition = 151,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "HTTP",
+      dependsOn = "authType",
+      triggeredByValue = {"KERBEROS_SPNEGO"}
+  )
+  public String spnegoPrincipal = "";
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.CREDENTIAL,
+      label = "Principal Password",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      defaultValue = "",
+      description = "Principal to be used to authenticate using Kerberos/SPNEGO",
+      displayPosition = 151,
+      group = "HTTP",
+      dependsOn = "authType",
+      triggeredByValue = {"KERBEROS_SPNEGO"}
+  )
+  public CredentialValue spnegoPrincipalPassword = () -> "";
+
+  @ConfigDef(
+      required = true,
+      type = ConfigDef.Type.STRING,
+      label = "Keytab File",
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      defaultValue = "",
+      description = "Keytab file path where to find the principal.",
+      displayPosition = 152,
+      group = "HTTP",
+      dependsOn = "authType",
+      triggeredByValue = {"KERBEROS_SPNEGO"}
+  )
+  public String spnegoKeytabFile = "";
 
   @ConfigDef(
       required = true,
@@ -111,6 +161,7 @@ public class JerseyClientConfigBean {
       description = "Use OAuth 2 to get access tokens",
       defaultValue = "false",
       displayPosition = 155,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "HTTP",
       dependsOn = "authType",
       triggeredByValue = {"NONE", "BASIC", "DIGEST", "UNIVERSAL"}
@@ -132,7 +183,8 @@ public class JerseyClientConfigBean {
       label = "Use Proxy",
       defaultValue = "false",
       displayPosition = 160,
-      group = "HTTP"
+      group = "HTTP",
+      displayMode = ConfigDef.DisplayMode.ADVANCED
   )
   public boolean useProxy = false;
 

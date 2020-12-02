@@ -28,13 +28,13 @@ angular
           }
         },
         data: {
-          authorizedRoles: ['admin', 'creator', 'manager', 'guest']
+          authorizedRoles: ['admin', 'creator', 'manager', 'guest', 'admin-activation']
         }
       });
   }])
   .controller('HomeController', function (
     $scope, $rootScope, $routeParams, $q, $modal, $location, pipelineService, api, configuration, pipelineConstant,
-    Analytics, $route, $translate
+    Analytics, $route, $translate, tracking, trackingEvent
   ) {
 
     // Handle importing pipeline from github URL
@@ -47,14 +47,16 @@ angular
 
     $location.search('auth_token', null);
     $location.search('auth_user', null);
-    $rootScope.common.successList = [];
-    $rootScope.common.infoList = [];
+    $rootScope.common.successList = $rootScope.common.successList || [];
+    $rootScope.common.infoList = $rootScope.common.infoList || [];
 
     if ($routeParams.errors) {
       $rootScope.common.errors = [$routeParams.errors];
     } else {
       $rootScope.common.errors = [];
     }
+
+    $rootScope.common.setToDefaultTitle();
 
     var pipelinesLimit = 30;
 
@@ -124,6 +126,10 @@ angular
           function (res) {
             var pipelineInfoList = res.data[0];
             var statusList = res.data[1];
+
+            if ($scope.selectedPipelineLabel === 'system:samplePipelines') {
+              pipelineService.processSamplePipelines(pipelineInfoList);
+            }
 
             $scope.filteredPipelines.push.apply($scope.filteredPipelines, pipelineInfoList);
 
@@ -374,15 +380,15 @@ angular
       /**
        * Export link command handler
        */
-      exportPipelineConfig: function(pipelineInfo, includeDefinitions, $event) {
+      exportPipelineConfig: function(pipelineInfo, includeDefinitions, includePlainTextCredentials, $event) {
         $event.stopPropagation();
-        api.pipelineAgent.exportPipelineConfig(pipelineInfo.pipelineId, includeDefinitions);
+        api.pipelineAgent.exportPipelineConfig(pipelineInfo.pipelineId, includeDefinitions, includePlainTextCredentials);
       },
 
       /**
        * Export link command handler
        */
-      exportSelectedPipelines: function(includeDefinitions) {
+      exportSelectedPipelines: function(includeDefinitions, includePlainTextCredentials) {
         var selectedPipelineList = $scope.selectedPipelineList;
         if (includeDefinitions) {
           // Export for Control Hub supports only for valid pipelines
@@ -399,7 +405,7 @@ angular
           }
           $rootScope.common.errors = [];
         }
-        api.pipelineAgent.exportSelectedPipelines(selectedPipelineList, includeDefinitions);
+        api.pipelineAgent.exportSelectedPipelines(selectedPipelineList, includeDefinitions, includePlainTextCredentials);
       },
 
       publishPipelinesToEdge: function($event) {
@@ -463,7 +469,19 @@ angular
        * @param pipeline
        */
       openPipeline: function(pipeline) {
-        $location.path('/collector/pipeline/' + pipeline.pipelineId);
+        if ($scope.selectedPipelineLabel === 'system:samplePipelines') {
+          $location.path('/collector/pipeline/' + pipeline.pipelineId).search({'samplePipeline': 'true'});
+          tracking.mixpanel.track(trackingEvent.SAMPLE_PIPELINE_VIEW, {
+            'Sample Pipeline ID': pipeline.pipelineId,
+            'Sample Pipeline Title': pipeline.title
+          });
+        } else {
+          $location.path('/collector/pipeline/' + pipeline.pipelineId);
+          tracking.mixpanel.track(trackingEvent.PIPELINE_SETUP_VIEW, {
+            'Pipeline ID': pipeline.pipelineId,
+            'Pipeline Status': $rootScope.common.pipelineStatusMap[pipeline.pipelineId].status
+          });
+        }
       },
 
       /**
@@ -560,6 +578,9 @@ angular
             },
             forceStop: function() {
               return forceStop;
+            },
+            pipelineConfig: function() {
+              return null;
             }
           }
         });
@@ -613,6 +634,9 @@ angular
             },
             forceStop: function() {
               return forceStop;
+            },
+            pipelineConfig: function() {
+              return null;
             }
           }
         });

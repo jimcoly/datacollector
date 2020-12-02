@@ -27,20 +27,25 @@ import com.streamsets.pipeline.api.base.configurablestage.DPushSource;
 import com.streamsets.pipeline.config.DataFormat;
 import com.streamsets.pipeline.config.FileRawSourcePreviewer;
 import com.streamsets.pipeline.lib.dirspooler.SpoolDirConfigBean;
+import com.streamsets.pipeline.lib.event.FinishedFileEvent;
+import com.streamsets.pipeline.lib.event.NewFileEvent;
+import com.streamsets.pipeline.lib.event.NoMoreDataEvent;
 
 import static com.streamsets.pipeline.config.OriginAvroSchemaSource.SOURCE;
 
 @StageDef(
-    version = 10,
+    version = 11,
     label = "Directory",
     description = "Reads files from a directory",
     icon="directory.png",
     execution = {ExecutionMode.STANDALONE, ExecutionMode.EDGE},
     recordsByRef = true,
     upgrader = SpoolDirSourceUpgrader.class,
+    upgraderDef = "upgrader/SpoolDirDSource.yaml",
     resetOffset = true,
     producesEvents = true,
-    onlineHelpRefUrl ="index.html?contextID=task_gfj_ssv_yq"
+    eventDefs = {NewFileEvent.class, FinishedFileEvent.class, NoMoreDataEvent.class},
+    onlineHelpRefUrl ="index.html?contextID=task_o5v_bp1_n3b"
 )
 @RawSource(rawSourcePreviewer = FileRawSourcePreviewer.class)
 @ConfigGroups(Groups.class)

@@ -20,17 +20,15 @@ import com.streamsets.pipeline.api.ConfigDef;
 import com.streamsets.pipeline.api.ConfigDefBean;
 import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.config.DataFormat;
-import com.streamsets.pipeline.stage.lib.aws.ProxyConfig;
-import com.streamsets.pipeline.stage.lib.kinesis.KinesisConfigBean;
+import com.streamsets.pipeline.stage.lib.kinesis.KinesisStreamConfigBean;
 import com.streamsets.pipeline.stage.origin.lib.DataParserFormatConfig;
+import java.util.HashMap;
+import java.util.Map;
 
-public class KinesisConsumerConfigBean extends KinesisConfigBean {
+public class KinesisConsumerConfigBean extends KinesisStreamConfigBean {
 
   @ConfigDefBean(groups = "KINESIS")
   public DataParserFormatConfig dataFormatConfig;
-
-  @ConfigDefBean(groups = "ADVANCED")
-  public ProxyConfig proxyConfig = new ProxyConfig();
 
   @ConfigDef(
       required = true,
@@ -38,6 +36,7 @@ public class KinesisConsumerConfigBean extends KinesisConfigBean {
       label = "Application Name",
       description = "Kinesis equivalent of a Kafka Consumer Group",
       displayPosition = 30,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   public String applicationName;
@@ -49,6 +48,7 @@ public class KinesisConsumerConfigBean extends KinesisConfigBean {
       defaultValue = "LATEST",
       description = "When using a new application name, whether to get only new messages, or read from the oldest.",
       displayPosition = 40,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   @ValueChooserModel(InitialPositionInStreamChooserValues.class)
@@ -64,6 +64,7 @@ public class KinesisConsumerConfigBean extends KinesisConfigBean {
       dependsOn = "initialPositionInStream",
       triggeredByValue = "AT_TIMESTAMP",
       displayPosition = 45,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "#0"
   )
   public long initialTimestamp;
@@ -75,6 +76,7 @@ public class KinesisConsumerConfigBean extends KinesisConfigBean {
       label = "Data Format",
       description = "Data format to use when receiving records from Kinesis",
       displayPosition = 1,
+      displayMode = ConfigDef.DisplayMode.BASIC,
       group = "DATA_FORMAT"
   )
   @ValueChooserModel(DataFormatChooserValues.class)
@@ -87,6 +89,7 @@ public class KinesisConsumerConfigBean extends KinesisConfigBean {
       label = "Max Batch Size (messages)",
       description = "Max number of records per batch. Kinesis will not return more than 2MB/s/shard.",
       displayPosition = 60,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0",
       min = 1,
       max = Integer.MAX_VALUE
@@ -100,6 +103,7 @@ public class KinesisConsumerConfigBean extends KinesisConfigBean {
       label = "Read Interval (ms)",
       description = "Time KCL should wait between requests per shard. Cannot be set below 200ms. >250ms recommended.",
       displayPosition = 70,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0",
       min = 200,
       max = Integer.MAX_VALUE
@@ -113,11 +117,52 @@ public class KinesisConsumerConfigBean extends KinesisConfigBean {
       label = "Max Threads",
       description = "Maximum number of record processing threads to spawn",
       displayPosition = 80,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = "#0",
       min = 1,
       max = Integer.MAX_VALUE
   )
   public int maxRecordProcessors;
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.MAP,
+      defaultValue = "",
+      label = "Kinesis Configuration",
+      description = "Additional Kinesis properties to pass to Kinesis",
+      displayPosition = 90,
+      displayMode = ConfigDef.DisplayMode.BASIC,
+      group = "#0"
+  )
+  public Map<String, String> kinesisConsumerConfigs = new HashMap<>();
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.NUMBER,
+      defaultValue = "0",
+      label = "Throttle Wait Time",
+      description = "Milliseconds to wait after Kinesis throttles the read before attempting to checkpoint again",
+      displayPosition = 5050,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "ADVANCED",
+      min = 0,
+      max = Integer.MAX_VALUE
+  )
+  public int throttleWaitTime;
+
+  @ConfigDef(
+      required = false,
+      type = ConfigDef.Type.NUMBER,
+      defaultValue = "0",
+      label = "Throttle Max Retries",
+      description = "Maximum number of times to retry checkpointing after Kinesis throttles the read",
+      displayPosition = 5060,
+      displayMode = ConfigDef.DisplayMode.ADVANCED,
+      group = "ADVANCED",
+      min = 0,
+      max = Integer.MAX_VALUE
+  )
+  public int throttleMaxRetries;
 
   @ConfigDefBean(groups = "LEASE_TABLE")
   public LeaseTableConfig leaseTable = new LeaseTableConfig();

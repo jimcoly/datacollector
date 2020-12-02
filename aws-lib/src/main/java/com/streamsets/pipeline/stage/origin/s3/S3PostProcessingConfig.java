@@ -16,9 +16,9 @@
 package com.streamsets.pipeline.stage.origin.s3;
 
 import com.streamsets.pipeline.api.ConfigDef;
+import com.streamsets.pipeline.api.InterfaceAudience;
+import com.streamsets.pipeline.api.InterfaceStability;
 import com.streamsets.pipeline.api.ValueChooserModel;
-import com.streamsets.pipeline.common.InterfaceAudience;
-import com.streamsets.pipeline.common.InterfaceStability;
 import com.streamsets.pipeline.config.PostProcessingOptions;
 
 @InterfaceAudience.LimitedPrivate
@@ -32,6 +32,7 @@ public class S3PostProcessingConfig {
     label = "Post Processing Option",
     description = "Action to take after processing an object",
     displayPosition = 10,
+    displayMode = ConfigDef.DisplayMode.ADVANCED,
     group = "#0"
   )
   @ValueChooserModel(S3PostProcessingChooserValues.class)
@@ -44,6 +45,7 @@ public class S3PostProcessingConfig {
     label = "Archiving Option",
     displayPosition = 20,
     group = "#0",
+    displayMode = ConfigDef.DisplayMode.ADVANCED,
     dependsOn = "postProcessing",
     triggeredByValue = { "ARCHIVE" }
   )
@@ -57,6 +59,7 @@ public class S3PostProcessingConfig {
     description = "Objects will be moved/copied into this prefix",
     displayPosition = 30,
     group = "#0",
+    displayMode = ConfigDef.DisplayMode.ADVANCED,
     dependsOn = "postProcessing",
     triggeredByValue = { "ARCHIVE" }
   )
@@ -69,6 +72,7 @@ public class S3PostProcessingConfig {
     description = "Objects will be moved/copied into this bucket",
     displayPosition = 40,
     group = "#0",
+    displayMode = ConfigDef.DisplayMode.ADVANCED,
     dependsOn = "archivingOption",
     triggeredByValue = { "MOVE_TO_BUCKET", "COPY_TO_BUCKET" }
   )

@@ -491,6 +491,11 @@ public abstract class WebServerTask extends AbstractTask implements Registration
     if (!realmFile.isFile()) {
       throw new RuntimeException(Utils.format("Realm file '{}' is not a file", realmFile));
     }
+    
+    if( System.getProperty("os.name").toLowerCase().contains("windows")) {
+    	return ;
+    }
+    
     try {
       Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(realmFile.toPath());
       permissions.removeAll(OWNER_PERMISSIONS);

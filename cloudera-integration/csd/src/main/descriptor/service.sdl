@@ -299,15 +299,15 @@
         "auxConfigGenerators": [
           {
             "filename": "sdc-security.policy",
-            "sourceFilename": "aux/sdc-security.policy"
+            "sourceFilename": "auxiliary/sdc-security.policy"
           },
           {
             "filename": "sdc-env.sh",
-            "sourceFilename": "aux/sdc-env.sh"
+            "sourceFilename": "auxiliary/sdc-env.sh"
           },
           {
             "filename": "support-bundle-redactor.json",
-            "sourceFilename": "aux/support-bundle-redactor.json"
+            "sourceFilename": "auxiliary/support-bundle-redactor.json"
           },
           {
             "filename": "ldap-login.conf"

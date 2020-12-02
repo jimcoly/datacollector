@@ -51,9 +51,7 @@ import com.streamsets.pipeline.lib.googlecloud.GoogleCloudConfig;
 import com.streamsets.pipeline.stage.common.emr.EMRClusterConnection;
 import com.streamsets.transformer.config.AmazonEMRConfig;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import cn.oge.kkm.container.creation.DisplayTypeChooserValues;
 
 // we are using the annotation for reference purposes only.
 // the annotation processor does not work on this maven project
@@ -331,7 +329,6 @@ public class PipelineConfigBean implements Stage {
   )
   public Map<String, Object> constants;
 
-
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.MODEL,
@@ -475,8 +472,8 @@ public class PipelineConfigBean implements Stage {
       type = ConfigDef.Type.NUMBER,
       defaultValue = "0",
       label = "Rate Limit (records / sec)",
-      description = "Maximum number of records per second that should be accepted into the pipeline. " +
-          "Rate is not limited if this is not set, or is set to 0",
+      description = "Maximum number of records per second that should be accepted into the pipeline. " + 
+        "Rate is not limited if this is not set, or is set to 0",
       displayPosition = 180,
       dependsOn = "executionMode",
       displayMode = ConfigDef.DisplayMode.ADVANCED,

@@ -15,6 +15,17 @@
  */
 package com.streamsets.datacollector.runner;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import javax.annotation.Nullable;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -26,16 +37,6 @@ import com.streamsets.pipeline.api.BatchMaker;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.StageType;
 import com.streamsets.pipeline.api.impl.Utils;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 public class BatchMakerImpl implements BatchMaker {
 
@@ -107,12 +108,14 @@ public class BatchMakerImpl implements BatchMaker {
     Preconditions.checkNotNull(record, "record cannot be null");
 
     RecordImpl recordCopy = getRecordForBatchMaker(record);
-    recordCopy.addStageToStagePath(instanceName);
-    recordCopy.createTrackingId();
+    // 占用了大量内存，暂禁用 yeahliu 1112
+    // recordCopy.addStageToStagePath(instanceName);
+    // recordCopy.createTrackingId();
 
     if (recordCopy.isInitialRecord()) {
-      RecordImpl recordSource = recordCopy.clone();
-      recordCopy.getHeader().setSourceRecord(recordSource);
+    	// 占用了大量内存，暂禁用 yeahliu 1112
+      //RecordImpl recordSource = recordCopy.clone();
+      //recordCopy.getHeader().setSourceRecord(recordSource);
       recordCopy.setInitialRecord(false);
     }
 

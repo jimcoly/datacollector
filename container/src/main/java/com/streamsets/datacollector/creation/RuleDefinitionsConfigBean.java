@@ -15,6 +15,9 @@
  */
 package com.streamsets.datacollector.creation;
 
+import java.util.Collections;
+import java.util.List;
+
 import com.streamsets.datacollector.config.PipelineRulesGroups;
 import com.streamsets.datacollector.config.RuleDefinitionsWebhookConfig;
 import com.streamsets.pipeline.api.ConfigDef;
@@ -23,9 +26,6 @@ import com.streamsets.pipeline.api.GenerateResourceBundle;
 import com.streamsets.pipeline.api.ListBeanModel;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageDef;
-
-import java.util.Collections;
-import java.util.List;
 
 // we are using the annotation for reference purposes only.
 // the annotation processor does not work on this maven project

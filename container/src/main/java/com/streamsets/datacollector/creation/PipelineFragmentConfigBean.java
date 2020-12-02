@@ -15,6 +15,9 @@
  */
 package com.streamsets.datacollector.creation;
 
+import java.util.List;
+import java.util.Map;
+
 import com.streamsets.datacollector.config.ExecutionModeChooserValues;
 import com.streamsets.datacollector.config.PipelineFragmentGroups;
 import com.streamsets.datacollector.config.PipelineTestStageChooserValues;
@@ -25,9 +28,6 @@ import com.streamsets.pipeline.api.GenerateResourceBundle;
 import com.streamsets.pipeline.api.Stage;
 import com.streamsets.pipeline.api.StageDef;
 import com.streamsets.pipeline.api.ValueChooserModel;
-
-import java.util.List;
-import java.util.Map;
 
 // we are using the annotation for reference purposes only.
 // the annotation processor does not work on this maven project
@@ -42,7 +42,9 @@ import java.util.Map;
 @ConfigGroups(PipelineFragmentGroups.class)
 public class PipelineFragmentConfigBean implements Stage {
 
-  public static final int VERSION = 2;
+
+
+public static final int VERSION = 2;
 
   @ConfigDef(
       required = true,
@@ -83,6 +85,8 @@ public class PipelineFragmentConfigBean implements Stage {
       group = "PARAMETERS"
   )
   public Map<String, Object> constants;
+  
+  
 
   @Override
   public List<ConfigIssue> init(Info info, Context context) {
@@ -92,5 +96,4 @@ public class PipelineFragmentConfigBean implements Stage {
   @Override
   public void destroy() {
   }
-
 }

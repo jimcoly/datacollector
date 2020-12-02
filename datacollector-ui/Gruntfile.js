@@ -37,7 +37,7 @@ module.exports = function(grunt) {
     /**
      * The `build_dir` folder is where our projects are compiled.
      */
-    build_dir: 'target/dist',
+    build_dir: '../dist/target/streamsets-datacollector-3.7.0-SNAPSHOT/streamsets-datacollector-3.7.0-SNAPSHOT/sdc-static-web',
     target_dir: 'target',
     base_dir: 'src/main/webapp/',
     common_base_dir: 'src/main/webapp/',

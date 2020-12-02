@@ -15,6 +15,56 @@
  */
 package com.streamsets.datacollector.restapi;
 
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.security.Principal;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
+
+import javax.annotation.security.DenyAll;
+import javax.annotation.security.PermitAll;
+import javax.annotation.security.RolesAllowed;
+import javax.inject.Inject;
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.SecurityContext;
+import javax.ws.rs.core.StreamingOutput;
+import javax.ws.rs.core.UriBuilder;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.io.IOUtils;
+import org.glassfish.jersey.media.multipart.FormDataParam;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Collections2;
@@ -80,6 +130,7 @@ import com.streamsets.lib.security.http.SSOPrincipal;
 import com.streamsets.pipeline.api.Config;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.impl.Utils;
+
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
@@ -355,7 +406,7 @@ public class PipelineStoreResource {
             case SYSTEM_SAMPLE_PIPELINES:
               return true;
             case SYSTEM_EDGE_PIPELINES:
-              PipelineState state = manager.getPipelineState(pipelineInfo.getPipelineId(), pipelineInfo.getLastRev());
+              state = manager.getPipelineState(pipelineInfo.getPipelineId(), pipelineInfo.getLastRev());
               pipelineStateCache.put(pipelineInfo.getPipelineId(), state);
               return state.getExecutionMode().equals(ExecutionMode.EDGE);
             case SYSTEM_MICROSERVICE_PIPELINES:

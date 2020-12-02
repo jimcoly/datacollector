@@ -16,12 +16,12 @@
 package com.streamsets.pipeline.stage.destination.devnull;
 
 import com.streamsets.pipeline.api.ExecutionMode;
-import com.streamsets.pipeline.api.HideStage;
-import com.streamsets.pipeline.api.StageBehaviorFlags;
-import com.streamsets.pipeline.api.StatsAggregatorStage;
 import com.streamsets.pipeline.api.GenerateResourceBundle;
 import com.streamsets.pipeline.api.HideConfigs;
+import com.streamsets.pipeline.api.HideStage;
+import com.streamsets.pipeline.api.StageBehaviorFlags;
 import com.streamsets.pipeline.api.StageDef;
+import com.streamsets.pipeline.api.StatsAggregatorStage;
 
 @StageDef(
     version = 1,

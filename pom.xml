@@ -168,7 +168,6 @@
     <module>aws-secrets-manager-credentialstore-protolib</module>
     <module>azure-keyvault-credentialstore-protolib</module>
     <module>lookup-protolib</module>
-
     <module>hdfs-protolib</module>
     <module>mapreduce-protolib</module>
     <module>maprfs-protolib</module>
@@ -211,8 +210,6 @@
 
     <module>elasticsearch-protolib</module>
 
-    <module>solr-protolib</module>
-
     <module>cassandra-protolib</module>
 
     <module>mongodb-protolib</module>
@@ -220,18 +217,9 @@
     <module>flume-protolib</module>
 
     <module>cluster-hdfs-protolib</module>
-    <module>sdc-hbase-0_98</module>
-    <module>sdc-hbase-2_0</module>
-    <module>sdc-hbase-api</module>
-    <module>hbase-protolib</module>
-    <module>kudu-protolib</module>
     <module>cluster-common</module>
-    <module>cluster-kafka-protolib</module>
     <module>cluster-bootstrap-api</module>
     <module>cluster-bootstrap</module>
-    <module>mapr-cluster-bootstrap</module>
-    <module>mapr-cluster-bootstrap_2_2</module>
-    <module>mesos-bootstrap</module>
     <module>client-api</module>
     <module>cli</module>
     <module>sdc-solr-api</module>
@@ -241,9 +229,6 @@
     <module>spark-executor-protolib</module>
     <module>spark-processor-protolib</module>
     <module>scripting-protolib</module>
-    <module>wholefile-converter-protolib</module>
-    <module>emr-protolib</module>
-    <module>databricks-ml-protolib</module>
 
     <!--
          Stage libraries that always built with the data collector (they dont have protolibs)
@@ -259,14 +244,9 @@
     <module>azure-lib</module>
     <module>azure-keyvault-credentialstore-lib</module>
     <module>basic-lib</module>
-    <module>bigtable-lib</module>
     <module>crypto-lib</module>
-    <module>cyberark-credentialstore-lib</module>
     <module>dev-lib</module>
     <module>dataformats-lib</module>
-    <module>google-cloud-lib</module>
-    <module>influxdb_0_9-lib</module>
-    <module>jks-credentialstore-lib</module>
     <module>jdbc-lib</module>
     <module>jdbc-protolib</module>
     <module>jms-lib</module>
@@ -280,9 +260,6 @@
     <module>salesforce-lib</module>
     <module>sap_hana-lib</module>
     <module>stats-lib</module>
-    <module>tensorflow-lib</module>
-    <module>vault-credentialstore-lib</module>
-    <module>wholefile-transformer-lib</module>
     <module>windows-lib</module>
     <module>pulsar-protolib</module>
     <module>thycotic-credentialstore-lib</module>
@@ -793,26 +770,6 @@
       </modules>
     </profile>
 
-    <profile>
-      <id>sign</id>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-gpg-plugin</artifactId>
-            <executions>
-              <execution>
-                <phase>verify</phase>
-                <goals>
-                  <goal>sign</goal>
-                </goals>
-              </execution>
-            </executions>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
-
     <!-- IMPORTANT: keep the following profiles at the end -->
 
     <!--
@@ -879,7 +836,6 @@
       </activation>
       <modules>
         <module>dist</module>
-        <module>cloudera-integration</module>
       </modules>
     </profile>
 

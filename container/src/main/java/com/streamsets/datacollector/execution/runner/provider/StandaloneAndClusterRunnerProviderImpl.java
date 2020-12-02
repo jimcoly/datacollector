@@ -15,6 +15,14 @@
  */
 package com.streamsets.datacollector.execution.runner.provider;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.inject.Inject;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.streamsets.datacollector.execution.Runner;
 import com.streamsets.datacollector.execution.manager.RunnerProvider;
 import com.streamsets.datacollector.execution.runner.cluster.dagger.ClusterRunnerInjectorModule;
@@ -25,13 +33,8 @@ import com.streamsets.datacollector.execution.runner.standalone.dagger.Standalon
 import com.streamsets.datacollector.execution.runner.standalone.dagger.StandaloneRunnerModule;
 import com.streamsets.pipeline.api.ExecutionMode;
 import com.streamsets.pipeline.api.impl.Utils;
-import dagger.ObjectGraph;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import javax.inject.Inject;
-import java.util.ArrayList;
-import java.util.List;
+import dagger.ObjectGraph;
 
 public class StandaloneAndClusterRunnerProviderImpl implements RunnerProvider {
 

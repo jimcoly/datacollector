@@ -16,6 +16,9 @@
 package com.streamsets.datacollector.creation;
 
 
+import java.util.List;
+import java.util.Set;
+
 import com.google.common.collect.ImmutableSet;
 import com.streamsets.datacollector.config.OnRecordErrorChooserValues;
 import com.streamsets.datacollector.el.RuntimeEL;
@@ -25,9 +28,6 @@ import com.streamsets.pipeline.api.GenerateResourceBundle;
 import com.streamsets.pipeline.api.OnRecordError;
 import com.streamsets.pipeline.api.ValueChooserModel;
 import com.streamsets.pipeline.lib.el.RecordEL;
-
-import java.util.List;
-import java.util.Set;
 
 // we are using the annotation for reference purposes only.
 // the annotation processor does not work on this maven project

@@ -34,7 +34,6 @@ import com.streamsets.pipeline.api.StatsAggregatorStage;
         ExecutionMode.CLUSTER_YARN_STREAMING,
         ExecutionMode.CLUSTER_MESOS_STREAMING,
         ExecutionMode.EDGE,
-        ExecutionMode.OGE_TEMPLATE,
         ExecutionMode.EMR_BATCH
 
     },

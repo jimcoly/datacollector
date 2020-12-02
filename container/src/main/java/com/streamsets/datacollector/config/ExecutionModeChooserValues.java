@@ -23,7 +23,6 @@ public class ExecutionModeChooserValues extends BaseEnumChooserValues<ExecutionM
   public ExecutionModeChooserValues() {
     super(
         ExecutionMode.STANDALONE,
-        ExecutionMode.OGE_TEMPLATE,
         ExecutionMode.CLUSTER_BATCH,
         ExecutionMode.CLUSTER_YARN_STREAMING,
         ExecutionMode.CLUSTER_MESOS_STREAMING,

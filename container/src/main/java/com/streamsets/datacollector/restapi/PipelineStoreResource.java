@@ -207,7 +207,6 @@ public class PipelineStoreResource {
 
   private static final String DPM_PIPELINE_ID = "dpm.pipeline.id";
 
-  private static final String OGE_TEMPLATE_PIPELINE = "OGE_TEMPLATE_PIPELINE";
   private static final String DATA_COLLECTOR_EDGE = "DATA_COLLECTOR_EDGE";
   private static final String STREAMING_MODE = "STREAMING";
   private static final String MICROSERVICE = "MICROSERVICE";
@@ -215,7 +214,6 @@ public class PipelineStoreResource {
   private static final String SYSTEM_ALL_PIPELINES = "system:allPipelines";
   private static final String SYSTEM_SAMPLE_PIPELINES = "system:samplePipelines";
   private static final String SYSTEM_EDGE_PIPELINES = "system:edgePipelines";
-  private static final String SYSTEM_OGE_TEMPLATE_PIPELINES = "system:ogeTemplatePipelines";
   private static final String SYSTEM_MICROSERVICE_PIPELINES = "system:microServicePipelines";
   private static final String SYSTEM_PUBLISHED_PIPELINES = "system:publishedPipelines";
   private static final String SYSTEM_DPM_CONTROLLED_PIPELINES = "system:dpmControlledPipelines";
@@ -246,7 +244,6 @@ public class PipelineStoreResource {
       SYSTEM_ALL_PIPELINES,
       SYSTEM_SAMPLE_PIPELINES,
       SYSTEM_PUBLISHED_PIPELINES,
-      SYSTEM_OGE_TEMPLATE_PIPELINES,
       SYSTEM_DPM_CONTROLLED_PIPELINES,
       SYSTEM_LOCAL_PIPELINES,
       SYSTEM_EDGE_PIPELINES,
@@ -408,10 +405,6 @@ public class PipelineStoreResource {
             case SYSTEM_ALL_PIPELINES:
             case SYSTEM_SAMPLE_PIPELINES:
               return true;
-            case SYSTEM_OGE_TEMPLATE_PIPELINES:
-            	PipelineState state = manager.getPipelineState(pipelineInfo.getPipelineId(), pipelineInfo.getLastRev());
-                pipelineStateCache.put(pipelineInfo.getPipelineId(), state);
-                return state.getExecutionMode().equals(ExecutionMode.OGE_TEMPLATE);
             case SYSTEM_EDGE_PIPELINES:
               state = manager.getPipelineState(pipelineInfo.getPipelineId(), pipelineInfo.getLastRev());
               pipelineStateCache.put(pipelineInfo.getPipelineId(), state);
@@ -829,22 +822,7 @@ public class PipelineStoreResource {
         new HashMap<>()
     );
 
-    if( pipelineType.equals(OGE_TEMPLATE_PIPELINE)) {
-    	List<Config> newConfigs = createWithNewConfig(
-    	          pipelineConfig.getConfiguration(),
-    	          new Config("executionMode", ExecutionMode.OGE_TEMPLATE.name())
-    	      );
-    	      pipelineConfig.setConfiguration(newConfigs);
-    	      if (!draft) {
-    	        pipelineConfig = store.save(
-    	            user,
-    	            pipelineConfig.getPipelineId(),
-    	            pipelineConfig.getInfo().getLastRev(),
-    	            pipelineConfig.getDescription(),
-    	            pipelineConfig
-    	        );
-    	      }
-    }else if (pipelineType.equals(DATA_COLLECTOR_EDGE)) {
+    if (pipelineType.equals(DATA_COLLECTOR_EDGE)) {
       List<Config> newConfigs = createWithNewConfig(
           pipelineConfig.getConfiguration(),
           ImmutableMap.of("executionMode", new Config("executionMode", ExecutionMode.EDGE.name()))

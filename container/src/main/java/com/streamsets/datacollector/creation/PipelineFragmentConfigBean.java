@@ -49,7 +49,7 @@ public static final int VERSION = 2;
   @ConfigDef(
       required = true,
       type = ConfigDef.Type.MODEL,
-      label = "运行模式",
+      label = "Execution Mode",
       defaultValue= "STANDALONE",
       displayPosition = 10
   )
@@ -59,8 +59,8 @@ public static final int VERSION = 2;
   @ConfigDef(
       required = false,
       type = ConfigDef.Type.MODEL,
-      label = "测试算子",
-      description = "用于在预览模式中提供测试数据.",
+      label = "Test Origin",
+      description = "Stage used for testing in preview mode.",
       defaultValue = PipelineConfigBean.RAW_DATA_ORIGIN,
       displayPosition = 21,
       dependsOn = "executionMode",
@@ -80,7 +80,7 @@ public static final int VERSION = 2;
       required = false,
       defaultValue = "{}",
       type = ConfigDef.Type.MAP,
-      label = "参数",
+      label = "Parameters",
       displayPosition = 80,
       group = "PARAMETERS"
   )

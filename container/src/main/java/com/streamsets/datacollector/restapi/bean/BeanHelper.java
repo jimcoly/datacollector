@@ -1297,8 +1297,6 @@ public class BeanHelper {
         return ExecutionModeJson.SLAVE;
       case EDGE:
         return ExecutionModeJson.EDGE;
-      case OGE_TEMPLATE:
-    	  return ExecutionModeJson.OGE_TEMPLATE;
       case EMR_BATCH:
         return ExecutionModeJson.EMR_BATCH;
       case BATCH:
@@ -1330,8 +1328,6 @@ public class BeanHelper {
         return ExecutionMode.SLAVE;
       case EDGE:
         return ExecutionMode.EDGE;
-      case OGE_TEMPLATE:
-    	  return ExecutionMode.OGE_TEMPLATE;
       case EMR_BATCH:
         return ExecutionMode.EMR_BATCH;
       case BATCH:

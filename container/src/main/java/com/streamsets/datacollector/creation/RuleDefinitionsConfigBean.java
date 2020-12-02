@@ -33,7 +33,7 @@ import com.streamsets.pipeline.api.StageDef;
 @GenerateResourceBundle
 @StageDef(
     version = RuleDefinitionsConfigBean.VERSION,
-    label = "实例规则",
+    label = "Pipeline Rules",
     upgrader = RuleDefinitionsConfigUpgrader.class,
     onlineHelpRefUrl = "not applicable"
 )

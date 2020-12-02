@@ -58,7 +58,6 @@ public class StandaloneAndClusterRunnerProviderImpl implements RunnerProvider {
         modules.add(new ClusterRunnerModule(name, rev, objectGraph));
         break;
       case STANDALONE:
-      case OGE_TEMPLATE:
         objectGraph = objectGraph.plus(StandaloneRunnerInjectorModule.class);
         modules.add(new StandaloneRunnerModule(name, rev, objectGraph));
         break;

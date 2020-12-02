@@ -40,8 +40,8 @@ public class StageConfigBean {
       required = true,
       type = ConfigDef.Type.MODEL,
       defaultValue= "TO_ERROR",
-      label = "当记录发生错误时",
-      description = "当记录发生错误时的操作",
+      label = "On Record Error",
+      description = "Action to take with records sent to error",
       displayPosition = 30,
       displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = ""
@@ -54,8 +54,8 @@ public class StageConfigBean {
       required = false,
       type = ConfigDef.Type.MODEL,
       defaultValue="",
-      label = "必需的字段",
-      description = "记录中如果未包含这些字段，将会被当作错误记录",
+      label = "Required Fields",
+      description = "Records without any of these fields are sent to error",
       displayPosition = 10,
       displayMode = ConfigDef.DisplayMode.ADVANCED,
       group = ""
